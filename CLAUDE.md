@@ -1,0 +1,77 @@
+# Iran Watcher
+
+X (Twitter) Filtered Stream monitor for Iran-related news. Stores tweets in SQLite, queues through Redis, categorizes via local ONNX models. Pure Go — no Python.
+
+## Architecture
+
+Single binary, worker pool pattern. Stream listener → Redis queue → worker pool (ONNX inference) → SQLite. REST API + CLI for management.
+
+See [design spec](docs/superpowers/specs/2026-03-18-iran-watcher-design.md) for full architecture details.
+
+## Project Structure
+
+```
+cmd/iran-watcher/       → binary entrypoint
+internal/config/        → YAML config + env var overrides
+internal/stream/        → X Filtered Stream client (SSE)
+internal/store/         → SQLite repository layer
+internal/queue/         → Redis list-based producer/consumer
+internal/inference/     → ONNX runtime wrapper, Pipeline interface
+internal/api/           → REST API (net/http or chi)
+internal/worker/        → Worker pool goroutines
+internal/model/         → Domain types (Tweet, Source, etc.)
+cli/                    → Cobra CLI (thin client over REST API)
+migrations/             → Embedded SQL migration files
+models/                 → ONNX model files (gitignored)
+configs/                → Default config files
+```
+
+## Tech Stack
+
+- **Go 1.25.5** — no Python anywhere
+- **SQLite** (via `modernc.org/sqlite` or `mattn/go-sqlite3`) — WAL mode, embedded migrations
+- **Redis** — lists only (`LPUSH`/`BRPOP`), no Streams or Pub/Sub
+- **onnxruntime-go** — local ONNX model execution
+- **daulet/tokenizers** — HuggingFace tokenizer bindings (CGO + Rust)
+- **HuggingFace `hf` CLI** — model downloads (external dependency, not reimplemented)
+- **cobra** — CLI framework
+
+## Build Requirements
+
+- Go 1.25.5+
+- CGO enabled (required by `daulet/tokenizers`)
+- Rust toolchain (required by `daulet/tokenizers`)
+- ONNX Runtime shared library installed on system
+
+## Commands
+
+```bash
+go build ./cmd/iran-watcher         # build
+go test ./...                        # unit tests
+go test -tags integration ./...      # unit + integration tests
+```
+
+## Code Conventions
+
+- All packages under `internal/` — nothing exported outside the module
+- Repository pattern for SQLite access (`internal/store`)
+- `Pipeline` interface for all ONNX model integrations (`internal/inference`)
+- Structured logging via `slog` — include component name and relevant IDs
+- `context.Context` threaded through all components for graceful shutdown
+- Config: YAML file with `IRAN_WATCHER_` env var overrides
+- Errors: wrap with `fmt.Errorf("component: %w", err)` for context
+
+## Key Design Decisions
+
+- **At-most-once delivery** for the Redis queue — acceptable because tweets are persisted to SQLite before queueing
+- **tweet_sources junction table** — tweets can match multiple stream rules
+- **Dead-letter queue** (`iran-watcher:failed`) — annotates which models failed; partial successes still written
+- **Model hot-reload** — activate/deactivate via API without restart
+- **API is localhost-only** by default, no auth
+- **Reprocess endpoint** queries SQLite for missing categorizations, not the dead-letter queue
+
+## Testing
+
+- Unit tests: mock interfaces, in-memory SQLite (`:memory:`)
+- Integration tests: `testcontainers-go` for Redis, gated behind `//go:build integration`
+- ONNX tests: small test model in `testdata/`
