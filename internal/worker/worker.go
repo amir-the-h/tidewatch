@@ -8,6 +8,7 @@ import (
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -19,6 +20,7 @@ type worker struct {
 	store    store.Store
 	registry *inference.Registry
 	logger   *slog.Logger
+	emitter  notifier.EventEmitter
 }
 
 func (w *worker) run(ctx context.Context) {
@@ -68,6 +70,15 @@ func (w *worker) run(ctx context.Context) {
 					Error:     runErr.Error(),
 					Timestamp: time.Now(),
 				})
+				if w.emitter != nil {
+					w.emitter.Emit(notifier.NotificationEvent{
+						Type:      notifier.EventCategorizationFailed,
+						Tweet:     streamTweet.Tweet,
+						ModelName: pipeline.Name(),
+						Error:     runErr.Error(),
+						Timestamp: time.Now(),
+					})
+				}
 				continue
 			}
 
@@ -88,6 +99,16 @@ func (w *worker) run(ctx context.Context) {
 				failedModels = append(failedModels, queue.FailedModel{
 					Name:      pipeline.Name(),
 					Error:     saveErr.Error(),
+					Timestamp: time.Now(),
+				})
+			}
+			if w.emitter != nil {
+				w.emitter.Emit(notifier.NotificationEvent{
+					Type:      notifier.EventTweetCategorized,
+					Tweet:     streamTweet.Tweet,
+					RuleIDs:   nil,
+					ModelName: pipeline.Name(),
+					Results:   result,
 					Timestamp: time.Now(),
 				})
 			}

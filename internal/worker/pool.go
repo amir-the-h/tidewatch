@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -18,10 +19,11 @@ type Pool struct {
 	store    store.Store
 	registry *inference.Registry
 	logger   *slog.Logger
+	emitter  notifier.EventEmitter
 }
 
 // NewPool creates a new Pool with the given number of workers and dependencies.
-func NewPool(count int, consumer queue.Consumer, producer queue.Producer, s store.Store, reg *inference.Registry, logger *slog.Logger) *Pool {
+func NewPool(count int, consumer queue.Consumer, producer queue.Producer, s store.Store, reg *inference.Registry, emitter notifier.EventEmitter, logger *slog.Logger) *Pool {
 	return &Pool{
 		count:    count,
 		consumer: consumer,
@@ -29,6 +31,7 @@ func NewPool(count int, consumer queue.Consumer, producer queue.Producer, s stor
 		store:    s,
 		registry: reg,
 		logger:   logger,
+		emitter:  emitter,
 	}
 }
 
@@ -46,6 +49,7 @@ func (p *Pool) Start(ctx context.Context) error {
 			store:    p.store,
 			registry: p.registry,
 			logger:   p.logger,
+			emitter:  p.emitter,
 		}
 		go func() {
 			defer wg.Done()

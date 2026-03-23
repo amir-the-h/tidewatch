@@ -104,7 +104,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		workerCount = 1
 	}
 
-	pool := worker.NewPool(workerCount, q, q, s, reg, logger)
+	pool := worker.NewPool(workerCount, q, q, s, reg, nil, logger)
 	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, logger)
 
 	sigCh := make(chan os.Signal, 1)
