@@ -34,13 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. Validate bearer token.
-	if err := validateConfig(cfg); err != nil {
-		slog.Error("main: config validation failed", "error", err)
-		os.Exit(1)
-	}
-
-	// 4. Init logger.
+	// 3. Init logger (before validation so all startup errors use the configured format/level).
 	level := parseLogLevel(cfg.Log.Level)
 	opts := &slog.HandlerOptions{Level: level}
 	var handler slog.Handler
@@ -52,10 +46,16 @@ func main() {
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
 
+	// 4. Validate bearer token.
+	if err := validateConfig(cfg); err != nil {
+		logger.Error("main: config validation failed", "error", err)
+		os.Exit(1)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 5. Connect SQLite.
+	// 5. Connect SQLite (logger is ready from step 3).
 	s, err := store.NewSQLiteStore(cfg.SQLite.Path, migrations.FS)
 	if err != nil {
 		logger.Error("main: failed to open sqlite", "error", err)

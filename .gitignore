@@ -1,8 +1,8 @@
 # Worktrees
 .worktrees/
 
-# Binary output
-iran-watcher
+# Binary output (anchored to root to avoid matching cmd/iran-watcher/ directory)
+/iran-watcher
 
 # ONNX model files
 models/
