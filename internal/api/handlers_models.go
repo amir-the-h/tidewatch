@@ -114,12 +114,21 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 
 	// Reload registry with current active models.
 	if s.registry != nil {
-		models, _ := s.store.ListModels(r.Context())
+		models, listErr := s.store.ListModels(r.Context())
+		if listErr != nil {
+			s.logger.Error("api: set model active: list models", "model_id", id, "error", listErr)
+			writeError(w, http.StatusInternalServerError, "failed to list models for registry reload")
+			return
+		}
 		activeModels := filterActive(models)
-		_ = s.registry.Reload(r.Context(), activeModels, func(m *model.Model) (inference.Pipeline, error) {
+		if reloadErr := s.registry.Reload(r.Context(), activeModels, func(m *model.Model) (inference.Pipeline, error) {
 			p := inference.NewONNXPipeline(m.Name)
 			return p, p.Load(m.Path)
-		})
+		}); reloadErr != nil {
+			s.logger.Error("api: set model active: registry reload", "model_id", id, "error", reloadErr)
+			writeError(w, http.StatusInternalServerError, "failed to reload model registry")
+			return
+		}
 	}
 
 	m, err := s.store.GetModel(r.Context(), id)
@@ -166,7 +175,7 @@ func (s *Server) handleDownloadModel(w http.ResponseWriter, r *http.Request) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		s.logger.Error("api: hf download", "repo_id", req.RepoID, "output", string(out), "error", err)
-		writeError(w, http.StatusInternalServerError, "model download failed: "+string(out))
+		writeError(w, http.StatusInternalServerError, "model download failed")
 		return
 	}
 

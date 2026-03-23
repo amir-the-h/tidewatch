@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -421,6 +420,3 @@ func TestGetHealth(t *testing.T) {
 // Ensure mockStore and mockProducer satisfy their interfaces at compile time.
 var _ store.Store = (*mockStore)(nil)
 var _ queue.Producer = (*mockProducer)(nil)
-
-// Ensure bytes import is used (for potential future use)
-var _ = bytes.NewReader
