@@ -42,6 +42,7 @@ type Server struct {
 	logger   *slog.Logger
 	router   chi.Router
 	http     *http.Server
+	ctx      context.Context
 }
 
 // NewServer creates a new Server and registers all routes.
@@ -121,6 +122,7 @@ func NewServer(
 
 // Start begins listening. Blocks until ctx is cancelled or an error occurs.
 func (s *Server) Start(ctx context.Context) error {
+	s.ctx = ctx
 	errCh := make(chan error, 1)
 	go func() {
 		s.logger.Info("api: server starting", "addr", s.http.Addr)

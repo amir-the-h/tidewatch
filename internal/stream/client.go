@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -45,7 +46,11 @@ func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleM
 		store:       s,
 		producer:    p,
 		rules:       rules,
-		httpClient:  http.DefaultClient,
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				ResponseHeaderTimeout: 60 * time.Second,
+			},
+		},
 		logger:      logger,
 		streamURL:   defaultStreamURL,
 	}
@@ -178,7 +183,13 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return false, fmt.Errorf("stream: http %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		c.logger.Error("stream: unexpected status",
+			"component", "stream",
+			"status", resp.StatusCode,
+			"body", string(body),
+		)
+		return false, fmt.Errorf("stream: http %d: %s", resp.StatusCode, string(body))
 	}
 
 	c.logger.Info("stream: connected", "component", "stream")
@@ -195,16 +206,7 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 			continue
 		}
 
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" {
-			continue
-		}
-
-		if err := c.processEvent(ctx, []byte(payload)); err != nil {
+		if err := c.processEvent(ctx, []byte(line)); err != nil {
 			c.logger.Warn("stream: failed to process event",
 				"component", "stream",
 				"error", err,

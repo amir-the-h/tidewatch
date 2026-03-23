@@ -26,7 +26,7 @@ func (s *Server) handleStreamConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.stream.Connect(r.Context()); err != nil {
+	if err := s.stream.Connect(s.ctx); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
