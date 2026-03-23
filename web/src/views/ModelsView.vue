@@ -79,9 +79,9 @@ const columns: DataTableColumns<Model> = [
     <n-data-table :columns="columns" :data="store.models" :loading="store.loading" />
 
     <!-- Download modal -->
-    <n-modal v-model="showDownload" preset="dialog" title="Download from HuggingFace">
+    <n-modal v-model:show="showDownload" preset="dialog" title="Download from HuggingFace">
       <n-form-item label="Repo ID (org/model)">
-        <n-input v-model="repoID" placeholder="e.g. org/model-name-onnx" />
+        <n-input v-model:value="repoID" placeholder="e.g. org/model-name-onnx" />
       </n-form-item>
       <template #action>
         <n-button type="primary" :loading="downloading" @click="onDownload">Download</n-button>
@@ -89,13 +89,13 @@ const columns: DataTableColumns<Model> = [
     </n-modal>
 
     <!-- Manual register drawer -->
-    <n-drawer v-model="showManual" :width="400">
+    <n-drawer v-model:show="showManual" :width="400">
       <n-drawer-content title="Register Model" closable>
         <n-form label-placement="top">
-          <n-form-item label="Name"><n-input v-model="manualForm.name" /></n-form-item>
-          <n-form-item label="Version"><n-input v-model="manualForm.version" /></n-form-item>
-          <n-form-item label="Path"><n-input v-model="manualForm.path" placeholder="./models/org/model/model.onnx" /></n-form-item>
-          <n-form-item label="Type"><n-input v-model="manualForm.type" /></n-form-item>
+          <n-form-item label="Name"><n-input v-model:value="manualForm.name" /></n-form-item>
+          <n-form-item label="Version"><n-input v-model:value="manualForm.version" /></n-form-item>
+          <n-form-item label="Path"><n-input v-model:value="manualForm.path" placeholder="./models/org/model/model.onnx" /></n-form-item>
+          <n-form-item label="Type"><n-input v-model:value="manualForm.type" /></n-form-item>
         </n-form>
         <template #footer>
           <n-button type="primary" :loading="saving" @click="onCreateManual">Register</n-button>

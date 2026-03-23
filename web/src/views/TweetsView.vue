@@ -59,14 +59,14 @@ const columns: DataTableColumns<Tweet> = [
     <!-- Filters -->
     <n-space wrap>
       <n-select
-        v-model="filterRuleId"
+        v-model:value="filterRuleId"
         :options="rulesStore.rules.map(r => ({ label: r.name, value: r.id }))"
         placeholder="Filter by rule"
         clearable
         style="width: 200px"
       />
-      <n-date-picker v-model="filterFrom" type="datetime" placeholder="From" clearable />
-      <n-date-picker v-model="filterTo"   type="datetime" placeholder="To"   clearable />
+      <n-date-picker v-model:value="filterFrom" type="datetime" placeholder="From" clearable />
+      <n-date-picker v-model:value="filterTo"   type="datetime" placeholder="To"   clearable />
       <n-button @click="onFilter">Apply</n-button>
       <n-button secondary @click="store.fetchTweets()">Reset</n-button>
     </n-space>
@@ -79,7 +79,7 @@ const columns: DataTableColumns<Tweet> = [
     />
 
     <!-- Detail drawer -->
-    <n-drawer v-model="showDetail" :width="540">
+    <n-drawer v-model:show="showDetail" :width="540">
       <n-drawer-content title="Tweet Detail" closable>
         <n-spin v-if="loadingDetail" />
         <div v-else-if="detail">

@@ -37,8 +37,8 @@ export const useRulesStore = defineStore('rules', () => {
 
   async function deactivate(id: number) {
     await api.deactivateRule(id)
-    const r = rules.value.find(r => r.id === id)
-    if (r) r.active = false
+    const found = rules.value.find(r => r.id === id)
+    if (found) found.active = false
   }
 
   async function remove(id: number) {

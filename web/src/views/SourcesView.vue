@@ -104,20 +104,20 @@ const columns: DataTableColumns<Source> = [
       :pagination="{ pageSize: 20 }"
     />
 
-    <n-drawer v-model="showCreate" :width="400" title="New Source">
+    <n-drawer v-model:show="showCreate" :width="400" title="New Source">
       <n-drawer-content title="New Source" closable>
         <n-form label-placement="top">
           <n-form-item label="Name">
-            <n-input v-model="form.name" placeholder="e.g. Iran keyword" />
+            <n-input v-model:value="form.name" placeholder="e.g. Iran keyword" />
           </n-form-item>
           <n-form-item label="Type">
-            <n-select v-model="form.type" :options="SOURCE_TYPES" />
+            <n-select v-model:value="form.type" :options="SOURCE_TYPES" />
           </n-form-item>
           <n-form-item label="Operator (auto)">
             <n-input :value="operatorFor(form.type)" disabled />
           </n-form-item>
           <n-form-item label="Value">
-            <n-input v-model="form.value" placeholder="e.g. iran" />
+            <n-input v-model:value="form.value" placeholder="e.g. iran" />
           </n-form-item>
         </n-form>
         <template #footer>

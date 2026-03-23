@@ -41,8 +41,8 @@ const columns: DataTableColumns<Categorization> = [
   <n-space vertical size="large">
     <n-h2>Categorizations</n-h2>
     <n-space>
-      <n-input v-model="filterTweetId"   placeholder="Tweet ID"   clearable style="width: 200px" />
-      <n-input v-model="filterModelName" placeholder="Model name" clearable style="width: 200px" />
+      <n-input v-model:value="filterTweetId"   placeholder="Tweet ID"   clearable style="width: 200px" />
+      <n-input v-model:value="filterModelName" placeholder="Model name" clearable style="width: 200px" />
       <n-button @click="onFilter">Apply</n-button>
       <n-button secondary @click="store.fetchCategorizations()">Reset</n-button>
     </n-space>

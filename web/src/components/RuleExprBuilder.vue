@@ -153,6 +153,7 @@ const typeColor: Record<NodeType, string> = {
     <div v-if="nodeType === 'NOT'">
       <RuleExprBuilder
         :model-value="notChild"
+        :is-root="true"
         @update:model-value="updateNotChild"
       />
     </div>
