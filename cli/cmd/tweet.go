@@ -87,7 +87,7 @@ var tweetShowCmd = &cobra.Command{
 	Short: "Show a tweet by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
+		id := url.PathEscape(args[0])
 		resp, err := http.Get(baseURL + "/api/tweets/" + id)
 		if err != nil {
 			return fmt.Errorf("tweet show: %w", err)

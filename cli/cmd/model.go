@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -99,7 +100,7 @@ var modelRemoveCmd = &cobra.Command{
 	Short: "Remove a model by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
+		id := url.PathEscape(args[0])
 		req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/models/"+id, nil)
 		if err != nil {
 			return fmt.Errorf("model remove: build request: %w", err)
@@ -126,8 +127,13 @@ var modelActivateCmd = &cobra.Command{
 	Short: "Activate a model by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		resp, err := http.Post(baseURL+"/api/models/"+id+"/activate", "application/json", nil)
+		id := url.PathEscape(args[0])
+		req, err := http.NewRequest(http.MethodPost, baseURL+"/api/models/"+id+"/activate", http.NoBody)
+		if err != nil {
+			return fmt.Errorf("model activate: build request: %w", err)
+		}
+		client := &http.Client{}
+		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("model activate: %w", err)
 		}
@@ -147,8 +153,13 @@ var modelDeactivateCmd = &cobra.Command{
 	Short: "Deactivate a model by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
-		resp, err := http.Post(baseURL+"/api/models/"+id+"/deactivate", "application/json", nil)
+		id := url.PathEscape(args[0])
+		req, err := http.NewRequest(http.MethodPost, baseURL+"/api/models/"+id+"/deactivate", http.NoBody)
+		if err != nil {
+			return fmt.Errorf("model deactivate: build request: %w", err)
+		}
+		client := &http.Client{}
+		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("model deactivate: %w", err)
 		}

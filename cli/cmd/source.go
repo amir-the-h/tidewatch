@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -94,7 +95,7 @@ var sourceRemoveCmd = &cobra.Command{
 	Short: "Remove a source by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		id := args[0]
+		id := url.PathEscape(args[0])
 		req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/sources/"+id, nil)
 		if err != nil {
 			return fmt.Errorf("source remove: build request: %w", err)

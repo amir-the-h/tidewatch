@@ -93,8 +93,8 @@ func TestSourceAdd(t *testing.T) {
 	if received["value"] != "@handle" {
 		t.Errorf("expected value=@handle, got: %s", received["value"])
 	}
-	if !strings.Contains(out, "added") && !strings.Contains(out, "created") && !strings.Contains(out, "3") {
-		t.Errorf("expected success output, got: %s", out)
+	if !strings.Contains(out, "added") {
+		t.Errorf("expected output to contain 'added', got: %s", out)
 	}
 }
 

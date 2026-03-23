@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var baseURL string
@@ -30,15 +31,14 @@ func Execute() error {
 // ExecuteWithArgs runs the root command with the given writer for output and args.
 // This is used in tests to capture output.
 func ExecuteWithArgs(out io.Writer, errOut io.Writer, args ...string) error {
-	// Reset the command state for test reuse
-	rootCmd.ResetFlags()
-	rootCmd.PersistentFlags().StringVar(&baseURL, "base-url", "http://localhost:8080", "Base URL of the iran-watcher REST API")
+	// Reset all flag values to their defaults to prevent test order-dependence.
+	resetFlags(rootCmd)
 
 	rootCmd.SetOut(out)
 	rootCmd.SetErr(errOut)
 	rootCmd.SetArgs(args)
 
-	// Propagate writers to subcommands
+	// Propagate writers to subcommands.
 	for _, sub := range rootCmd.Commands() {
 		sub.SetOut(out)
 		sub.SetErr(errOut)
@@ -49,9 +49,24 @@ func ExecuteWithArgs(out io.Writer, errOut io.Writer, args ...string) error {
 	}
 
 	err := rootCmd.Execute()
-	// Reset args so subsequent calls don't reuse them
+	// Reset args so subsequent calls don't reuse them.
 	rootCmd.SetArgs(nil)
 	return err
+}
+
+// resetFlags resets all flag values in a command tree to their defaults.
+func resetFlags(c *cobra.Command) {
+	c.Flags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	})
+	c.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	})
+	for _, sub := range c.Commands() {
+		resetFlags(sub)
+	}
 }
 
 // apiError represents the error response from the API.
@@ -60,7 +75,8 @@ type apiError struct {
 }
 
 // handleAPIError checks the response status code and returns an error with the API error message if non-200.
-func handleAPIError(cmd *cobra.Command, resp *http.Response) error {
+// Cobra prints the returned error to stderr automatically; do not also print it here.
+func handleAPIError(_ *cobra.Command, resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
@@ -68,9 +84,7 @@ func handleAPIError(cmd *cobra.Command, resp *http.Response) error {
 	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 		return fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
-	msg := fmt.Sprintf("API error: %s", apiErr.Error)
-	fmt.Fprintln(cmd.ErrOrStderr(), msg)
-	return fmt.Errorf("%s", msg)
+	return fmt.Errorf("API error: %s", apiErr.Error)
 }
 
 // exitIfError prints the error and exits with code 1.
