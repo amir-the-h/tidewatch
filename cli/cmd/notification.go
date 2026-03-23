@@ -262,6 +262,88 @@ var notificationDeactivateCmd = &cobra.Command{
 	},
 }
 
+var notificationUpdateCmd = &cobra.Command{
+	Use:   "update <id>",
+	Short: "Update a notification config",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := url.PathEscape(args[0])
+		body := map[string]interface{}{}
+
+		if cmd.Flags().Changed("name") {
+			body["name"] = notifName
+		}
+		if cmd.Flags().Changed("event-type") {
+			body["event_type"] = notifCreateEventType
+		}
+		if cmd.Flags().Changed("filter-rule-id") {
+			body["filter_rule_id"] = notifFilterRuleID
+		}
+		if cmd.Flags().Changed("filter-model-name") {
+			body["filter_model_name"] = notifFilterModelName
+		}
+		if cmd.Flags().Changed("filter-model-result") {
+			body["filter_model_result"] = json.RawMessage(notifFilterModelResult)
+		}
+		if cmd.Flags().Changed("priority") {
+			body["pushover_priority"] = notifPriority
+		}
+		if cmd.Flags().Changed("sound") {
+			body["pushover_sound"] = notifSound
+		}
+		if cmd.Flags().Changed("device") {
+			body["pushover_device"] = notifDevice
+		}
+		if cmd.Flags().Changed("title") {
+			body["pushover_title"] = notifTitle
+		}
+		if cmd.Flags().Changed("url") {
+			body["pushover_url"] = notifURL
+		}
+		if cmd.Flags().Changed("url-title") {
+			body["pushover_url_title"] = notifURLTitle
+		}
+		if cmd.Flags().Changed("ttl") {
+			body["pushover_ttl"] = notifTTL
+		}
+		if cmd.Flags().Changed("html") {
+			body["pushover_html"] = notifHTML
+		}
+		if cmd.Flags().Changed("retry") {
+			body["pushover_retry"] = notifRetry
+		}
+		if cmd.Flags().Changed("expire") {
+			body["pushover_expire"] = notifExpire
+		}
+		if cmd.Flags().Changed("message-template") {
+			body["message_template"] = notifMessageTemplate
+		}
+
+		data, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("notification update: marshal: %w", err)
+		}
+
+		req, err := http.NewRequest(http.MethodPut, baseURL+"/api/notifications/"+id, bytes.NewReader(data))
+		if err != nil {
+			return fmt.Errorf("notification update: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := (&http.Client{}).Do(req)
+		if err != nil {
+			return fmt.Errorf("notification update: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+
+		fmt.Fprintf(cmd.OutOrStdout(), "Notification %s updated\n", id)
+		return nil
+	},
+}
+
 var notificationTestCmd = &cobra.Command{
 	Use:   "test <id>",
 	Short: "Send a test notification by ID",
@@ -318,8 +400,27 @@ func init() {
 	_ = notificationCreateCmd.MarkFlagRequired("name")
 	_ = notificationCreateCmd.MarkFlagRequired("event-type")
 
+	// update flags (same as create, none required)
+	notificationUpdateCmd.Flags().StringVar(&notifName, "name", "", "Notification name")
+	notificationUpdateCmd.Flags().StringVar(&notifCreateEventType, "event-type", "", "Event type to trigger on")
+	notificationUpdateCmd.Flags().Int64Var(&notifFilterRuleID, "filter-rule-id", 0, "Filter by stream rule ID")
+	notificationUpdateCmd.Flags().StringVar(&notifFilterModelName, "filter-model-name", "", "Filter by model name")
+	notificationUpdateCmd.Flags().StringVar(&notifFilterModelResult, "filter-model-result", "", "Filter by model result (JSON string)")
+	notificationUpdateCmd.Flags().IntVar(&notifPriority, "priority", 0, "Pushover priority (-2 to 2)")
+	notificationUpdateCmd.Flags().StringVar(&notifSound, "sound", "", "Pushover sound")
+	notificationUpdateCmd.Flags().StringVar(&notifDevice, "device", "", "Target device")
+	notificationUpdateCmd.Flags().StringVar(&notifTitle, "title", "", "Notification title")
+	notificationUpdateCmd.Flags().StringVar(&notifURL, "url", "", "Supplementary URL")
+	notificationUpdateCmd.Flags().StringVar(&notifURLTitle, "url-title", "", "Supplementary URL title")
+	notificationUpdateCmd.Flags().IntVar(&notifTTL, "ttl", 0, "Message TTL in seconds")
+	notificationUpdateCmd.Flags().BoolVar(&notifHTML, "html", false, "Enable HTML formatting")
+	notificationUpdateCmd.Flags().IntVar(&notifRetry, "retry", 0, "Retry interval in seconds (emergency priority)")
+	notificationUpdateCmd.Flags().IntVar(&notifExpire, "expire", 0, "Expiration in seconds (emergency priority)")
+	notificationUpdateCmd.Flags().StringVar(&notifMessageTemplate, "message-template", "", "Go template for notification message")
+
 	notificationCmd.AddCommand(notificationListCmd)
 	notificationCmd.AddCommand(notificationCreateCmd)
+	notificationCmd.AddCommand(notificationUpdateCmd)
 	notificationCmd.AddCommand(notificationGetCmd)
 	notificationCmd.AddCommand(notificationDeleteCmd)
 	notificationCmd.AddCommand(notificationActivateCmd)
