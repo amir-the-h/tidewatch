@@ -1,0 +1,112 @@
+package worker
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/iran-watcher/internal/store"
+)
+
+type worker struct {
+	id       int
+	consumer queue.Consumer
+	producer queue.Producer
+	store    store.Store
+	registry *inference.Registry
+	logger   *slog.Logger
+}
+
+func (w *worker) run(ctx context.Context) {
+	for {
+		// Step 1: check for context cancellation or registry reload signal.
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.registry.NotifyChan():
+			// registry reloaded — pipelines updated, continue to next iteration
+			continue
+		default:
+		}
+
+		// Step 2: Pop from the raw queue with a 3-second timeout.
+		streamTweet, err := w.consumer.Pop(ctx, queue.QueueRaw, 3*time.Second)
+		if err != nil {
+			if w.logger != nil {
+				w.logger.Error("worker: run: pop failed",
+					"worker_id", w.id,
+					"error", fmt.Errorf("worker: run: %w", err))
+			}
+			continue
+		}
+
+		// Step 3: nil result means timeout — loop back.
+		if streamTweet == nil {
+			continue
+		}
+
+		// Step 4: run each pipeline.
+		pipelines := w.registry.All()
+		var failedModels []queue.FailedModel
+
+		for _, pipeline := range pipelines {
+			result, runErr := pipeline.Run([]byte(streamTweet.Tweet.Text))
+			if runErr != nil {
+				if w.logger != nil {
+					w.logger.Error("worker: run: pipeline failed",
+						"worker_id", w.id,
+						"tweet_id", streamTweet.Tweet.ID,
+						"pipeline", pipeline.Name(),
+						"error", fmt.Errorf("worker: run: %w", runErr))
+				}
+				failedModels = append(failedModels, queue.FailedModel{
+					Name:      pipeline.Name(),
+					Error:     runErr.Error(),
+					Timestamp: time.Now(),
+				})
+				continue
+			}
+
+			c := &model.Categorization{
+				TweetID:   streamTweet.Tweet.ID,
+				ModelName: pipeline.Name(),
+				Results:   result,
+				CreatedAt: time.Now(),
+			}
+			if saveErr := w.store.SaveCategorization(ctx, c); saveErr != nil {
+				if w.logger != nil {
+					w.logger.Error("worker: run: save categorization failed",
+						"worker_id", w.id,
+						"tweet_id", streamTweet.Tweet.ID,
+						"pipeline", pipeline.Name(),
+						"error", fmt.Errorf("worker: run: %w", saveErr))
+				}
+				failedModels = append(failedModels, queue.FailedModel{
+					Name:      pipeline.Name(),
+					Error:     saveErr.Error(),
+					Timestamp: time.Now(),
+				})
+			}
+		}
+
+		// Step 5: push to dead-letter queue if any models failed.
+		if len(failedModels) > 0 {
+			ft := &queue.FailedTweet{
+				Tweet:        streamTweet,
+				FailedModels: failedModels,
+			}
+			if pushErr := w.producer.PushFailed(ctx, ft); pushErr != nil {
+				if w.logger != nil {
+					w.logger.Error("worker: run: push failed tweet",
+						"worker_id", w.id,
+						"tweet_id", streamTweet.Tweet.ID,
+						"error", fmt.Errorf("worker: run: %w", pushErr))
+				}
+			}
+		}
+	}
+}
