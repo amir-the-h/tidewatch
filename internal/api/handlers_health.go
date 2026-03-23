@@ -14,8 +14,14 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	streamStatus := "disconnected"
+	if s.stream != nil && s.stream.Connected() {
+		streamStatus = "connected"
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok",
+		"stream": streamStatus,
 		"models": modelNames,
 	})
 }
