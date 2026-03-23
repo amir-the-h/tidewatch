@@ -232,6 +232,10 @@ func (s *Server) handleTestNotification(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.NotificationID <= 0 {
+		writeError(w, http.StatusBadRequest, "notification_id is required")
+		return
+	}
 
 	if err := s.dispatcher.SendTestNotification(r.Context(), req.NotificationID); err != nil {
 		s.logger.Error("api: test notification", "notification_id", req.NotificationID, "error", err)

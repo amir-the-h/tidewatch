@@ -146,7 +146,7 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 	}
 	defer rows.Close()
 
-	var tweets []*model.Tweet
+	tweets := make([]*model.Tweet, 0)
 	for rows.Next() {
 		t, err := scanTweet(rows)
 		if err != nil {
@@ -224,7 +224,7 @@ func (s *sqliteStore) ListSources(ctx context.Context, filter SourceFilter) ([]*
 	}
 	defer rows.Close()
 
-	var sources []*model.Source
+	sources := make([]*model.Source, 0)
 	for rows.Next() {
 		src, err := scanSource(rows)
 		if err != nil {
@@ -343,7 +343,7 @@ func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*mode
 	}
 	defer rows.Close()
 
-	var rules []*model.Rule
+	rules := make([]*model.Rule, 0)
 	for rows.Next() {
 		rule, err := scanRule(rows)
 		if err != nil {
@@ -452,7 +452,7 @@ func (s *sqliteStore) ListModels(ctx context.Context) ([]*model.Model, error) {
 	}
 	defer rows.Close()
 
-	var models []*model.Model
+	models := make([]*model.Model, 0)
 	for rows.Next() {
 		m, err := scanModel(rows)
 		if err != nil {
@@ -532,7 +532,7 @@ func (s *sqliteStore) ListCategorizations(ctx context.Context, filter Categoriza
 	}
 	defer rows.Close()
 
-	var cats []*model.Categorization
+	cats := make([]*model.Categorization, 0)
 	for rows.Next() {
 		c, err := scanCategorization(rows)
 		if err != nil {
@@ -635,7 +635,7 @@ func (s *sqliteStore) ListNotifications(ctx context.Context, filter Notification
 	}
 	defer rows.Close()
 
-	var notifications []*model.Notification
+	notifications := make([]*model.Notification, 0)
 	for rows.Next() {
 		n, err := scanNotification(rows)
 		if err != nil {
@@ -740,7 +740,7 @@ func (s *sqliteStore) ListUncategorizedTweets(ctx context.Context, modelNames []
 	}
 	defer rows.Close()
 
-	var tweets []*model.Tweet
+	tweets := make([]*model.Tweet, 0)
 	for rows.Next() {
 		t, err := scanTweet(rows)
 		if err != nil {
