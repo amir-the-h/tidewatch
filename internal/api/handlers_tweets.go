@@ -21,13 +21,13 @@ func (s *Server) handleListTweets(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 
-	if v := q.Get("source_id"); v != "" {
+	if v := q.Get("rule_id"); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid source_id")
+			writeError(w, http.StatusBadRequest, "invalid rule_id")
 			return
 		}
-		filter.SourceID = &id
+		filter.RuleID = &id
 	}
 	if v := q.Get("from"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)

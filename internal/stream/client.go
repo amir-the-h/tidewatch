@@ -45,20 +45,10 @@ func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleM
 }
 
 // Start begins the stream connection loop. Blocks until ctx is cancelled.
-// For each SSE event received:
-//  1. Normalize to StreamTweet
-//  2. SaveTweet to store (persists tweet row)
-//  3. For each MatchingRule: look up Source by x_rule_id, call SaveTweetSource
-//  4. Push StreamTweet to queue.QueueRaw via producer
-//
-// On any read/connection error: log at warn level, wait with exponential backoff
-// (start 1s, double each retry, cap at 5min), retry indefinitely.
-// Respect ctx cancellation — return nil when ctx is done.
 func (c *Client) Start(ctx context.Context) error {
 	backoff := backoffMin
 
 	for {
-		// Check for cancellation before attempting a connection.
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -74,17 +64,14 @@ func (c *Client) Start(ctx context.Context) error {
 				"backoff", backoff,
 			)
 		} else if ctx.Err() != nil {
-			// Stream ended because context was cancelled.
 			return nil
 		} else {
-			// Stream ended cleanly (EOF / server closed).
 			c.logger.Warn("stream: connection closed, will retry",
 				"component", "stream",
 				"backoff", backoff,
 			)
 		}
 
-		// Reset backoff if we successfully read at least one event.
 		if gotEvent {
 			backoff = backoffMin
 		}
@@ -95,7 +82,6 @@ func (c *Client) Start(ctx context.Context) error {
 		case <-time.After(backoff):
 		}
 
-		// Advance backoff for next failure.
 		if !gotEvent {
 			backoff *= 2
 			if backoff > backoffMax {
@@ -108,8 +94,7 @@ func (c *Client) Start(ctx context.Context) error {
 }
 
 // connect opens a single stream connection and reads events until the connection
-// closes or ctx is cancelled. Returns (true, nil) if at least one event was
-// processed, (false, err) on connection/read error.
+// closes or ctx is cancelled.
 func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.streamURL, nil)
 	if err != nil {
@@ -137,12 +122,10 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 
 		line := scanner.Text()
 
-		// Empty lines are heartbeats — skip.
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 
-		// SSE format: lines starting with "data:" carry the event payload.
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
@@ -157,7 +140,6 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 				"component", "stream",
 				"error", err,
 			)
-			// Don't abort the stream for a single bad event.
 			continue
 		}
 		gotEvent = true
@@ -185,32 +167,28 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		return fmt.Errorf("stream: save tweet %s: %w", st.Tweet.ID, err)
 	}
 
-	// 2. For each matching rule, look up the source and write tweet_sources.
-	for _, rule := range st.MatchingRules {
-		sources, err := c.store.ListSources(ctx, store.SourceFilter{})
+	// 2. For each matching rule, look up the Rule by x_rule_id and write tweet_rules.
+	for _, mr := range st.MatchingRules {
+		rule, err := c.store.GetRuleByXRuleID(ctx, mr.ID)
 		if err != nil {
-			c.logger.Warn("stream: list sources failed",
+			c.logger.Warn("stream: rule lookup failed",
 				"component", "stream",
-				"rule_id", rule.ID,
+				"x_rule_id", mr.ID,
 				"error", err,
 			)
 			continue
 		}
-		for _, src := range sources {
-			if src.XRuleID == rule.ID {
-				ts := &model.TweetSource{
-					TweetID:  st.Tweet.ID,
-					SourceID: src.ID,
-				}
-				if err := c.store.SaveTweetSource(ctx, ts); err != nil {
-					c.logger.Warn("stream: save tweet_source failed",
-						"component", "stream",
-						"tweet_id", st.Tweet.ID,
-						"source_id", src.ID,
-						"error", err,
-					)
-				}
-			}
+		tr := &model.TweetRule{
+			TweetID: st.Tweet.ID,
+			RuleID:  rule.ID,
+		}
+		if err := c.store.SaveTweetRule(ctx, tr); err != nil {
+			c.logger.Warn("stream: save tweet_rule failed",
+				"component", "stream",
+				"tweet_id", st.Tweet.ID,
+				"rule_id", rule.ID,
+				"error", err,
+			)
 		}
 	}
 

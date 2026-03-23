@@ -20,16 +20,16 @@ type mockConsumer struct {
 	idx    int
 }
 
-func (m *mockConsumer) Pop(ctx context.Context, q string, timeout time.Duration) (*model.StreamTweet, error) {
+func (m *mockConsumer) Pop(_ context.Context, _ string, _ time.Duration) (*model.StreamTweet, error) {
 	if m.idx >= len(m.tweets) {
-		return nil, nil // timeout
+		return nil, nil
 	}
 	t := m.tweets[m.idx]
 	m.idx++
 	return t, nil
 }
 
-func (m *mockConsumer) PopFailed(ctx context.Context, timeout time.Duration) (*queue.FailedTweet, error) {
+func (m *mockConsumer) PopFailed(_ context.Context, _ time.Duration) (*queue.FailedTweet, error) {
 	return nil, nil
 }
 
@@ -40,11 +40,11 @@ type mockProducer struct {
 	lastFailed       *queue.FailedTweet
 }
 
-func (m *mockProducer) Push(ctx context.Context, q string, tweet *model.StreamTweet) error {
+func (m *mockProducer) Push(_ context.Context, _ string, _ *model.StreamTweet) error {
 	return nil
 }
 
-func (m *mockProducer) PushFailed(ctx context.Context, ft *queue.FailedTweet) error {
+func (m *mockProducer) PushFailed(_ context.Context, ft *queue.FailedTweet) error {
 	m.pushFailedCalled = true
 	m.lastFailed = ft
 	return nil
@@ -56,42 +56,46 @@ type mockStore struct {
 	categorizations []*model.Categorization
 }
 
-func (m *mockStore) SaveCategorization(ctx context.Context, c *model.Categorization) error {
+func (m *mockStore) SaveCategorization(_ context.Context, c *model.Categorization) error {
 	m.categorizations = append(m.categorizations, c)
 	return nil
 }
 
-func (m *mockStore) ListModels(ctx context.Context) ([]*model.Model, error) { return nil, nil }
+func (m *mockStore) ListModels(_ context.Context) ([]*model.Model, error) { return nil, nil }
 
-func (m *mockStore) SaveTweet(ctx context.Context, tweet *model.Tweet) error { return nil }
-func (m *mockStore) GetTweet(ctx context.Context, id string) (*model.Tweet, error) {
+func (m *mockStore) SaveTweet(_ context.Context, _ *model.Tweet) error            { return nil }
+func (m *mockStore) GetTweet(_ context.Context, _ string) (*model.Tweet, error)   { return nil, nil }
+func (m *mockStore) ListTweets(_ context.Context, _ store.TweetFilter) ([]*model.Tweet, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweets(ctx context.Context, filter store.TweetFilter) ([]*model.Tweet, error) {
+func (m *mockStore) SaveSource(_ context.Context, _ *model.Source) error          { return nil }
+func (m *mockStore) GetSource(_ context.Context, _ int64) (*model.Source, error)  { return nil, nil }
+func (m *mockStore) ListSources(_ context.Context, _ store.SourceFilter) ([]*model.Source, error) {
 	return nil, nil
 }
-func (m *mockStore) SaveSource(ctx context.Context, source *model.Source) error { return nil }
-func (m *mockStore) GetSource(ctx context.Context, id int64) (*model.Source, error) {
+func (m *mockStore) DeleteSource(_ context.Context, _ int64) error                        { return nil }
+func (m *mockStore) SetSourceActive(_ context.Context, _ int64, _ bool) error             { return nil }
+func (m *mockStore) ActiveRuleRefCount(_ context.Context, _ int64) (int, error)           { return 0, nil }
+func (m *mockStore) RuleRefCount(_ context.Context, _ int64) (int, error)                 { return 0, nil }
+func (m *mockStore) SaveRule(_ context.Context, _ *model.Rule) error                      { return nil }
+func (m *mockStore) GetRule(_ context.Context, _ int64) (*model.Rule, error)              { return nil, nil }
+func (m *mockStore) GetRuleByXRuleID(_ context.Context, _ string) (*model.Rule, error)    { return nil, nil }
+func (m *mockStore) ListRules(_ context.Context, _ store.RuleFilter) ([]*model.Rule, error) {
 	return nil, nil
 }
-func (m *mockStore) ListSources(ctx context.Context, filter store.SourceFilter) ([]*model.Source, error) {
+func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error                    { return nil }
+func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                          { return nil }
+func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error     { return nil }
+func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)               { return 0, nil }
+func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error             { return nil }
+func (m *mockStore) SaveModel(_ context.Context, _ *model.Model) error                    { return nil }
+func (m *mockStore) GetModel(_ context.Context, _ int64) (*model.Model, error)            { return nil, nil }
+func (m *mockStore) DeleteModel(_ context.Context, _ int64) error                         { return nil }
+func (m *mockStore) SetModelActive(_ context.Context, _ int64, _ bool) error              { return nil }
+func (m *mockStore) ListCategorizations(_ context.Context, _ store.CategorizationFilter) ([]*model.Categorization, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteSource(ctx context.Context, id int64) error { return nil }
-func (m *mockStore) UpdateSourceXRuleID(ctx context.Context, id int64, xRuleID string) error {
-	return nil
-}
-func (m *mockStore) SaveTweetSource(ctx context.Context, ts *model.TweetSource) error { return nil }
-func (m *mockStore) SaveModel(ctx context.Context, mod *model.Model) error             { return nil }
-func (m *mockStore) GetModel(ctx context.Context, id int64) (*model.Model, error) {
-	return nil, nil
-}
-func (m *mockStore) DeleteModel(ctx context.Context, id int64) error { return nil }
-func (m *mockStore) SetModelActive(ctx context.Context, id int64, active bool) error { return nil }
-func (m *mockStore) ListCategorizations(ctx context.Context, filter store.CategorizationFilter) ([]*model.Categorization, error) {
-	return nil, nil
-}
-func (m *mockStore) ListUncategorizedTweets(ctx context.Context, modelNames []string) ([]*model.Tweet, error) {
+func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
 	return nil, nil
 }
 func (m *mockStore) Close() error { return nil }
@@ -103,7 +107,7 @@ type stubPipeline struct {
 	failErr error
 }
 
-func (s *stubPipeline) Name() string { return s.name }
+func (s *stubPipeline) Name() string     { return s.name }
 func (s *stubPipeline) Load(_ string) error { return nil }
 func (s *stubPipeline) Run(_ []byte) (json.RawMessage, error) {
 	if s.failErr != nil {
@@ -111,8 +115,8 @@ func (s *stubPipeline) Run(_ []byte) (json.RawMessage, error) {
 	}
 	return json.RawMessage(`{"label":"test","score":1.0}`), nil
 }
-func (s *stubPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) { return nil, nil }
-func (s *stubPipeline) Close() error                                        { return nil }
+func (s *stubPipeline) RunBatch(_ [][]byte) ([]json.RawMessage, error) { return nil, nil }
+func (s *stubPipeline) Close() error                                    { return nil }
 
 // --- helpers ---
 
@@ -134,8 +138,6 @@ func setupRegistry(t *testing.T, pipelines ...inference.Pipeline) *inference.Reg
 	if err != nil {
 		t.Fatalf("registry Load: %v", err)
 	}
-	// Directly replace active pipelines by reloading with real stubs via a factory approach
-	// We load models by calling Load with models that match pipeline names via a closure.
 	models := make([]*model.Model, len(pipelines))
 	for i, p := range pipelines {
 		models[i] = &model.Model{Name: p.Name()}
@@ -153,8 +155,6 @@ func setupRegistry(t *testing.T, pipelines ...inference.Pipeline) *inference.Reg
 	return reg
 }
 
-// runWorkerUntilDrained runs one worker, cancels context once the consumer is drained,
-// and waits for the worker to return. Uses a slightly delayed cancel to let worker loop.
 func runWorkerUntilDrained(t *testing.T, w *worker, consumer *mockConsumer) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -163,14 +163,12 @@ func runWorkerUntilDrained(t *testing.T, w *worker, consumer *mockConsumer) {
 		defer close(done)
 		w.run(ctx)
 	}()
-	// Poll until consumer is drained then cancel.
 	for {
 		time.Sleep(5 * time.Millisecond)
 		if consumer.idx >= len(consumer.tweets) {
 			break
 		}
 	}
-	// Give a little time for the last tweet to be processed.
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	select {
@@ -182,8 +180,6 @@ func runWorkerUntilDrained(t *testing.T, w *worker, consumer *mockConsumer) {
 
 // --- Tests ---
 
-// TestWorker_ProcessesTweet: one pipeline, one tweet; SaveCategorization called with correct
-// tweet ID and model name; PushFailed NOT called.
 func TestWorker_ProcessesTweet(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-1")}}
 	producer := &mockProducer{}
@@ -216,8 +212,6 @@ func TestWorker_ProcessesTweet(t *testing.T) {
 	}
 }
 
-// TestWorker_TwoPipelines_OneFails: two pipelines (one succeeds, one fails);
-// SaveCategorization called once (for the success); PushFailed called with annotation for failed model.
 func TestWorker_TwoPipelines_OneFails(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-2")}}
 	producer := &mockProducer{}
@@ -254,8 +248,6 @@ func TestWorker_TwoPipelines_OneFails(t *testing.T) {
 	}
 }
 
-// TestWorker_TwoPipelines_BothFail: both fail; SaveCategorization NOT called;
-// PushFailed called with both models in FailedModels.
 func TestWorker_TwoPipelines_BothFail(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-3")}}
 	producer := &mockProducer{}
@@ -286,8 +278,6 @@ func TestWorker_TwoPipelines_BothFail(t *testing.T) {
 	}
 }
 
-// TestWorker_TwoPipelines_BothSucceed: both succeed; SaveCategorization called twice;
-// PushFailed NOT called.
 func TestWorker_TwoPipelines_BothSucceed(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-4")}}
 	producer := &mockProducer{}
@@ -315,10 +305,8 @@ func TestWorker_TwoPipelines_BothSucceed(t *testing.T) {
 	}
 }
 
-// TestPool_Start_LaunchesWorkers: Pool with count=2; verify it starts and returns
-// cleanly when ctx is cancelled.
 func TestPool_Start_LaunchesWorkers(t *testing.T) {
-	consumer := &mockConsumer{} // empty, always returns nil,nil
+	consumer := &mockConsumer{}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
 	reg := inference.NewRegistry()
@@ -343,7 +331,6 @@ func TestPool_Start_LaunchesWorkers(t *testing.T) {
 	}
 }
 
-// TestPool_Start_RespectsCtxCancel: cancel ctx immediately, verify Start returns nil within 1 second.
 func TestPool_Start_RespectsCtxCancel(t *testing.T) {
 	consumer := &mockConsumer{}
 	producer := &mockProducer{}
@@ -353,7 +340,7 @@ func TestPool_Start_RespectsCtxCancel(t *testing.T) {
 	pool := NewPool(2, consumer, producer, storeImpl, reg, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
+	cancel()
 
 	done := make(chan error, 1)
 	go func() {

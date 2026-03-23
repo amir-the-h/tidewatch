@@ -36,16 +36,30 @@ func sampleTweet() *model.Tweet {
 
 func sampleSource() *model.Source {
 	return &model.Source{
+		Name:      "Iran keyword",
 		Type:      model.SourceTypeKeyword,
+		Class:     model.SourceClassAtom,
+		Operator:  "",
 		Value:     "Iran",
-		XRuleID:   "rule-1",
 		Active:    true,
 		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
-// 1. TestSaveTweet_GetTweet — save a tweet, get it back, verify all fields equal
+func sampleRule() *model.Rule {
+	return &model.Rule{
+		Name:          "iran-rule",
+		Expression:    json.RawMessage(`{"src":1}`),
+		CompiledValue: "Iran",
+		XRuleID:       "",
+		Active:        false,
+		CreatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:     time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+}
+
+// 1. TestSaveTweet_GetTweet
 func TestSaveTweet_GetTweet(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -83,7 +97,7 @@ func TestSaveTweet_GetTweet(t *testing.T) {
 	}
 }
 
-// 2. TestSaveTweet_Idempotent — save same tweet twice, no error, still 1 row
+// 2. TestSaveTweet_Idempotent
 func TestSaveTweet_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -105,8 +119,7 @@ func TestSaveTweet_Idempotent(t *testing.T) {
 	}
 }
 
-// 3. TestSaveSource_ListSources_ActiveFilter — save 2 sources (1 active, 1 inactive),
-// list with Active=true, get only 1
+// 3. TestSaveSource_ListSources_ActiveFilter
 func TestSaveSource_ListSources_ActiveFilter(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -119,6 +132,7 @@ func TestSaveSource_ListSources_ActiveFilter(t *testing.T) {
 
 	inactive := sampleSource()
 	inactive.Value = "nuclear"
+	inactive.Name = "nuclear keyword"
 	inactive.Active = false
 	if err := s.SaveSource(ctx, inactive); err != nil {
 		t.Fatalf("SaveSource inactive: %v", err)
@@ -137,7 +151,7 @@ func TestSaveSource_ListSources_ActiveFilter(t *testing.T) {
 	}
 }
 
-// 4. TestDeleteSource — save then delete a source, GetSource returns error
+// 4. TestDeleteSource
 func TestDeleteSource(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -157,40 +171,166 @@ func TestDeleteSource(t *testing.T) {
 	}
 }
 
-// 5. TestSaveTweetSource_GetTweet_PopulatesSources — save tweet + source + tweetSource,
-// GetTweet returns tweet with Sources populated
-func TestSaveTweetSource_GetTweet_PopulatesSources(t *testing.T) {
+// 5. TestSaveAndGetSource — new fields
+func TestSaveAndGetSource(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	src := &model.Source{
+		Name:      "BBC Persian",
+		Type:      model.SourceTypeAccount,
+		Class:     model.SourceClassAtom,
+		Operator:  "from:",
+		Value:     "BBCPersian",
+		Active:    true,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		UpdatedAt: time.Now().UTC().Truncate(time.Second),
+	}
+	if err := s.SaveSource(ctx, src); err != nil {
+		t.Fatalf("SaveSource: %v", err)
+	}
+	if src.ID == 0 {
+		t.Fatal("expected non-zero ID after save")
+	}
+	got, err := s.GetSource(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("GetSource: %v", err)
+	}
+	if got.Name != "BBC Persian" || got.Operator != "from:" || got.Class != model.SourceClassAtom {
+		t.Errorf("unexpected source: %+v", got)
+	}
+}
+
+// 6. TestSetSourceActive
+func TestSetSourceActive(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	src := sampleSource()
+	_ = s.SaveSource(ctx, src)
+	if err := s.SetSourceActive(ctx, src.ID, false); err != nil {
+		t.Fatalf("SetSourceActive: %v", err)
+	}
+	got, _ := s.GetSource(ctx, src.ID)
+	if got.Active {
+		t.Error("expected Active=false")
+	}
+}
+
+// 7. TestActiveRuleRefCount
+func TestActiveRuleRefCount(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	src := sampleSource()
+	_ = s.SaveSource(ctx, src)
+	n, err := s.ActiveRuleRefCount(ctx, src.ID)
+	if err != nil {
+		t.Fatalf("ActiveRuleRefCount: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 refs, got %d", n)
+	}
+}
+
+// 8. TestSaveAndGetRule
+func TestSaveAndGetRule(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	rule := sampleRule()
+	if err := s.SaveRule(ctx, rule); err != nil {
+		t.Fatalf("SaveRule: %v", err)
+	}
+	if rule.ID == 0 {
+		t.Fatal("expected non-zero ID after save")
+	}
+	got, err := s.GetRule(ctx, rule.ID)
+	if err != nil {
+		t.Fatalf("GetRule: %v", err)
+	}
+	if got.Name != "iran-rule" {
+		t.Errorf("Name: got %q, want %q", got.Name, "iran-rule")
+	}
+	if got.CompiledValue != "Iran" {
+		t.Errorf("CompiledValue: got %q, want %q", got.CompiledValue, "Iran")
+	}
+}
+
+// 9. TestGetRuleByXRuleID
+func TestGetRuleByXRuleID(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	rule := sampleRule()
+	rule.XRuleID = "x-rule-123"
+	if err := s.SaveRule(ctx, rule); err != nil {
+		t.Fatalf("SaveRule: %v", err)
+	}
+
+	got, err := s.GetRuleByXRuleID(ctx, "x-rule-123")
+	if err != nil {
+		t.Fatalf("GetRuleByXRuleID: %v", err)
+	}
+	if got.ID != rule.ID {
+		t.Errorf("ID: got %d, want %d", got.ID, rule.ID)
+	}
+}
+
+// 10. TestTweetRuleCount
+func TestTweetRuleCount(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	tw := sampleTweet()
-	if err := s.SaveTweet(ctx, tw); err != nil {
-		t.Fatalf("SaveTweet: %v", err)
+	_ = s.SaveTweet(ctx, tw)
+
+	rule := sampleRule()
+	_ = s.SaveRule(ctx, rule)
+
+	tr := &model.TweetRule{TweetID: tw.ID, RuleID: rule.ID}
+	if err := s.SaveTweetRule(ctx, tr); err != nil {
+		t.Fatalf("SaveTweetRule: %v", err)
 	}
 
-	src := sampleSource()
-	if err := s.SaveSource(ctx, src); err != nil {
-		t.Fatalf("SaveSource: %v", err)
+	count, err := s.TweetRuleCount(ctx, rule.ID)
+	if err != nil {
+		t.Fatalf("TweetRuleCount: %v", err)
 	}
+	if count != 1 {
+		t.Errorf("expected 1, got %d", count)
+	}
+}
 
-	ts := &model.TweetSource{TweetID: tw.ID, SourceID: src.ID}
-	if err := s.SaveTweetSource(ctx, ts); err != nil {
-		t.Fatalf("SaveTweetSource: %v", err)
+// 11. TestSaveTweetRule_GetTweet_PopulatesRules
+func TestSaveTweetRule_GetTweet_PopulatesRules(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	tw := sampleTweet()
+	_ = s.SaveTweet(ctx, tw)
+
+	rule := sampleRule()
+	_ = s.SaveRule(ctx, rule)
+
+	tr := &model.TweetRule{TweetID: tw.ID, RuleID: rule.ID}
+	if err := s.SaveTweetRule(ctx, tr); err != nil {
+		t.Fatalf("SaveTweetRule: %v", err)
 	}
 
 	got, err := s.GetTweet(ctx, tw.ID)
 	if err != nil {
 		t.Fatalf("GetTweet: %v", err)
 	}
-	if len(got.Sources) != 1 {
-		t.Errorf("expected 1 source on tweet, got %d", len(got.Sources))
+	if len(got.Rules) != 1 {
+		t.Errorf("expected 1 rule on tweet, got %d", len(got.Rules))
 	}
-	if got.Sources[0].ID != src.ID {
-		t.Errorf("source ID: got %d, want %d", got.Sources[0].ID, src.ID)
+	if got.Rules[0].ID != rule.ID {
+		t.Errorf("rule ID: got %d, want %d", got.Rules[0].ID, rule.ID)
 	}
 }
 
-// 6. TestSaveModel_SetActive_ListModels — save model, SetModelActive(true), ListModels returns it active
+// 12. TestSaveModel_SetActive_ListModels
 func TestSaveModel_SetActive_ListModels(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -223,8 +363,7 @@ func TestSaveModel_SetActive_ListModels(t *testing.T) {
 	}
 }
 
-// 7. TestSaveCategorization_ListByTweetID — save tweet + categorization,
-// ListCategorizations by tweet ID returns 1
+// 13. TestSaveCategorization_ListByTweetID
 func TestSaveCategorization_ListByTweetID(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -257,7 +396,7 @@ func TestSaveCategorization_ListByTweetID(t *testing.T) {
 	}
 }
 
-// 8. TestListUncategorizedTweets_NoCategories — save tweet with no categorization, returns it
+// 14. TestListUncategorizedTweets_NoCategories
 func TestListUncategorizedTweets_NoCategories(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -279,8 +418,7 @@ func TestListUncategorizedTweets_NoCategories(t *testing.T) {
 	}
 }
 
-// 9. TestListUncategorizedTweets_AllCovered — save tweet + categorization for model "m1",
-// ListUncategorizedTweets(["m1"]) returns empty
+// 15. TestListUncategorizedTweets_AllCovered
 func TestListUncategorizedTweets_AllCovered(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
@@ -310,7 +448,7 @@ func TestListUncategorizedTweets_AllCovered(t *testing.T) {
 	}
 }
 
-// 10. TestRunMigrations_Idempotent — call RunMigrations twice on same DB, no error
+// 16. TestRunMigrations_Idempotent
 func TestRunMigrations_Idempotent(t *testing.T) {
 	s1, err := NewSQLiteStore(":memory:", migrations.FS)
 	if err != nil {
@@ -318,8 +456,6 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	}
 	_ = s1.Close()
 
-	// The :memory: DB is gone with Close, so we test idempotency by running
-	// RunMigrations twice on the same open db connection.
 	db, err := openTestDB(t)
 	if err != nil {
 		t.Fatalf("openTestDB: %v", err)

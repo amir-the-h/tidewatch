@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
@@ -28,6 +30,7 @@ type Server struct {
 	producer queue.Producer
 	registry *inference.Registry
 	rules    ruleManagerInterface
+	tier     string
 	logger   *slog.Logger
 	router   chi.Router
 	http     *http.Server
@@ -40,6 +43,7 @@ func NewServer(
 	q queue.Producer,
 	reg *inference.Registry,
 	rules ruleManagerInterface,
+	tier string,
 	logger *slog.Logger,
 ) *Server {
 	srv := &Server{
@@ -47,6 +51,7 @@ func NewServer(
 		producer: q,
 		registry: reg,
 		rules:    rules,
+		tier:     tier,
 		logger:   logger,
 	}
 
@@ -62,6 +67,16 @@ func NewServer(
 		r.Get("/sources", srv.handleListSources)
 		r.Post("/sources", srv.handleCreateSource)
 		r.Delete("/sources/{id}", srv.handleDeleteSource)
+		r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
+
+		// Rules
+		r.Get("/rules", srv.handleListRules)
+		r.Post("/rules", srv.handleCreateRule)
+		r.Get("/rules/{id}", srv.handleGetRule)
+		r.Put("/rules/{id}", srv.handleUpdateRule)
+		r.Delete("/rules/{id}", srv.handleDeleteRule)
+		r.Post("/rules/{id}/activate", srv.handleActivateRule)
+		r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
 
 		// Tweets — static route /reprocess MUST be registered before /{id}
 		r.Get("/tweets", srv.handleListTweets)
@@ -126,6 +141,21 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// makeResolver returns a SourceResolver backed by the store,
+// returning only active sources.
+func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
+	return func(id int64) (*model.Source, error) {
+		src, err := s.store.GetSource(r.Context(), id)
+		if err != nil {
+			return nil, err
+		}
+		if !src.Active {
+			return nil, fmt.Errorf("source %d is inactive", id)
+		}
+		return src, nil
+	}
+}
+
 // NewServerWithConcreteRules is a convenience constructor for production use
 // where a *stream.RuleManager is available.
 func NewServerWithConcreteRules(
@@ -134,7 +164,8 @@ func NewServerWithConcreteRules(
 	q queue.Producer,
 	reg *inference.Registry,
 	rules *stream.RuleManager,
+	tier string,
 	logger *slog.Logger,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, logger)
+	return NewServer(bind, s, q, reg, rules, tier, logger)
 }

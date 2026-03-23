@@ -7,6 +7,8 @@ import (
 )
 
 func TestLoadEmpty_ReturnsDefaults(t *testing.T) {
+	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "")
+
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -20,6 +22,9 @@ func TestLoadEmpty_ReturnsDefaults(t *testing.T) {
 }
 
 func TestLoadYAML_OverridesDefaults(t *testing.T) {
+	// Clear env vars so they don't override YAML values under test.
+	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "")
+
 	content := `
 x:
   bearer_token: "my-token"
@@ -51,6 +56,8 @@ redis:
 }
 
 func TestLoadNonExistentPath_ReturnsDefaults(t *testing.T) {
+	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "")
+
 	cfg, err := Load("nonexistent-path.yaml")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)

@@ -36,19 +36,23 @@ var sourceListCmd = &cobra.Command{
 		}
 
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tTYPE\tVALUE\tCREATED_AT")
+		fmt.Fprintln(w, "ID\tNAME\tTYPE\tCLASS\tVALUE\tACTIVE")
 		for _, s := range sources {
-			id := formatField(s["id"])
-			typ := formatField(s["type"])
-			value := formatField(s["value"])
-			createdAt := formatField(s["created_at"])
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, typ, value, createdAt)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				formatField(s["id"]),
+				formatField(s["name"]),
+				formatField(s["type"]),
+				formatField(s["class"]),
+				formatField(s["value"]),
+				formatField(s["active"]),
+			)
 		}
 		return w.Flush()
 	},
 }
 
 var (
+	sourceName  string
 	sourceType  string
 	sourceValue string
 )
@@ -57,9 +61,12 @@ var sourceAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Add a new source",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		body := map[string]string{
+		body := map[string]interface{}{
 			"type":  sourceType,
 			"value": sourceValue,
+		}
+		if sourceName != "" {
+			body["name"] = sourceName
 		}
 		data, err := json.Marshal(body)
 		if err != nil {
@@ -81,8 +88,9 @@ var sourceAddCmd = &cobra.Command{
 			return fmt.Errorf("source add: decode response: %w", err)
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Source added: id=%s type=%s value=%s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "Source added: id=%s name=%s type=%s value=%s\n",
 			formatField(created["id"]),
+			formatField(created["name"]),
 			formatField(created["type"]),
 			formatField(created["value"]),
 		)
@@ -118,7 +126,8 @@ var sourceRemoveCmd = &cobra.Command{
 }
 
 func init() {
-	sourceAddCmd.Flags().StringVar(&sourceType, "type", "", "Source type (account|keyword)")
+	sourceAddCmd.Flags().StringVar(&sourceName, "name", "", "Human-readable label (defaults to value)")
+	sourceAddCmd.Flags().StringVar(&sourceType, "type", "", "Source type (account|keyword|hashtag|phrase|mention|...)")
 	sourceAddCmd.Flags().StringVar(&sourceValue, "value", "", "Source value (e.g. @handle or keyword)")
 	_ = sourceAddCmd.MarkFlagRequired("type")
 	_ = sourceAddCmd.MarkFlagRequired("value")
