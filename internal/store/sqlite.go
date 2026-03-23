@@ -543,6 +543,167 @@ func (s *sqliteStore) ListCategorizations(ctx context.Context, filter Categoriza
 	return cats, rows.Err()
 }
 
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+const notificationColumns = `id, name, event_type, active, filter_rule_id, filter_model_name,
+	filter_model_result, pushover_priority, pushover_sound, pushover_device, pushover_title,
+	pushover_url, pushover_url_title, pushover_ttl, pushover_html, pushover_retry, pushover_expire,
+	message_template, created_at, updated_at`
+
+func (s *sqliteStore) SaveNotification(ctx context.Context, n *model.Notification) error {
+	var filterModelResult *string
+	if n.FilterModelResult != nil {
+		s := string(*n.FilterModelResult)
+		filterModelResult = &s
+	}
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO notifications
+		 (name, event_type, active, filter_rule_id, filter_model_name, filter_model_result,
+		  pushover_priority, pushover_sound, pushover_device, pushover_title, pushover_url,
+		  pushover_url_title, pushover_ttl, pushover_html, pushover_retry, pushover_expire,
+		  message_template, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Name,
+		n.EventType,
+		boolToInt(n.Active),
+		n.FilterRuleID,
+		n.FilterModelName,
+		filterModelResult,
+		n.PushoverPriority,
+		n.PushoverSound,
+		n.PushoverDevice,
+		n.PushoverTitle,
+		n.PushoverURL,
+		n.PushoverURLTitle,
+		n.PushoverTTL,
+		boolToInt(n.PushoverHTML),
+		n.PushoverRetry,
+		n.PushoverExpire,
+		n.MessageTemplate,
+		n.CreatedAt.UTC().Format(time.RFC3339),
+		n.UpdatedAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save notification: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("store: save notification: last insert id: %w", err)
+	}
+	n.ID = id
+	return nil
+}
+
+func (s *sqliteStore) GetNotification(ctx context.Context, id int64) (*model.Notification, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+notificationColumns+` FROM notifications WHERE id = ?`, id)
+	n, err := scanNotification(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("store: get notification: not found: %w", err)
+		}
+		return nil, fmt.Errorf("store: get notification: %w", err)
+	}
+	return n, nil
+}
+
+func (s *sqliteStore) ListNotifications(ctx context.Context, filter NotificationFilter) ([]*model.Notification, error) {
+	query := `SELECT ` + notificationColumns + ` FROM notifications`
+	var args []any
+	var where []string
+
+	if filter.EventType != nil {
+		where = append(where, "event_type = ?")
+		args = append(args, *filter.EventType)
+	}
+	if filter.Active != nil {
+		where = append(where, "active = ?")
+		args = append(args, boolToInt(*filter.Active))
+	}
+	if filter.RuleID != nil {
+		where = append(where, "filter_rule_id = ?")
+		args = append(args, *filter.RuleID)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY id ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list notifications: %w", err)
+	}
+	defer rows.Close()
+
+	var notifications []*model.Notification
+	for rows.Next() {
+		n, err := scanNotification(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list notifications: scan: %w", err)
+		}
+		notifications = append(notifications, n)
+	}
+	return notifications, rows.Err()
+}
+
+func (s *sqliteStore) UpdateNotification(ctx context.Context, n *model.Notification) error {
+	var filterModelResult *string
+	if n.FilterModelResult != nil {
+		s := string(*n.FilterModelResult)
+		filterModelResult = &s
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE notifications SET
+		 name = ?, event_type = ?, active = ?, filter_rule_id = ?, filter_model_name = ?,
+		 filter_model_result = ?, pushover_priority = ?, pushover_sound = ?, pushover_device = ?,
+		 pushover_title = ?, pushover_url = ?, pushover_url_title = ?, pushover_ttl = ?,
+		 pushover_html = ?, pushover_retry = ?, pushover_expire = ?, message_template = ?,
+		 updated_at = ?
+		 WHERE id = ?`,
+		n.Name,
+		n.EventType,
+		boolToInt(n.Active),
+		n.FilterRuleID,
+		n.FilterModelName,
+		filterModelResult,
+		n.PushoverPriority,
+		n.PushoverSound,
+		n.PushoverDevice,
+		n.PushoverTitle,
+		n.PushoverURL,
+		n.PushoverURLTitle,
+		n.PushoverTTL,
+		boolToInt(n.PushoverHTML),
+		n.PushoverRetry,
+		n.PushoverExpire,
+		n.MessageTemplate,
+		n.UpdatedAt.UTC().Format(time.RFC3339),
+		n.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update notification: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) DeleteNotification(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM notifications WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete notification: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) SetNotificationActive(ctx context.Context, id int64, active bool) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE notifications SET active = ?, updated_at = ? WHERE id = ?`,
+		boolToInt(active), time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("store: set notification active: %w", err)
+	}
+	return nil
+}
+
 func (s *sqliteStore) ListUncategorizedTweets(ctx context.Context, modelNames []string) ([]*model.Tweet, error) {
 	var query string
 	var args []any
@@ -688,6 +849,83 @@ func scanCategorization(s scanner) (*model.Categorization, error) {
 		return nil, fmt.Errorf("parse categorization created_at: %w", err)
 	}
 	return &c, nil
+}
+
+func scanNotification(s scanner) (*model.Notification, error) {
+	var n model.Notification
+	var active, html int
+	var filterRuleID sql.NullInt64
+	var filterModelName, filterModelResult sql.NullString
+	var pushoverSound, pushoverDevice, pushoverTitle, pushoverURL, pushoverURLTitle sql.NullString
+	var pushoverTTL, pushoverRetry, pushoverExpire sql.NullInt64
+	var messageTemplate sql.NullString
+	var createdAt, updatedAt string
+
+	if err := s.Scan(
+		&n.ID, &n.Name, &n.EventType, &active,
+		&filterRuleID, &filterModelName, &filterModelResult,
+		&n.PushoverPriority, &pushoverSound, &pushoverDevice, &pushoverTitle,
+		&pushoverURL, &pushoverURLTitle, &pushoverTTL, &html,
+		&pushoverRetry, &pushoverExpire, &messageTemplate,
+		&createdAt, &updatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	n.Active = active != 0
+	n.PushoverHTML = html != 0
+
+	if filterRuleID.Valid {
+		n.FilterRuleID = &filterRuleID.Int64
+	}
+	if filterModelName.Valid {
+		n.FilterModelName = &filterModelName.String
+	}
+	if filterModelResult.Valid {
+		raw := json.RawMessage(filterModelResult.String)
+		n.FilterModelResult = &raw
+	}
+	if pushoverSound.Valid {
+		n.PushoverSound = &pushoverSound.String
+	}
+	if pushoverDevice.Valid {
+		n.PushoverDevice = &pushoverDevice.String
+	}
+	if pushoverTitle.Valid {
+		n.PushoverTitle = &pushoverTitle.String
+	}
+	if pushoverURL.Valid {
+		n.PushoverURL = &pushoverURL.String
+	}
+	if pushoverURLTitle.Valid {
+		n.PushoverURLTitle = &pushoverURLTitle.String
+	}
+	if pushoverTTL.Valid {
+		v := int(pushoverTTL.Int64)
+		n.PushoverTTL = &v
+	}
+	if pushoverRetry.Valid {
+		v := int(pushoverRetry.Int64)
+		n.PushoverRetry = &v
+	}
+	if pushoverExpire.Valid {
+		v := int(pushoverExpire.Int64)
+		n.PushoverExpire = &v
+	}
+	if messageTemplate.Valid {
+		n.MessageTemplate = &messageTemplate.String
+	}
+
+	var err error
+	n.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse notification created_at: %w", err)
+	}
+	n.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse notification updated_at: %w", err)
+	}
+	return &n, nil
 }
 
 func boolToInt(b bool) int {
