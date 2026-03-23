@@ -95,3 +95,12 @@ func TestEnvVar_RedisDB_Invalid(t *testing.T) {
 		t.Fatal("expected error for invalid IRAN_WATCHER_REDIS_DB, got nil")
 	}
 }
+
+func TestEnvVar_WorkerCount_Invalid(t *testing.T) {
+	t.Setenv("IRAN_WATCHER_WORKER_COUNT", "notanumber")
+
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("expected error for invalid IRAN_WATCHER_WORKER_COUNT, got nil")
+	}
+}

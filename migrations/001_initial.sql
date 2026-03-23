@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS models (
     name       TEXT NOT NULL,
     version    TEXT NOT NULL,
     path       TEXT NOT NULL,
+    -- type is open-ended to support future model types without migrations; common values: classification, ner, sentiment
     type       TEXT NOT NULL,
     active     INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT (datetime('now'))
