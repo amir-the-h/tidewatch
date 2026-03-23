@@ -34,15 +34,17 @@ Components emit lightweight `NotificationEvent` structs onto a buffered channel.
 
 ## Data Model
 
-### `notifications` table (migration 004)
+### `notifications` table
+
+> **Note:** Migration file is numbered `004_notifications.sql` based on current state (001, 003 exist). Confirm the next available number at implementation time in case another branch lands first.
 
 ```sql
-CREATE TABLE notifications (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    name             TEXT    NOT NULL,
-    event_type       TEXT    NOT NULL,
-    active           BOOLEAN NOT NULL DEFAULT 1,
-    filter_rule_id   INTEGER NULL REFERENCES rules(id),
+CREATE TABLE IF NOT EXISTS notifications (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                 TEXT    NOT NULL,
+    event_type           TEXT    NOT NULL,
+    active               INTEGER NOT NULL DEFAULT 1,
+    filter_rule_id       INTEGER NULL REFERENCES rules(id),
     filter_model_name    TEXT NULL,
     filter_model_result  TEXT NULL,  -- JSON, shallow key-value match
     pushover_priority    INTEGER NOT NULL DEFAULT 0,
@@ -52,25 +54,64 @@ CREATE TABLE notifications (
     pushover_url         TEXT NULL,
     pushover_url_title   TEXT NULL,
     pushover_ttl         INTEGER NULL,
-    pushover_html        BOOLEAN NOT NULL DEFAULT 0,
+    pushover_html        INTEGER NOT NULL DEFAULT 0,
     pushover_retry       INTEGER NULL,
     pushover_expire      INTEGER NULL,
     message_template     TEXT NULL,
-    created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at           DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at           DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_notifications_event_type ON notifications(event_type);
-CREATE INDEX idx_notifications_active ON notifications(active);
+CREATE INDEX IF NOT EXISTS idx_notifications_event_type ON notifications(event_type);
+CREATE INDEX IF NOT EXISTS idx_notifications_active ON notifications(active);
+```
+
+### Notification Domain Struct
+
+```go
+type Notification struct {
+    ID                int64            `json:"id"`
+    Name              string           `json:"name"`
+    EventType         string           `json:"event_type"`
+    Active            bool             `json:"active"`
+    FilterRuleID      *int64           `json:"filter_rule_id,omitempty"`
+    FilterModelName   *string          `json:"filter_model_name,omitempty"`
+    FilterModelResult *json.RawMessage `json:"filter_model_result,omitempty"`
+    PushoverPriority  int              `json:"pushover_priority"`
+    PushoverSound     *string          `json:"pushover_sound,omitempty"`
+    PushoverDevice    *string          `json:"pushover_device,omitempty"`
+    PushoverTitle     *string          `json:"pushover_title,omitempty"`
+    PushoverURL       *string          `json:"pushover_url,omitempty"`
+    PushoverURLTitle  *string          `json:"pushover_url_title,omitempty"`
+    PushoverTTL       *int             `json:"pushover_ttl,omitempty"`
+    PushoverHTML      bool             `json:"pushover_html"`
+    PushoverRetry     *int             `json:"pushover_retry,omitempty"`
+    PushoverExpire    *int             `json:"pushover_expire,omitempty"`
+    MessageTemplate   *string          `json:"message_template,omitempty"`
+    CreatedAt         time.Time        `json:"created_at"`
+    UpdatedAt         time.Time        `json:"updated_at"`
+}
+```
+
+### NotificationFilter
+
+Defined in `internal/store/store.go` alongside the existing filter types (`TweetFilter`, `RuleFilter`, etc.):
+
+```go
+type NotificationFilter struct {
+    EventType *string
+    Active    *bool
+    RuleID    *int64
+}
 ```
 
 ### Filter Logic
 
 All non-null filters are AND'd. A notification with no filters fires for every event of its `event_type`.
 
-- **`filter_rule_id`**: Event's matching rules must include this rule ID.
+- **`filter_rule_id`**: Event's resolved local rule IDs must include this rule ID.
 - **`filter_model_name`**: Event's model name must equal this value.
-- **`filter_model_result`**: Shallow JSON match — each key in the filter must exist in the categorization results with the same value. Not a query language; designed for `{"label": "sanctions"}` style matching.
+- **`filter_model_result`**: Shallow JSON match — each key in the filter must exist in the categorization results with the same value. Only applies when results are a JSON object; non-object results (arrays, strings) will not match any filter and the notification is skipped for that event.
 
 ## Event System
 
@@ -78,16 +119,17 @@ All non-null filters are AND'd. A notification with no filters fires for every e
 
 ```go
 type NotificationEvent struct {
-    Type         string               // event_type enum
-    Tweet        *model.Tweet         // nil for stream events
-    Rules        []model.MatchingRule // nil for stream events
-    ModelName    string               // only for categorization events
-    ModelVersion string               // only for categorization events
-    Results      json.RawMessage      // only for tweet_categorized
-    Error        string               // only for failure/error events
-    Timestamp    time.Time
+    Type      string             // event_type enum
+    Tweet     *model.Tweet       // nil for stream events
+    RuleIDs   []int64            // local rule IDs, nil for stream events
+    ModelName string             // only for categorization events
+    Results   json.RawMessage    // only for tweet_categorized
+    Error     string             // only for failure/error events
+    Timestamp time.Time
 }
 ```
+
+> **Note:** `RuleIDs` carries resolved local rule IDs (not `model.MatchingRule` which only has X API IDs). The stream client already resolves X rule IDs to local rules via `GetRuleByXRuleID` in `processEvent`, so the local IDs are available at the emit point. `ModelVersion` is omitted because the `inference.Pipeline` interface does not expose version and the worker does not set it on `Categorization`.
 
 ### Event Type Constants
 
@@ -102,27 +144,56 @@ const (
 )
 ```
 
+### EventEmitter Interface
+
+To avoid coupling `stream` and `worker` packages to the concrete `Dispatcher` type:
+
+```go
+// In internal/notifier/event.go
+type EventEmitter interface {
+    Emit(event NotificationEvent)
+}
+```
+
+`stream.Client` and `worker.Pool` accept an `EventEmitter` interface (may be nil — emit calls are no-ops when nil, so the notifier is fully optional).
+
 ### Emit Points
 
 | Component | Event | Location |
 |-----------|-------|----------|
-| `stream.Client.processEvent` | `tweet_matched` | After saving tweet + rules to SQLite |
+| `stream.Client.processEvent` | `tweet_matched` | After saving tweet + rules to SQLite. Collects resolved local rule IDs from the rule lookup loop. |
 | `worker.worker` | `tweet_categorized` | After `SaveCategorization` succeeds |
 | `worker.worker` | `categorization_failed` | Per failed model in the pipeline loop |
-| `stream.Client.Connect` | `stream_connected` | After successful HTTP connection |
+| `stream.Client.connect` | `stream_connected` | After successful HTTP connection (2xx response) |
 | `stream.Client.Disconnect` | `stream_disconnected` | After stream goroutine exits |
 | `stream.Client.runLoop` | `stream_error` | On connection error before backoff retry |
+
+## Store Interface Methods
+
+Added to the `Store` interface, following the existing pattern:
+
+```go
+// Notifications
+SaveNotification(ctx context.Context, n *model.Notification) error
+GetNotification(ctx context.Context, id int64) (*model.Notification, error)
+ListNotifications(ctx context.Context, filter NotificationFilter) ([]*model.Notification, error)
+UpdateNotification(ctx context.Context, n *model.Notification) error
+DeleteNotification(ctx context.Context, id int64) error
+SetNotificationActive(ctx context.Context, id int64, active bool) error
+```
+
+The dispatcher uses `ListNotifications` with `EventType` + `Active=true` filter to fetch matching configs per event.
 
 ## Dispatcher
 
 ### Behavior
 
-- Owns a `chan NotificationEvent` (buffered, default 256, configurable)
+- Owns a `chan NotificationEvent` (buffered, default 256)
 - Runs a single goroutine via `Start(ctx context.Context)`
 - Per event:
   1. Query active notification configs from store where `event_type` matches
   2. For each config, evaluate filters against event data
-  3. If all filters pass, render message template (custom or default), expand URL placeholders, build `PushoverMessage`
+  3. If all filters pass, render message template (custom or default), expand URL placeholders (guarding against nil Tweet), build `PushoverMessage`
   4. Call `PushoverClient.Send(ctx, msg)`
   5. On error: log via slog, continue to next config
 - On context cancellation: drain remaining channel events (best-effort), then exit
@@ -133,7 +204,13 @@ const (
 func (d *Dispatcher) Emit(event NotificationEvent)
 ```
 
-Non-blocking send. If the channel buffer is full, log a warning and drop the event.
+Non-blocking send. If the channel buffer is full, log a warning and drop the event. Satisfies the `EventEmitter` interface.
+
+### Constructor
+
+```go
+func NewDispatcher(store store.Store, client *PushoverClient, logger *slog.Logger) *Dispatcher
+```
 
 ## Pushover Client
 
@@ -143,6 +220,15 @@ Non-blocking send. If the channel buffer is full, log a warning and drop the eve
 pushover:
   app_token: ""   # IRAN_WATCHER_PUSHOVER_APP_TOKEN
   user_key: ""    # IRAN_WATCHER_PUSHOVER_USER_KEY
+```
+
+Added to the `Config` struct:
+
+```go
+Pushover struct {
+    AppToken string `yaml:"app_token"`
+    UserKey  string `yaml:"user_key"`
+}
 ```
 
 Global app token and user key. Per-notification device targeting via `pushover_device` field.
@@ -192,8 +278,8 @@ Go `text/template` with data context from `NotificationEvent`:
 
 ```
 {{.Tweet.ID}}, {{.Tweet.AuthorHandle}}, {{.Tweet.Text}}
-{{.Rules}}
-{{.ModelName}}, {{.ModelVersion}}
+{{.RuleIDs}}
+{{.ModelName}}
 {{.Results}}
 {{.Error}}
 {{.Timestamp}}
@@ -212,7 +298,7 @@ Go `text/template` with data context from `NotificationEvent`:
 
 ### URL Placeholder Expansion
 
-`pushover_url` supports `{tweet_id}`, `{author_handle}` via `strings.NewReplacer`. Not Go templates — keeps URLs clean in JSON without escaping.
+`pushover_url` supports `{tweet_id}`, `{author_handle}` via `strings.NewReplacer`. Not Go templates — keeps URLs clean in JSON without escaping. For stream events where `Tweet` is nil, placeholders expand to empty strings.
 
 ## REST API
 
@@ -228,6 +314,10 @@ Go `text/template` with data context from `NotificationEvent`:
 | `POST` | `/api/notifications/{id}/activate` | Enable |
 | `POST` | `/api/notifications/{id}/deactivate` | Disable |
 | `POST` | `/api/notifications/test` | Send test notification (`{"notification_id": 123}`) |
+
+### Test Endpoint Behavior
+
+Fetches the notification config by ID, renders its message template with placeholder test data (e.g., a fake tweet with "This is a test notification" text), and sends directly to Pushover via `PushoverClient.Send()` — bypasses the channel and filter system. This verifies that Pushover credentials, device targeting, and message formatting all work.
 
 ### Request Body (Create/Update)
 
@@ -282,24 +372,25 @@ Thin REST client calls, consistent with existing CLI commands.
 ```
 internal/notifier/pushover.go       — PushoverClient, PushoverMessage, Send()
 internal/notifier/dispatcher.go     — Dispatcher, event channel, goroutine loop, filter matching
-internal/notifier/event.go          — NotificationEvent, event type constants
+internal/notifier/event.go          — NotificationEvent, EventEmitter interface, event type constants
 internal/notifier/template.go       — default templates, rendering, URL placeholder expansion
 internal/model/notification.go      — Notification domain struct, NotificationFilter
 internal/api/handlers_notifications.go — CRUD + activate/deactivate + test handlers
 cli/cmd/notification.go             — Cobra commands
-migrations/004_notifications.sql    — CREATE TABLE
+migrations/004_notifications.sql    — CREATE TABLE (confirm number at implementation time)
 ```
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `internal/config/config.go` | Add `Pushover` struct (`AppToken`, `UserKey`) |
-| `cli/cmd/serve.go` | Create PushoverClient + Dispatcher, pass to components |
-| `internal/stream/client.go` | Accept dispatcher, emit tweet + stream events |
-| `internal/worker/pool.go` + `worker.go` | Accept dispatcher, emit categorization events |
-| `internal/api/server.go` | Accept dispatcher, register notification routes |
-| `internal/store/store.go` | Add notification methods to Store interface |
+| `internal/config/config.go` | Add `Pushover` struct (`AppToken`, `UserKey`), env var overrides |
+| `cli/cmd/serve.go` | Create PushoverClient + Dispatcher, pass dispatcher to stream.Client, worker.Pool, api.Server |
+| `internal/stream/client.go` | Add `emitter EventEmitter` field to `Client`, accept via `NewClient`, emit tweet + stream events |
+| `internal/worker/pool.go` | Add `emitter EventEmitter` field to `Pool`, accept via `NewPool`, pass to worker structs |
+| `internal/worker/worker.go` | Add `emitter EventEmitter` field to `worker`, emit `TweetCategorized` and `CategorizationFailed` |
+| `internal/api/server.go` | Add `dispatcher *notifier.Dispatcher` field to `Server`, accept via both `NewServer` and `NewServerWithConcreteRules`, register notification routes |
+| `internal/store/store.go` | Add `NotificationFilter` struct and notification methods to `Store` interface |
 | `configs/iran-watcher.yaml` | Add `pushover` section |
 
 ## Design Decisions
@@ -310,3 +401,5 @@ migrations/004_notifications.sql    — CREATE TABLE
 4. **No receipt tracking** — emergency notifications use Pushover's built-in retry/expire mechanism.
 5. **Shallow JSON match for model results** — simple and sufficient for label-based filtering without building a query language.
 6. **Global Pushover credentials in config** — single user system, no need for per-notification auth.
+7. **EventEmitter interface** — decouples stream/worker from notifier package, preserves testability. Nil-safe: emit is a no-op when emitter is nil, so the notifier is fully optional.
+8. **Local rule IDs in events** — uses resolved `int64` rule IDs (not `MatchingRule` which carries X API string IDs) so filter matching is a direct comparison against `filter_rule_id`.
