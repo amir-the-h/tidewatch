@@ -1,0 +1,18 @@
+# Worktrees
+.worktrees/
+
+# Binary output
+iran-watcher
+
+# ONNX model files
+models/
+
+# SQLite database
+data/
+
+# Environment files
+.env
+*.env
+
+# OS
+.DS_Store
