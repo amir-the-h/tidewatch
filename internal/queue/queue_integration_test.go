@@ -2,17 +2,7 @@
 
 package queue
 
-import (
-	"testing"
-)
-
-// TestRedisQueue_Integration spins up a real Redis container and verifies a
-// full Push → Pop round-trip.  Relies on testcontainers-go.
-//
-// Run with: go test -tags integration ./internal/queue/...
-//
-// Implementation note: testcontainers-go is not yet in go.mod; add it when
-// the integration test suite is wired up in CI.
-func TestRedisQueue_Integration(t *testing.T) {
-	t.Skip("testcontainers-go not yet in go.mod — add when wiring CI")
-}
+// Integration tests for RedisQueue require testcontainers-go and a Docker daemon.
+// TODO: implement TestRedisQueue_Integration using testcontainers-go when wiring CI.
+// The test should: spin up a Redis container, Push a StreamTweet to QueueRaw,
+// Pop it back, and verify the full round-trip.

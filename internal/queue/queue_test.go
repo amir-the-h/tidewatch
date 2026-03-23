@@ -28,7 +28,7 @@ func TestFailedTweet_JSONRoundTrip(t *testing.T) {
 			},
 		},
 		FailedModels: []FailedModel{
-			{Name: "sentiment", Error: "model not loaded", Timestamp: "2026-03-23T00:00:00Z"},
+			{Name: "sentiment", Error: "model not loaded", Timestamp: time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)},
 		},
 	}
 

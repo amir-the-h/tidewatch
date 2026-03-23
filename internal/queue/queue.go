@@ -20,9 +20,9 @@ type FailedTweet struct {
 
 // FailedModel records which model failed and why.
 type FailedModel struct {
-	Name      string `json:"name"`
-	Error     string `json:"error"`
-	Timestamp string `json:"timestamp"`
+	Name      string    `json:"name"`
+	Error     string    `json:"error"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // Producer pushes tweets onto a queue.
