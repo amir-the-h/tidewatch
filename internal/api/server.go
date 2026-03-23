@@ -24,12 +24,20 @@ type ruleManagerInterface interface {
 	ListRules(ctx context.Context) ([]stream.XRule, error)
 }
 
+// streamClientInterface allows mocking of stream.Client in tests.
+type streamClientInterface interface {
+	Connect(ctx context.Context) error
+	Disconnect()
+	Connected() bool
+}
+
 // Server is the REST API server.
 type Server struct {
 	store    store.Store
 	producer queue.Producer
 	registry *inference.Registry
 	rules    ruleManagerInterface
+	stream   streamClientInterface
 	tier     string
 	logger   *slog.Logger
 	router   chi.Router
@@ -43,6 +51,7 @@ func NewServer(
 	q queue.Producer,
 	reg *inference.Registry,
 	rules ruleManagerInterface,
+	sc streamClientInterface,
 	tier string,
 	logger *slog.Logger,
 ) *Server {
@@ -51,6 +60,7 @@ func NewServer(
 		producer: q,
 		registry: reg,
 		rules:    rules,
+		stream:   sc,
 		tier:     tier,
 		logger:   logger,
 	}
@@ -90,6 +100,11 @@ func NewServer(
 		r.Delete("/models/{id}", srv.handleDeleteModel)
 		r.Post("/models/{id}/activate", srv.handleActivateModel)
 		r.Post("/models/{id}/deactivate", srv.handleDeactivateModel)
+
+		// Stream
+		r.Get("/stream/status", srv.handleStreamStatus)
+		r.Post("/stream/connect", srv.handleStreamConnect)
+		r.Post("/stream/disconnect", srv.handleStreamDisconnect)
 
 		// Categorizations
 		r.Get("/categorizations", srv.handleListCategorizations)
@@ -157,15 +172,16 @@ func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
 }
 
 // NewServerWithConcreteRules is a convenience constructor for production use
-// where a *stream.RuleManager is available.
+// where a *stream.RuleManager and *stream.Client are available.
 func NewServerWithConcreteRules(
 	bind string,
 	s store.Store,
 	q queue.Producer,
 	reg *inference.Registry,
 	rules *stream.RuleManager,
+	sc *stream.Client,
 	tier string,
 	logger *slog.Logger,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, tier, logger)
+	return NewServer(bind, s, q, reg, rules, sc, tier, logger)
 }

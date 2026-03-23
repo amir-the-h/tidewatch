@@ -14,5 +14,8 @@ data/
 .env
 *.env
 
+# Rule files
+rules/
+
 # OS
 .DS_Store

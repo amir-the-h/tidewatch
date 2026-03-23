@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -15,12 +16,13 @@ import (
 )
 
 const (
-	defaultStreamURL  = "https://api.twitter.com/2/tweets/search/stream?tweet.fields=created_at,author_id&expansions=author_id&user.fields=username"
-	backoffMin        = 1 * time.Second
-	backoffMax        = 5 * time.Minute
+	defaultStreamURL = "https://api.twitter.com/2/tweets/search/stream?tweet.fields=created_at,author_id&expansions=author_id&user.fields=username"
+	backoffMin       = 1 * time.Second
+	backoffMax       = 5 * time.Minute
 )
 
 // Client maintains a persistent connection to the X Filtered Stream.
+// The stream does not start automatically; call Connect to begin streaming.
 type Client struct {
 	bearerToken string
 	store       store.Store
@@ -29,9 +31,14 @@ type Client struct {
 	httpClient  *http.Client
 	logger      *slog.Logger
 	streamURL   string // overridable for tests
+
+	mu        sync.Mutex
+	connected bool
+	cancel    context.CancelFunc
+	done      chan struct{}
 }
 
-// NewClient creates a new stream Client.
+// NewClient creates a new stream Client. The stream is disconnected by default.
 func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleManager, logger *slog.Logger) *Client {
 	return &Client{
 		bearerToken: bearerToken,
@@ -44,8 +51,70 @@ func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleM
 	}
 }
 
+// Connected reports whether the stream is currently active.
+func (c *Client) Connected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connected
+}
+
+// Connect starts the stream connection loop in a background goroutine.
+// Returns an error if already connected. The stream runs until Disconnect
+// is called or parentCtx is cancelled.
+func (c *Client) Connect(parentCtx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connected {
+		return fmt.Errorf("stream: already connected")
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
+	c.cancel = cancel
+	c.connected = true
+	c.done = make(chan struct{})
+
+	go func() {
+		defer func() {
+			c.mu.Lock()
+			c.connected = false
+			c.mu.Unlock()
+			close(c.done)
+		}()
+
+		if err := c.runLoop(ctx); err != nil {
+			c.logger.Error("stream: loop exited with error", "component", "stream", "error", err)
+		}
+	}()
+
+	c.logger.Info("stream: connect requested", "component", "stream")
+	return nil
+}
+
+// Disconnect stops the stream connection. No-op if already disconnected.
+func (c *Client) Disconnect() {
+	c.mu.Lock()
+	if !c.connected {
+		c.mu.Unlock()
+		return
+	}
+	cancel := c.cancel
+	done := c.done
+	c.mu.Unlock()
+
+	cancel()
+	<-done
+	c.logger.Info("stream: disconnected", "component", "stream")
+}
+
 // Start begins the stream connection loop. Blocks until ctx is cancelled.
+// Deprecated: Use Connect/Disconnect for non-blocking control.
 func (c *Client) Start(ctx context.Context) error {
+	return c.runLoop(ctx)
+}
+
+// runLoop is the internal reconnect loop with exponential backoff.
+func (c *Client) runLoop(ctx context.Context) error {
 	backoff := backoffMin
 
 	for {

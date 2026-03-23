@@ -105,19 +105,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	pool := worker.NewPool(workerCount, q, q, s, reg, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, cfg.X.Tier, logger)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, logger)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	errCh := make(chan error, 3)
+	errCh := make(chan error, 2)
 
-	go func() {
-		logger.Info("serve: starting stream client", "component", "stream")
-		if err := streamClient.Start(ctx); err != nil {
-			errCh <- fmt.Errorf("stream: %w", err)
-		}
-	}()
+	logger.Info("serve: stream is disconnected; use API or CLI to connect", "component", "stream")
 
 	go func() {
 		logger.Info("serve: starting worker pool", "component", "worker", "count", workerCount)
@@ -141,6 +136,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	cancel()
+
+	streamClient.Disconnect()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
