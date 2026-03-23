@@ -57,7 +57,7 @@ func (w *worker) run(ctx context.Context) {
 			result, runErr := pipeline.Run([]byte(streamTweet.Tweet.Text))
 			if runErr != nil {
 				if w.logger != nil {
-					w.logger.Error("worker: run: pipeline failed",
+					w.logger.Warn("worker: run: pipeline failed",
 						"worker_id", w.id,
 						"tweet_id", streamTweet.Tweet.ID,
 						"pipeline", pipeline.Name(),
@@ -79,7 +79,7 @@ func (w *worker) run(ctx context.Context) {
 			}
 			if saveErr := w.store.SaveCategorization(ctx, c); saveErr != nil {
 				if w.logger != nil {
-					w.logger.Error("worker: run: save categorization failed",
+					w.logger.Warn("worker: run: save categorization failed",
 						"worker_id", w.id,
 						"tweet_id", streamTweet.Tweet.ID,
 						"pipeline", pipeline.Name(),
