@@ -1,0 +1,54 @@
+services:
+  iran-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: iran-watcher:latest
+    container_name: iran-watcher
+    restart: unless-stopped
+
+    environment:
+      # Required
+      IRAN_WATCHER_X_BEARER_TOKEN: "${IRAN_WATCHER_X_BEARER_TOKEN}"
+
+      # Redis — point at the service name in your Redis stack's network
+      IRAN_WATCHER_REDIS_ADDR: "${IRAN_WATCHER_REDIS_ADDR:-redis:6379}"
+      IRAN_WATCHER_REDIS_PASSWORD: "${IRAN_WATCHER_REDIS_PASSWORD:-}"
+      IRAN_WATCHER_REDIS_DB: "${IRAN_WATCHER_REDIS_DB:-0}"
+
+      # Logging
+      IRAN_WATCHER_LOG_FORMAT: "${IRAN_WATCHER_LOG_FORMAT:-json}"
+      IRAN_WATCHER_LOG_LEVEL: "${IRAN_WATCHER_LOG_LEVEL:-info}"
+
+      # Optional Pushover notifications
+      IRAN_WATCHER_PUSHOVER_APP_TOKEN: "${IRAN_WATCHER_PUSHOVER_APP_TOKEN:-}"
+      IRAN_WATCHER_PUSHOVER_USER_KEY: "${IRAN_WATCHER_PUSHOVER_USER_KEY:-}"
+
+    volumes:
+      # Persistent SQLite database
+      - iran-watcher-data:/data
+      # ONNX model files (populate via: docker run --rm -v iran-watcher-models:/models ...)
+      - iran-watcher-models:/models
+
+    ports:
+      # Bind API only to localhost on the host — not exposed publicly
+      - "127.0.0.1:8080:8080"
+
+    networks:
+      - default
+      # Shared network from your Redis stack — set REDIS_NETWORK name in .env
+      - redis
+
+volumes:
+  iran-watcher-data:
+  iran-watcher-models:
+
+networks:
+  # The app's own bridge network (default)
+  default:
+    driver: bridge
+
+  # External network shared with the Redis stack
+  redis:
+    external: true
+    name: "${REDIS_NETWORK:-redis_default}"
