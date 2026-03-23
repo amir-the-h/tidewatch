@@ -17,7 +17,7 @@ A Vue 3 single-page admin interface that exposes all REST API capabilities of th
 | Component library | Naive UI (dark theme) |
 | State management | Pinia (one store per API resource) |
 | Routing | Vue Router 4 |
-| API config | `VITE_API_BASE_URL` build-time env var |
+| API config | `VITE_API_BASE_URL` build-time env var (image must be rebuilt if API URL changes) |
 
 ## Project Structure
 
@@ -42,6 +42,7 @@ web/
 │   │   ├── tweets.ts
 │   │   ├── models.ts
 │   │   ├── stream.ts
+│   │   ├── categorizations.ts
 │   │   └── notifications.ts
 │   ├── views/
 │   │   ├── StreamView.vue
@@ -108,7 +109,7 @@ Components read from stores and call store actions; they do not call the API dir
 - Create button → opens a drawer with:
   - Name field
   - Visual expression tree builder (see below)
-  - Compiled preview (read-only, updated as tree changes)
+  - Compiled preview (read-only, populated from `compiled_value` in the API response after save — the frontend does not compile locally)
 - Row actions: Edit (same drawer), Activate, Deactivate, Delete
 - Delete blocked with explanation if rule has tweet history (API returns 409)
 
@@ -116,6 +117,7 @@ Components read from stores and call store actions; they do not call the API dir
 - Table: name, type, operator, value, active badge
 - Create drawer: name field, type dropdown (all SourceType constants), value field. Operator is read-only, auto-populated from the selected type.
 - Row actions: Deactivate, Delete
+- Delete blocked with explanation if source is referenced by a rule (API returns 409)
 
 ### Models (`/models`)
 - Table: name, version, path, type, active badge
@@ -135,7 +137,7 @@ Components read from stores and call store actions; they do not call the API dir
   - Pushover section: priority (dropdown 0-2), sound, device, title, URL, URL title, TTL, HTML toggle, retry, expire
   - message_template text area
   - Priority=2 (Emergency) validates retry ≥ 30 and expire 1–10800 client-side before submit
-- Row actions: Test (calls `POST /api/notifications/test`), Activate, Deactivate, Delete
+- Row actions: Test (calls `POST /api/notifications/test` with body `{"notification_id": <id>}`), Activate, Deactivate, Delete
 
 ## Rule Expression Tree Builder
 
@@ -157,9 +159,11 @@ type ExprNode =
 - For `src`: a dropdown populated from the sources store (shows name + operator + value)
 - For `op`: a free-text input
 
+The component stores node type as local state (a `nodeType` ref: `'AND' | 'OR' | 'NOT' | 'src' | 'op'`). This is the source of truth for which variant is rendered — switching type resets the node to a fresh default value for that variant. When serialising to `ExprNode`, the component builds the appropriate shape from `nodeType` and the current input values.
+
 Nodes can be removed with a delete button (except the root). The tree emits an `update:modelValue` event with the updated `ExprNode` so the parent view can track it and display the compiled preview.
 
-A compiled preview (the raw `compiled_value` string returned from the API after creation) is shown as a read-only field beneath the tree in the rules drawer.
+A compiled preview (the raw `compiled_value` string returned from the API after save — the frontend does not compile locally) is shown as a read-only field beneath the tree in the rules drawer.
 
 ## Docker Deployment
 
