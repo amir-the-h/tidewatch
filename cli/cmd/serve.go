@@ -94,7 +94,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	rules := stream.NewRuleManager(cfg.X.BearerToken, nil)
-	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, rules, logger)
+	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, rules, nil, logger)
 
 	workerCount := cfg.Worker.Count
 	if workerCount == 0 {
