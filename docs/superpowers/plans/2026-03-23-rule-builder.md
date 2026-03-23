@@ -1794,23 +1794,16 @@ func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
 }
 ```
 
-Register routes in `NewServer` (replace existing sources block, add rules):
+Update the sources route block in `NewServer` to add the deactivate route:
 ```go
 // Sources
 r.Get("/sources", srv.handleListSources)
 r.Post("/sources", srv.handleCreateSource)
 r.Delete("/sources/{id}", srv.handleDeleteSource)
 r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
-
-// Rules
-r.Get("/rules", srv.handleListRules)
-r.Post("/rules", srv.handleCreateRule)
-r.Get("/rules/{id}", srv.handleGetRule)
-r.Put("/rules/{id}", srv.handleUpdateRule)
-r.Delete("/rules/{id}", srv.handleDeleteRule)
-r.Post("/rules/{id}/activate", srv.handleActivateRule)
-r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
 ```
+
+Do NOT add rule routes yet — those handler methods don't exist until Task 11. Rule routes are registered in Task 11 Step 4.
 
 Update `NewServerWithConcreteRules` signature to accept `tier string` and pass it through to `NewServer`.
 
@@ -1839,18 +1832,18 @@ Remove the old `source_id` block.
 apiSrv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, cfg.X.Tier, logger)
 ```
 
-- [ ] **Step 4: Build everything**
+- [ ] **Step 4: Build**
 
 ```bash
 go build ./...
 ```
-Expected: clean build (note: `handlers_rules.go` does not exist yet — that's fine, it's added in Task 11).
+Expected: clean build. Rule routes are NOT registered here — handler methods don't exist until Task 11.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add internal/api/server.go internal/api/handlers_tweets.go cli/cmd/serve.go
-git commit -m "feat(api): wire tier+resolver into Server, add rule/source-deactivate routes, rule_id tweet filter"
+git commit -m "feat(api): add tier+makeResolver to Server, source deactivate route, rule_id tweet filter"
 ```
 
 ---
@@ -2263,25 +2256,40 @@ func parseID(r *http.Request) (int64, error) {
 }
 ```
 
-- [ ] **Step 4: Build**
+- [ ] **Step 4: Register rule routes in `server.go`**
+
+Now that the handler methods exist, add the rule routes to `NewServer` in `server.go`:
+
+```go
+// Rules — add after the Sources block
+r.Get("/rules", srv.handleListRules)
+r.Post("/rules", srv.handleCreateRule)
+r.Get("/rules/{id}", srv.handleGetRule)
+r.Put("/rules/{id}", srv.handleUpdateRule)
+r.Delete("/rules/{id}", srv.handleDeleteRule)
+r.Post("/rules/{id}/activate", srv.handleActivateRule)
+r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
+```
+
+- [ ] **Step 5: Build**
 
 ```bash
-go build ./internal/api/...
+go build ./...
 ```
-Expected: clean build (Task 10 added `tier` and `makeResolver` to `Server`).
+Expected: clean build.
 
-- [ ] **Step 5: Run rule handler tests**
+- [ ] **Step 6: Run rule handler tests**
 
 ```bash
 go test ./internal/api/... -run "TestCreateRule|TestDeleteRule|TestDeactivateRule|TestUpdateActiveRule" -v
 ```
 Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add internal/api/handlers_rules.go internal/api/api_test.go
-git commit -m "feat(api): add rule CRUD handlers with create/update/activate/deactivate/delete"
+git add internal/api/handlers_rules.go internal/api/api_test.go internal/api/server.go
+git commit -m "feat(api): add rule CRUD handlers with create/update/activate/deactivate/delete; register rule routes"
 ```
 
 ---
