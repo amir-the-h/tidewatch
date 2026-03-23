@@ -98,7 +98,17 @@ func (m *mockStore) ListCategorizations(_ context.Context, _ store.Categorizatio
 func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
 	return nil, nil
 }
-func (m *mockStore) Close() error { return nil }
+func (m *mockStore) SaveNotification(_ context.Context, _ *model.Notification) error { return nil }
+func (m *mockStore) GetNotification(_ context.Context, _ int64) (*model.Notification, error) {
+	return nil, nil
+}
+func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFilter) ([]*model.Notification, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
+func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
+func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
+func (m *mockStore) Close() error                                                       { return nil }
 
 // --- stubPipeline ---
 
@@ -311,7 +321,7 @@ func TestPool_Start_LaunchesWorkers(t *testing.T) {
 	storeImpl := &mockStore{}
 	reg := inference.NewRegistry()
 
-	pool := NewPool(2, consumer, producer, storeImpl, reg, nil)
+	pool := NewPool(2, consumer, producer, storeImpl, reg, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -337,7 +347,7 @@ func TestPool_Start_RespectsCtxCancel(t *testing.T) {
 	storeImpl := &mockStore{}
 	reg := inference.NewRegistry()
 
-	pool := NewPool(2, consumer, producer, storeImpl, reg, nil)
+	pool := NewPool(2, consumer, producer, storeImpl, reg, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

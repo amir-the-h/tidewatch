@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -31,7 +32,8 @@ type Client struct {
 	rules       *RuleManager
 	httpClient  *http.Client
 	logger      *slog.Logger
-	streamURL   string // overridable for tests
+	streamURL   string                // overridable for tests
+	emitter     notifier.EventEmitter // may be nil
 
 	mu        sync.Mutex
 	connected bool
@@ -40,7 +42,7 @@ type Client struct {
 }
 
 // NewClient creates a new stream Client. The stream is disconnected by default.
-func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleManager, logger *slog.Logger) *Client {
+func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleManager, emitter notifier.EventEmitter, logger *slog.Logger) *Client {
 	return &Client{
 		bearerToken: bearerToken,
 		store:       s,
@@ -51,8 +53,9 @@ func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleM
 				ResponseHeaderTimeout: 60 * time.Second,
 			},
 		},
-		logger:      logger,
-		streamURL:   defaultStreamURL,
+		logger:    logger,
+		streamURL: defaultStreamURL,
+		emitter:   emitter,
 	}
 }
 
@@ -110,6 +113,12 @@ func (c *Client) Disconnect() {
 	cancel()
 	<-done
 	c.logger.Info("stream: disconnected", "component", "stream")
+	if c.emitter != nil {
+		c.emitter.Emit(notifier.NotificationEvent{
+			Type:      notifier.EventStreamDisconnected,
+			Timestamp: time.Now(),
+		})
+	}
 }
 
 // Start begins the stream connection loop. Blocks until ctx is cancelled.
@@ -137,6 +146,13 @@ func (c *Client) runLoop(ctx context.Context) error {
 				"error", err,
 				"backoff", backoff,
 			)
+			if c.emitter != nil {
+				c.emitter.Emit(notifier.NotificationEvent{
+					Type:      notifier.EventStreamError,
+					Error:     err.Error(),
+					Timestamp: time.Now(),
+				})
+			}
 		} else if ctx.Err() != nil {
 			return nil
 		} else {
@@ -193,6 +209,12 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 	}
 
 	c.logger.Info("stream: connected", "component", "stream")
+	if c.emitter != nil {
+		c.emitter.Emit(notifier.NotificationEvent{
+			Type:      notifier.EventStreamConnected,
+			Timestamp: time.Now(),
+		})
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -203,6 +225,14 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 		line := scanner.Text()
 
 		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// Strip SSE "data: " prefix if present.
+		if strings.HasPrefix(line, "data: ") {
+			line = strings.TrimPrefix(line, "data: ")
+		} else if strings.HasPrefix(line, ":") {
+			// SSE comment / keep-alive, skip.
 			continue
 		}
 
@@ -239,6 +269,7 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 	}
 
 	// 2. For each matching rule, look up the Rule by x_rule_id and write tweet_rules.
+	var resolvedRuleIDs []int64
 	for _, mr := range st.MatchingRules {
 		rule, err := c.store.GetRuleByXRuleID(ctx, mr.ID)
 		if err != nil {
@@ -249,6 +280,7 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 			)
 			continue
 		}
+		resolvedRuleIDs = append(resolvedRuleIDs, rule.ID)
 		tr := &model.TweetRule{
 			TweetID: st.Tweet.ID,
 			RuleID:  rule.ID,
@@ -261,6 +293,16 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 				"error", err,
 			)
 		}
+	}
+
+	// 2b. Emit tweet_matched event with resolved local rule IDs.
+	if c.emitter != nil {
+		c.emitter.Emit(notifier.NotificationEvent{
+			Type:      notifier.EventTweetMatched,
+			Tweet:     st.Tweet,
+			RuleIDs:   resolvedRuleIDs,
+			Timestamp: time.Now(),
+		})
 	}
 
 	// 3. Push to the raw queue.

@@ -14,6 +14,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/config"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
@@ -93,8 +94,20 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load inference registry: %w", err)
 	}
 
+	// Initialize Pushover notifier (optional — skipped if credentials not configured).
+	var dispatcher *notifier.Dispatcher
+	var emitter notifier.EventEmitter
+	if cfg.Pushover.AppToken != "" && cfg.Pushover.UserKey != "" {
+		pushClient := notifier.NewPushoverClient(cfg.Pushover.AppToken, cfg.Pushover.UserKey, logger)
+		dispatcher = notifier.NewDispatcher(s, pushClient, logger)
+		emitter = dispatcher
+		logger.Info("serve: pushover notifier enabled", "component", "notifier")
+	} else {
+		logger.Info("serve: pushover notifier disabled (no credentials)", "component", "notifier")
+	}
+
 	rules := stream.NewRuleManager(cfg.X.BearerToken, nil)
-	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, rules, logger)
+	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, rules, emitter, logger)
 
 	workerCount := cfg.Worker.Count
 	if workerCount == 0 {
@@ -104,8 +117,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		workerCount = 1
 	}
 
-	pool := worker.NewPool(workerCount, q, q, s, reg, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, logger)
+	pool := worker.NewPool(workerCount, q, q, s, reg, emitter, logger)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, logger, dispatcher)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -120,6 +133,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			errCh <- fmt.Errorf("worker: %w", err)
 		}
 	}()
+
+	if dispatcher != nil {
+		go func() {
+			logger.Info("serve: starting notification dispatcher", "component", "notifier")
+			dispatcher.Start(ctx)
+		}()
+	}
 
 	go func() {
 		logger.Info("serve: starting api server", "component", "api", "bind", cfg.API.Bind)

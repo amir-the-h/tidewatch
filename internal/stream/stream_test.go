@@ -76,7 +76,17 @@ func (m *mockStore) ListCategorizations(_ context.Context, _ store.Categorizatio
 func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
 	return nil, nil
 }
-func (m *mockStore) Close() error { return nil }
+func (m *mockStore) SaveNotification(_ context.Context, _ *model.Notification) error { return nil }
+func (m *mockStore) GetNotification(_ context.Context, _ int64) (*model.Notification, error) {
+	return nil, nil
+}
+func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFilter) ([]*model.Notification, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
+func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
+func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
+func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {
 	pushCalled bool
@@ -184,7 +194,7 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 	rm := NewRuleManager("token", srv.Client())
 	rm.apiBase = srv.URL
 
-	c := NewClient("token", ms, mp, rm, newTestLogger())
+	c := NewClient("token", ms, mp, rm, nil, newTestLogger())
 	c.streamURL = srv.URL + "/stream"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -239,7 +249,7 @@ func TestClient_Start_ReconnectsAfterDisconnect(t *testing.T) {
 	rm := NewRuleManager("token", srv.Client())
 	rm.apiBase = srv.URL
 
-	c := NewClient("token", ms, mp, rm, newTestLogger())
+	c := NewClient("token", ms, mp, rm, nil, newTestLogger())
 	c.streamURL = srv.URL + "/stream"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

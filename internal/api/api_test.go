@@ -26,6 +26,7 @@ type mockStore struct {
 	rules           map[int64]*model.Rule
 	tweets          map[string]*model.Tweet
 	models          map[int64]*model.Model
+	notifications   map[int64]*model.Notification
 	categorizations []*model.Categorization
 	tweetRules      []*model.TweetRule
 	nextID          int64
@@ -196,6 +197,52 @@ func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*m
 	}
 	return out, nil
 }
+func (m *mockStore) SaveNotification(_ context.Context, n *model.Notification) error {
+	m.nextID++
+	n.ID = m.nextID
+	if m.notifications == nil {
+		m.notifications = make(map[int64]*model.Notification)
+	}
+	m.notifications[n.ID] = n
+	return nil
+}
+func (m *mockStore) GetNotification(_ context.Context, id int64) (*model.Notification, error) {
+	if m.notifications != nil {
+		if n, ok := m.notifications[id]; ok {
+			return n, nil
+		}
+	}
+	return nil, fmt.Errorf("notification not found: %d", id)
+}
+func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFilter) ([]*model.Notification, error) {
+	out := make([]*model.Notification, 0)
+	for _, n := range m.notifications {
+		out = append(out, n)
+	}
+	return out, nil
+}
+func (m *mockStore) UpdateNotification(_ context.Context, n *model.Notification) error {
+	if m.notifications == nil {
+		m.notifications = make(map[int64]*model.Notification)
+	}
+	m.notifications[n.ID] = n
+	return nil
+}
+func (m *mockStore) DeleteNotification(_ context.Context, id int64) error {
+	if m.notifications != nil {
+		delete(m.notifications, id)
+	}
+	return nil
+}
+func (m *mockStore) SetNotificationActive(_ context.Context, id int64, active bool) error {
+	if m.notifications != nil {
+		if n, ok := m.notifications[id]; ok {
+			n.Active = active
+		}
+	}
+	return nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +288,7 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	mp := &mockProducer{}
 	mr := &mockRuleManager{}
 	logger := slog.Default()
-	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", logger)
+	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", logger, nil)
 	return srv, ms, mp, mr
 }
 

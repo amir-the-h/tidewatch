@@ -36,6 +36,10 @@ type Config struct {
 		Level  string `yaml:"level"`
 		Format string `yaml:"format"`
 	} `yaml:"log"`
+	Pushover struct {
+		AppToken string `yaml:"app_token"`
+		UserKey  string `yaml:"user_key"`
+	} `yaml:"pushover"`
 }
 
 // defaults returns a Config populated with sensible default values.
@@ -125,6 +129,12 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_APP_TOKEN"); v != "" {
+		cfg.Pushover.AppToken = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_USER_KEY"); v != "" {
+		cfg.Pushover.UserKey = v
 	}
 	return nil
 }

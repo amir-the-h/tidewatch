@@ -36,6 +36,13 @@ type CategorizationFilter struct {
 	To        *time.Time
 }
 
+// NotificationFilter defines optional filters for listing notifications.
+type NotificationFilter struct {
+	EventType *string
+	Active    *bool
+	RuleID    *int64
+}
+
 // Store is the repository interface for all persistent data.
 type Store interface {
 	// Tweets
@@ -76,6 +83,14 @@ type Store interface {
 	SaveCategorization(ctx context.Context, c *model.Categorization) error
 	ListCategorizations(ctx context.Context, filter CategorizationFilter) ([]*model.Categorization, error)
 	ListUncategorizedTweets(ctx context.Context, modelNames []string) ([]*model.Tweet, error)
+
+	// Notifications
+	SaveNotification(ctx context.Context, n *model.Notification) error
+	GetNotification(ctx context.Context, id int64) (*model.Notification, error)
+	ListNotifications(ctx context.Context, filter NotificationFilter) ([]*model.Notification, error)
+	UpdateNotification(ctx context.Context, n *model.Notification) error
+	DeleteNotification(ctx context.Context, id int64) error
+	SetNotificationActive(ctx context.Context, id int64, active bool) error
 
 	Close() error
 }

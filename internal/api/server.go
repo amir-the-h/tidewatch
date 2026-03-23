@@ -12,6 +12,7 @@ import (
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
@@ -33,16 +34,17 @@ type streamClientInterface interface {
 
 // Server is the REST API server.
 type Server struct {
-	store    store.Store
-	producer queue.Producer
-	registry *inference.Registry
-	rules    ruleManagerInterface
-	stream   streamClientInterface
-	tier     string
-	logger   *slog.Logger
-	router   chi.Router
-	http     *http.Server
-	ctx      context.Context
+	store      store.Store
+	producer   queue.Producer
+	registry   *inference.Registry
+	rules      ruleManagerInterface
+	stream     streamClientInterface
+	tier       string
+	dispatcher *notifier.Dispatcher
+	logger     *slog.Logger
+	router     chi.Router
+	http       *http.Server
+	ctx        context.Context
 }
 
 // NewServer creates a new Server and registers all routes.
@@ -55,15 +57,17 @@ func NewServer(
 	sc streamClientInterface,
 	tier string,
 	logger *slog.Logger,
+	dispatcher *notifier.Dispatcher,
 ) *Server {
 	srv := &Server{
-		store:    s,
-		producer: q,
-		registry: reg,
-		rules:    rules,
-		stream:   sc,
-		tier:     tier,
-		logger:   logger,
+		store:      s,
+		producer:   q,
+		registry:   reg,
+		rules:      rules,
+		stream:     sc,
+		tier:       tier,
+		dispatcher: dispatcher,
+		logger:     logger,
 	}
 
 	r := chi.NewRouter()
@@ -109,6 +113,16 @@ func NewServer(
 
 		// Categorizations
 		r.Get("/categorizations", srv.handleListCategorizations)
+
+		// Notifications — static routes before parameterized
+		r.Get("/notifications", srv.handleListNotifications)
+		r.Post("/notifications", srv.handleCreateNotification)
+		r.Post("/notifications/test", srv.handleTestNotification)
+		r.Get("/notifications/{id}", srv.handleGetNotification)
+		r.Put("/notifications/{id}", srv.handleUpdateNotification)
+		r.Delete("/notifications/{id}", srv.handleDeleteNotification)
+		r.Post("/notifications/{id}/activate", srv.handleActivateNotification)
+		r.Post("/notifications/{id}/deactivate", srv.handleDeactivateNotification)
 	})
 
 	srv.router = r
@@ -184,6 +198,7 @@ func NewServerWithConcreteRules(
 	sc *stream.Client,
 	tier string,
 	logger *slog.Logger,
+	dispatcher *notifier.Dispatcher,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, logger)
+	return NewServer(bind, s, q, reg, rules, sc, tier, logger, dispatcher)
 }
