@@ -1,0 +1,47 @@
+// web/src/api/tweets.ts
+import { apiFetch } from './client'
+
+export interface Tweet {
+  id: string
+  text: string
+  author_id: string
+  created_at: string
+}
+
+export interface TweetDetail {
+  tweet: Tweet
+  categorizations: Categorization[]
+}
+
+export interface Categorization {
+  id: number
+  tweet_id: string
+  model_name: string
+  result: string
+  score: number
+  created_at: string
+}
+
+export interface TweetListFilter {
+  rule_id?: number
+  from?: string
+  to?: string
+  page?: number
+  per_page?: number
+}
+
+export const listTweets = (filter: TweetListFilter = {}) => {
+  const params = new URLSearchParams()
+  if (filter.rule_id !== undefined) params.set('rule_id', String(filter.rule_id))
+  if (filter.from)     params.set('from', filter.from)
+  if (filter.to)       params.set('to', filter.to)
+  if (filter.page)     params.set('page', String(filter.page))
+  if (filter.per_page) params.set('per_page', String(filter.per_page))
+  const qs = params.toString() ? `?${params}` : ''
+  return apiFetch<Tweet[]>(`/api/tweets${qs}`)
+}
+
+export const getTweet = (id: string) => apiFetch<TweetDetail>(`/api/tweets/${id}`)
+
+export const reprocessTweets = (body: { tweet_ids?: string[]; model_names?: string[] }) =>
+  apiFetch<{ requeued: number }>('/api/tweets/reprocess', { method: 'POST', body: JSON.stringify(body) })
