@@ -20,3 +20,7 @@ inference:
 log:
   level: info
   format: text
+
+pushover:
+  app_token: ""
+  user_key: ""
