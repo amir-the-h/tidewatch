@@ -228,6 +228,14 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 			continue
 		}
 
+		// Strip SSE "data: " prefix if present.
+		if strings.HasPrefix(line, "data: ") {
+			line = strings.TrimPrefix(line, "data: ")
+		} else if strings.HasPrefix(line, ":") {
+			// SSE comment / keep-alive, skip.
+			continue
+		}
+
 		if err := c.processEvent(ctx, []byte(line)); err != nil {
 			c.logger.Warn("stream: failed to process event",
 				"component", "stream",
