@@ -9,16 +9,22 @@ import (
 
 // TweetFilter defines optional filters for listing tweets.
 type TweetFilter struct {
-	SourceID *int64
-	From     *time.Time
-	To       *time.Time
-	Page     int
-	PerPage  int
+	RuleID  *int64
+	From    *time.Time
+	To      *time.Time
+	Page    int
+	PerPage int
 }
 
 // SourceFilter defines optional filters for listing sources.
 type SourceFilter struct {
 	Type   *model.SourceType
+	Class  *model.SourceClass
+	Active *bool
+}
+
+// RuleFilter defines optional filters for listing rules.
+type RuleFilter struct {
 	Active *bool
 }
 
@@ -42,10 +48,22 @@ type Store interface {
 	GetSource(ctx context.Context, id int64) (*model.Source, error)
 	ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error)
 	DeleteSource(ctx context.Context, id int64) error
-	UpdateSourceXRuleID(ctx context.Context, id int64, xRuleID string) error
+	SetSourceActive(ctx context.Context, id int64, active bool) error
+	ActiveRuleRefCount(ctx context.Context, sourceID int64) (int, error)
+	RuleRefCount(ctx context.Context, sourceID int64) (int, error)
 
-	// TweetSources
-	SaveTweetSource(ctx context.Context, ts *model.TweetSource) error
+	// Rules
+	SaveRule(ctx context.Context, rule *model.Rule) error
+	GetRule(ctx context.Context, id int64) (*model.Rule, error)
+	GetRuleByXRuleID(ctx context.Context, xRuleID string) (*model.Rule, error)
+	ListRules(ctx context.Context, filter RuleFilter) ([]*model.Rule, error)
+	UpdateRule(ctx context.Context, rule *model.Rule) error
+	DeleteRule(ctx context.Context, id int64) error
+	SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error
+	TweetRuleCount(ctx context.Context, ruleID int64) (int, error)
+
+	// TweetRules
+	SaveTweetRule(ctx context.Context, tr *model.TweetRule) error
 
 	// Models
 	SaveModel(ctx context.Context, m *model.Model) error

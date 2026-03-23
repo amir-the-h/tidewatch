@@ -18,6 +18,10 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 		st := model.SourceType(t)
 		filter.Type = &st
 	}
+	if c := r.URL.Query().Get("class"); c != "" {
+		sc := model.SourceClass(c)
+		filter.Class = &sc
+	}
 	if a := r.URL.Query().Get("active"); a != "" {
 		active, err := strconv.ParseBool(a)
 		if err != nil {
@@ -38,6 +42,7 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Name  string           `json:"name"`
 		Type  model.SourceType `json:"type"`
 		Value string           `json:"value"`
 	}
@@ -54,9 +59,23 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	info, ok := model.SourceTypeMap[req.Type]
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unknown source type")
+		return
+	}
+
+	if req.Name == "" {
+		req.Name = req.Value
+	}
+
 	src := &model.Source{
-		Type:  req.Type,
-		Value: req.Value,
+		Name:     req.Name,
+		Type:     req.Type,
+		Class:    info.Class,
+		Operator: info.Operator,
+		Value:    req.Value,
+		Active:   true,
 	}
 
 	if err := s.store.SaveSource(r.Context(), src); err != nil {
@@ -64,20 +83,6 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save source")
 		return
 	}
-
-	xRuleID, err := s.rules.AddRule(r.Context(), req.Value, req.Value)
-	if err != nil {
-		s.logger.Error("api: add rule", "source_id", src.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to add stream rule")
-		return
-	}
-
-	if err := s.store.UpdateSourceXRuleID(r.Context(), src.ID, xRuleID); err != nil {
-		s.logger.Error("api: update source xrule id", "source_id", src.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to update source rule ID")
-		return
-	}
-	src.XRuleID = xRuleID
 
 	writeJSON(w, http.StatusCreated, src)
 }
@@ -90,23 +95,58 @@ func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	src, err := s.store.GetSource(r.Context(), id)
-	if err != nil {
+	if _, err := s.store.GetSource(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, "source not found")
 		return
 	}
 
-	if src.XRuleID != "" {
-		if err := s.rules.DeleteRule(r.Context(), src.XRuleID); err != nil {
-			s.logger.Error("api: delete rule", "source_id", id, "xrule_id", src.XRuleID, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to delete stream rule")
-			return
-		}
+	count, err := s.store.RuleRefCount(r.Context(), id)
+	if err != nil {
+		s.logger.Error("api: rule ref count", "source_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check rule references")
+		return
+	}
+	if count > 0 {
+		writeError(w, http.StatusConflict, "source is referenced by one or more rules; remove those rules first")
+		return
 	}
 
 	if err := s.store.DeleteSource(r.Context(), id); err != nil {
 		s.logger.Error("api: delete source", "source_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete source")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeactivateSource(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid source ID")
+		return
+	}
+
+	if _, err := s.store.GetSource(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	count, err := s.store.ActiveRuleRefCount(r.Context(), id)
+	if err != nil {
+		s.logger.Error("api: active rule ref count", "source_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check active rule references")
+		return
+	}
+	if count > 0 {
+		writeError(w, http.StatusConflict, "source is referenced by one or more active rules; deactivate those rules first")
+		return
+	}
+
+	if err := s.store.SetSourceActive(r.Context(), id, false); err != nil {
+		s.logger.Error("api: deactivate source", "source_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to deactivate source")
 		return
 	}
 

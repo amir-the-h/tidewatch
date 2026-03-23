@@ -80,26 +80,26 @@ func (s *sqliteStore) GetTweet(ctx context.Context, id string) (*model.Tweet, er
 		return nil, fmt.Errorf("store: get tweet: %w", err)
 	}
 
-	// Populate Sources via join
+	// Populate Rules via join
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT s.id, s.type, s.value, s.x_rule_id, s.active, s.created_at, s.updated_at
-		 FROM sources s
-		 JOIN tweet_sources ts ON ts.source_id = s.id
-		 WHERE ts.tweet_id = ?`, id)
+		`SELECT r.id, r.name, r.expression, r.compiled_value, r.x_rule_id, r.active, r.created_at, r.updated_at
+		 FROM rules r
+		 JOIN tweet_rules tr ON tr.rule_id = r.id
+		 WHERE tr.tweet_id = ?`, id)
 	if err != nil {
-		return nil, fmt.Errorf("store: get tweet: list sources: %w", err)
+		return nil, fmt.Errorf("store: get tweet: list rules: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		src, err := scanSource(rows)
+		rule, err := scanRule(rows)
 		if err != nil {
-			return nil, fmt.Errorf("store: get tweet: scan source: %w", err)
+			return nil, fmt.Errorf("store: get tweet: scan rule: %w", err)
 		}
-		tweet.Sources = append(tweet.Sources, src)
+		tweet.Rules = append(tweet.Rules, rule)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: get tweet: sources rows: %w", err)
+		return nil, fmt.Errorf("store: get tweet: rules rows: %w", err)
 	}
 
 	return tweet, nil
@@ -121,10 +121,10 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 	var args []any
 	var where []string
 
-	if filter.SourceID != nil {
-		query += ` JOIN tweet_sources ts ON ts.tweet_id = t.id`
-		where = append(where, "ts.source_id = ?")
-		args = append(args, *filter.SourceID)
+	if filter.RuleID != nil {
+		query += ` JOIN tweet_rules tr ON tr.tweet_id = t.id`
+		where = append(where, "tr.rule_id = ?")
+		args = append(args, *filter.RuleID)
 	}
 	if filter.From != nil {
 		where = append(where, "t.created_at >= ?")
@@ -161,11 +161,13 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 
 func (s *sqliteStore) SaveSource(ctx context.Context, source *model.Source) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO sources (type, value, x_rule_id, active, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sources (name, type, class, operator, value, active, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		source.Name,
 		string(source.Type),
+		string(source.Class),
+		source.Operator,
 		source.Value,
-		source.XRuleID,
 		boolToInt(source.Active),
 		source.CreatedAt.UTC().Format(time.RFC3339),
 		source.UpdatedAt.UTC().Format(time.RFC3339),
@@ -183,7 +185,7 @@ func (s *sqliteStore) SaveSource(ctx context.Context, source *model.Source) erro
 
 func (s *sqliteStore) GetSource(ctx context.Context, id int64) (*model.Source, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, type, value, x_rule_id, active, created_at, updated_at FROM sources WHERE id = ?`, id)
+		`SELECT id, name, type, class, operator, value, active, created_at, updated_at FROM sources WHERE id = ?`, id)
 	src, err := scanSource(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -195,13 +197,17 @@ func (s *sqliteStore) GetSource(ctx context.Context, id int64) (*model.Source, e
 }
 
 func (s *sqliteStore) ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error) {
-	query := `SELECT id, type, value, x_rule_id, active, created_at, updated_at FROM sources`
+	query := `SELECT id, name, type, class, operator, value, active, created_at, updated_at FROM sources`
 	var args []any
 	var where []string
 
 	if filter.Type != nil {
 		where = append(where, "type = ?")
 		args = append(args, string(*filter.Type))
+	}
+	if filter.Class != nil {
+		where = append(where, "class = ?")
+		args = append(args, string(*filter.Class))
 	}
 	if filter.Active != nil {
 		where = append(where, "active = ?")
@@ -237,24 +243,170 @@ func (s *sqliteStore) DeleteSource(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *sqliteStore) UpdateSourceXRuleID(ctx context.Context, id int64, xRuleID string) error {
+func (s *sqliteStore) SetSourceActive(ctx context.Context, id int64, active bool) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sources SET x_rule_id = ?, updated_at = ? WHERE id = ?`,
-		xRuleID, time.Now().UTC().Format(time.RFC3339), id)
+		`UPDATE sources SET active = ?, updated_at = ? WHERE id = ?`,
+		boolToInt(active), time.Now().UTC().Format(time.RFC3339), id)
 	if err != nil {
-		return fmt.Errorf("store: update source x_rule_id: %w", err)
+		return fmt.Errorf("store: set source active: %w", err)
 	}
 	return nil
 }
 
-// ── TweetSources ──────────────────────────────────────────────────────────────
-
-func (s *sqliteStore) SaveTweetSource(ctx context.Context, ts *model.TweetSource) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO tweet_sources (tweet_id, source_id) VALUES (?, ?)`,
-		ts.TweetID, ts.SourceID)
+func (s *sqliteStore) ActiveRuleRefCount(ctx context.Context, sourceID int64) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM rules WHERE active = 1 AND expression LIKE ?`,
+		fmt.Sprintf(`%%"src":%d}%%`, sourceID),
+	).Scan(&count)
 	if err != nil {
-		return fmt.Errorf("store: save tweet source: %w", err)
+		return 0, fmt.Errorf("store: active rule ref count: %w", err)
+	}
+	return count, nil
+}
+
+func (s *sqliteStore) RuleRefCount(ctx context.Context, sourceID int64) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM rules WHERE expression LIKE ?`,
+		fmt.Sprintf(`%%"src":%d}%%`, sourceID),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: rule ref count: %w", err)
+	}
+	return count, nil
+}
+
+// ── Rules ─────────────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) SaveRule(ctx context.Context, rule *model.Rule) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO rules (name, expression, compiled_value, x_rule_id, active, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		rule.Name,
+		string(rule.Expression),
+		rule.CompiledValue,
+		rule.XRuleID,
+		boolToInt(rule.Active),
+		rule.CreatedAt.UTC().Format(time.RFC3339),
+		rule.UpdatedAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save rule: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("store: save rule: last insert id: %w", err)
+	}
+	rule.ID = id
+	return nil
+}
+
+func (s *sqliteStore) GetRule(ctx context.Context, id int64) (*model.Rule, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, expression, compiled_value, x_rule_id, active, created_at, updated_at FROM rules WHERE id = ?`, id)
+	rule, err := scanRule(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("store: get rule: not found: %w", err)
+		}
+		return nil, fmt.Errorf("store: get rule: %w", err)
+	}
+	return rule, nil
+}
+
+func (s *sqliteStore) GetRuleByXRuleID(ctx context.Context, xRuleID string) (*model.Rule, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, expression, compiled_value, x_rule_id, active, created_at, updated_at FROM rules WHERE x_rule_id = ?`, xRuleID)
+	rule, err := scanRule(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("store: get rule by x_rule_id: not found: %w", err)
+		}
+		return nil, fmt.Errorf("store: get rule by x_rule_id: %w", err)
+	}
+	return rule, nil
+}
+
+func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*model.Rule, error) {
+	query := `SELECT id, name, expression, compiled_value, x_rule_id, active, created_at, updated_at FROM rules`
+	var args []any
+	if filter.Active != nil {
+		query += " WHERE active = ?"
+		args = append(args, boolToInt(*filter.Active))
+	}
+	query += " ORDER BY id ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list rules: %w", err)
+	}
+	defer rows.Close()
+
+	var rules []*model.Rule
+	for rows.Next() {
+		rule, err := scanRule(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list rules: scan: %w", err)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, rows.Err()
+}
+
+func (s *sqliteStore) UpdateRule(ctx context.Context, rule *model.Rule) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE rules SET name = ?, expression = ?, compiled_value = ?, x_rule_id = ?, active = ?, updated_at = ? WHERE id = ?`,
+		rule.Name,
+		string(rule.Expression),
+		rule.CompiledValue,
+		rule.XRuleID,
+		boolToInt(rule.Active),
+		rule.UpdatedAt.UTC().Format(time.RFC3339),
+		rule.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update rule: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) DeleteRule(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM rules WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete rule: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE rules SET active = ?, x_rule_id = ?, updated_at = ? WHERE id = ?`,
+		boolToInt(active), xRuleID, time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("store: set rule active: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) TweetRuleCount(ctx context.Context, ruleID int64) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tweet_rules WHERE rule_id = ?`, ruleID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: tweet rule count: %w", err)
+	}
+	return count, nil
+}
+
+// ── TweetRules ────────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) SaveTweetRule(ctx context.Context, tr *model.TweetRule) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO tweet_rules (tweet_id, rule_id) VALUES (?, ?)`,
+		tr.TweetID, tr.RuleID)
+	if err != nil {
+		return fmt.Errorf("store: save tweet rule: %w", err)
 	}
 	return nil
 }
@@ -396,17 +548,14 @@ func (s *sqliteStore) ListUncategorizedTweets(ctx context.Context, modelNames []
 	var args []any
 
 	if len(modelNames) == 0 {
-		// Tweets with zero categorization rows
 		query = `SELECT t.id, t.author_id, t.author_handle, t.text, t.raw_json, t.created_at, t.fetched_at
 		         FROM tweets t
 		         LEFT JOIN categorizations c ON c.tweet_id = t.id
 		         WHERE c.id IS NULL
 		         ORDER BY t.created_at DESC`
 	} else {
-		// Tweets missing at least one of the specified model names
-		// Use NOT IN subquery counting distinct models covered
 		placeholders := strings.Repeat("?,", len(modelNames))
-		placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
+		placeholders = placeholders[:len(placeholders)-1]
 
 		query = fmt.Sprintf(`
 		SELECT DISTINCT t.id, t.author_id, t.author_handle, t.text, t.raw_json, t.created_at, t.fetched_at
@@ -467,11 +616,14 @@ func scanTweet(s scanner) (*model.Tweet, error) {
 
 func scanSource(s scanner) (*model.Source, error) {
 	var src model.Source
+	var rawType, rawClass string
 	var active int
 	var createdAt, updatedAt string
-	if err := s.Scan(&src.ID, &src.Type, &src.Value, &src.XRuleID, &active, &createdAt, &updatedAt); err != nil {
+	if err := s.Scan(&src.ID, &src.Name, &rawType, &rawClass, &src.Operator, &src.Value, &active, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	src.Type = model.SourceType(rawType)
+	src.Class = model.SourceClass(rawClass)
 	src.Active = active != 0
 	var err error
 	src.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
@@ -483,6 +635,28 @@ func scanSource(s scanner) (*model.Source, error) {
 		return nil, fmt.Errorf("parse source updated_at: %w", err)
 	}
 	return &src, nil
+}
+
+func scanRule(s scanner) (*model.Rule, error) {
+	var r model.Rule
+	var expression string
+	var active int
+	var createdAt, updatedAt string
+	if err := s.Scan(&r.ID, &r.Name, &expression, &r.CompiledValue, &r.XRuleID, &active, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	r.Expression = json.RawMessage(expression)
+	r.Active = active != 0
+	var err error
+	r.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse rule created_at: %w", err)
+	}
+	r.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse rule updated_at: %w", err)
+	}
+	return &r, nil
 }
 
 func scanModel(s scanner) (*model.Model, error) {

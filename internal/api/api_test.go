@@ -23,15 +23,18 @@ import (
 
 type mockStore struct {
 	sources         map[int64]*model.Source
+	rules           map[int64]*model.Rule
 	tweets          map[string]*model.Tweet
 	models          map[int64]*model.Model
 	categorizations []*model.Categorization
+	tweetRules      []*model.TweetRule
 	nextID          int64
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
 		sources: make(map[int64]*model.Source),
+		rules:   make(map[int64]*model.Rule),
 		tweets:  make(map[string]*model.Tweet),
 		models:  make(map[int64]*model.Model),
 	}
@@ -80,13 +83,64 @@ func (m *mockStore) DeleteSource(_ context.Context, id int64) error {
 	delete(m.sources, id)
 	return nil
 }
-func (m *mockStore) UpdateSourceXRuleID(_ context.Context, id int64, xRuleID string) error {
+func (m *mockStore) SetSourceActive(_ context.Context, id int64, active bool) error {
 	if s, ok := m.sources[id]; ok {
-		s.XRuleID = xRuleID
+		s.Active = active
 	}
 	return nil
 }
-func (m *mockStore) SaveTweetSource(_ context.Context, _ *model.TweetSource) error { return nil }
+func (m *mockStore) ActiveRuleRefCount(_ context.Context, _ int64) (int, error) { return 0, nil }
+func (m *mockStore) RuleRefCount(_ context.Context, _ int64) (int, error)       { return 0, nil }
+
+func (m *mockStore) SaveRule(_ context.Context, r *model.Rule) error {
+	m.nextID++
+	r.ID = m.nextID
+	m.rules[r.ID] = r
+	return nil
+}
+func (m *mockStore) GetRule(_ context.Context, id int64) (*model.Rule, error) {
+	r, ok := m.rules[id]
+	if !ok {
+		return nil, fmt.Errorf("rule not found: %d", id)
+	}
+	return r, nil
+}
+func (m *mockStore) GetRuleByXRuleID(_ context.Context, xRuleID string) (*model.Rule, error) {
+	for _, r := range m.rules {
+		if r.XRuleID == xRuleID {
+			return r, nil
+		}
+	}
+	return nil, fmt.Errorf("rule not found: %s", xRuleID)
+}
+func (m *mockStore) ListRules(_ context.Context, _ store.RuleFilter) ([]*model.Rule, error) {
+	out := make([]*model.Rule, 0, len(m.rules))
+	for _, r := range m.rules {
+		out = append(out, r)
+	}
+	return out, nil
+}
+func (m *mockStore) UpdateRule(_ context.Context, r *model.Rule) error {
+	m.rules[r.ID] = r
+	return nil
+}
+func (m *mockStore) DeleteRule(_ context.Context, id int64) error {
+	delete(m.rules, id)
+	return nil
+}
+func (m *mockStore) SetRuleActive(_ context.Context, id int64, active bool, xRuleID string) error {
+	if r, ok := m.rules[id]; ok {
+		r.Active = active
+		r.XRuleID = xRuleID
+	}
+	return nil
+}
+func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error) { return 0, nil }
+
+func (m *mockStore) SaveTweetRule(_ context.Context, tr *model.TweetRule) error {
+	m.tweetRules = append(m.tweetRules, tr)
+	return nil
+}
 
 func (m *mockStore) SaveModel(_ context.Context, mdl *model.Model) error {
 	m.nextID++
@@ -187,7 +241,7 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	mp := &mockProducer{}
 	mr := &mockRuleManager{}
 	logger := slog.Default()
-	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, logger)
+	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, "basic", logger)
 	return srv, ms, mp, mr
 }
 
@@ -196,9 +250,9 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 // ---------------------------------------------------------------------------
 
 func TestCreateSource(t *testing.T) {
-	srv, ms, _, mr := newTestServer(t)
+	srv, ms, _, _ := newTestServer(t)
 
-	body := `{"type":"account","value":"@testuser"}`
+	body := `{"type":"account","value":"testuser"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -206,9 +260,6 @@ func TestCreateSource(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !mr.addRuleCalled {
-		t.Error("expected AddRule to be called")
 	}
 
 	var result model.Source
@@ -218,8 +269,11 @@ func TestCreateSource(t *testing.T) {
 	if result.ID == 0 {
 		t.Error("expected non-zero ID in response")
 	}
-	if result.XRuleID == "" {
-		t.Error("expected XRuleID to be set")
+	if result.Operator != "from:" {
+		t.Errorf("expected Operator=from:, got %q", result.Operator)
+	}
+	if result.Class != model.SourceClassAtom {
+		t.Errorf("expected Class=atom, got %q", result.Class)
 	}
 	if len(ms.sources) != 1 {
 		t.Errorf("expected 1 source in store, got %d", len(ms.sources))
@@ -227,10 +281,9 @@ func TestCreateSource(t *testing.T) {
 }
 
 func TestDeleteSource(t *testing.T) {
-	srv, ms, _, mr := newTestServer(t)
+	srv, ms, _, _ := newTestServer(t)
 
-	// seed a source
-	src := &model.Source{Type: model.SourceTypeKeyword, Value: "iran", XRuleID: "rule_x"}
+	src := &model.Source{Type: model.SourceTypeKeyword, Value: "iran"}
 	_ = ms.SaveSource(context.Background(), src)
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/sources/%d", src.ID), nil)
@@ -240,9 +293,6 @@ func TestDeleteSource(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
-	if !mr.deleteRuleCalled {
-		t.Error("expected DeleteRule to be called")
-	}
 	if len(ms.sources) != 0 {
 		t.Errorf("expected 0 sources in store, got %d", len(ms.sources))
 	}
@@ -251,7 +301,6 @@ func TestDeleteSource(t *testing.T) {
 func TestListTweets_Pagination(t *testing.T) {
 	srv, ms, _, _ := newTestServer(t)
 
-	// seed some tweets
 	for i := 0; i < 3; i++ {
 		tw := &model.Tweet{
 			ID:        fmt.Sprintf("tweet_%d", i),
@@ -301,8 +350,8 @@ func TestGetTweet_WithCategorizations(t *testing.T) {
 	}
 
 	var result struct {
-		Tweet           *model.Tweet              `json:"tweet"`
-		Categorizations []*model.Categorization   `json:"categorizations"`
+		Tweet           *model.Tweet            `json:"tweet"`
+		Categorizations []*model.Categorization `json:"categorizations"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -321,7 +370,6 @@ func TestGetTweet_WithCategorizations(t *testing.T) {
 func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 
-	// seed tweets
 	tw1 := &model.Tweet{ID: "t1", Text: "iran news", FetchedAt: time.Now()}
 	tw2 := &model.Tweet{ID: "t2", Text: "more news", FetchedAt: time.Now()}
 	_ = ms.SaveTweet(context.Background(), tw1)
@@ -371,7 +419,6 @@ func TestActivateModel_ReloadsRegistry(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify model is now marked active in the store
 	if !ms.models[mdl.ID].Active {
 		t.Error("expected model to be active after activate call")
 	}
