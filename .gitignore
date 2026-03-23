@@ -19,3 +19,7 @@ rules/
 
 # OS
 .DS_Store
+
+# Claude Code / Superpowers local files
+.claude/
+.superpowers/
