@@ -86,6 +86,9 @@ func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFil
 func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
 func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
 func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
+func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error                  { return nil }
+func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error               { return nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {
@@ -158,6 +161,56 @@ func TestNormalize_MalformedJSON(t *testing.T) {
 	_, err := Normalize([]byte(`{not valid json`))
 	if err == nil {
 		t.Fatal("expected error for malformed JSON, got nil")
+	}
+}
+
+func TestNormalize_RetweetExpandsFullText(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"id": "999",
+			"text": "RT @GeoConfirmed: GeoConfirmed Iran.\n\nShort truncated text\u2026",
+			"author_id": "111",
+			"created_at": "2026-03-23T12:00:00.000Z",
+			"referenced_tweets": [{"id": "888", "type": "retweeted"}]
+		},
+		"includes": {
+			"users": [{"id": "111", "username": "retweeter"}],
+			"tweets": [{"id": "888", "text": "GeoConfirmed Iran.\n\nFull original text with coordinates 36.42, 43.10\n\nGeoLocated by\n@someuser"}]
+		},
+		"matching_rules": []
+	}`)
+
+	st, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Tweet.Text != "GeoConfirmed Iran.\n\nFull original text with coordinates 36.42, 43.10\n\nGeoLocated by\n@someuser" {
+		t.Errorf("expected full original text, got: %q", st.Tweet.Text)
+	}
+}
+
+func TestNormalize_NonRetweetKeepsText(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"id": "777",
+			"text": "This is a direct tweet, not an RT",
+			"author_id": "111",
+			"created_at": "2026-03-23T12:00:00.000Z",
+			"referenced_tweets": [{"id": "666", "type": "quoted"}]
+		},
+		"includes": {
+			"users": [{"id": "111", "username": "author"}],
+			"tweets": [{"id": "666", "text": "quoted tweet text"}]
+		},
+		"matching_rules": []
+	}`)
+
+	st, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Tweet.Text != "This is a direct tweet, not an RT" {
+		t.Errorf("non-retweet text should be unchanged, got: %q", st.Tweet.Text)
 	}
 }
 

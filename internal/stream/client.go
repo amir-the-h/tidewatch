@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultStreamURL = "https://api.twitter.com/2/tweets/search/stream?tweet.fields=created_at,author_id&expansions=author_id&user.fields=username"
+	defaultStreamURL = "https://api.twitter.com/2/tweets/search/stream?tweet.fields=created_at,author_id,referenced_tweets&expansions=author_id,referenced_tweets.id&user.fields=username"
 	backoffMin       = 1 * time.Second
 	backoffMax       = 5 * time.Minute
 )

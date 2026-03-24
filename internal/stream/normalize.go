@@ -15,12 +15,20 @@ type xStreamEvent struct {
 		Text      string `json:"text"`
 		AuthorID  string `json:"author_id"`
 		CreatedAt string `json:"created_at"`
+		ReferencedTweets []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"` // "retweeted", "quoted", "replied_to"
+		} `json:"referenced_tweets"`
 	} `json:"data"`
 	Includes struct {
 		Users []struct {
 			ID       string `json:"id"`
 			Username string `json:"username"`
 		} `json:"users"`
+		Tweets []struct {
+			ID   string `json:"id"`
+			Text string `json:"text"`
+		} `json:"tweets"`
 	} `json:"includes"`
 	MatchingRules []struct {
 		ID  string `json:"id"`
@@ -56,11 +64,26 @@ func Normalize(data []byte) (*model.StreamTweet, error) {
 		}
 	}
 
+	// For retweets, the main tweet text is truncated at 280 chars.
+	// Substitute the full text from includes.tweets when available.
+	text := evt.Data.Text
+	for _, ref := range evt.Data.ReferencedTweets {
+		if ref.Type == "retweeted" {
+			for _, t := range evt.Includes.Tweets {
+				if t.ID == ref.ID && t.Text != "" {
+					text = t.Text
+					break
+				}
+			}
+			break
+		}
+	}
+
 	tweet := &model.Tweet{
 		ID:           evt.Data.ID,
 		AuthorID:     evt.Data.AuthorID,
 		AuthorHandle: authorHandle,
-		Text:         evt.Data.Text,
+		Text:         text,
 		RawJSON:      data,
 		CreatedAt:    createdAt,
 		FetchedAt:    time.Now(),
