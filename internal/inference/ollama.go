@@ -35,6 +35,40 @@ type ExtractionResult struct {
 	Truncated       bool                 `json:"truncated,omitempty"`
 }
 
+// flexStrings unmarshals a JSON value that may be either a string or an array
+// of strings. LLMs occasionally return a bare string instead of a one-element
+// array, so we coerce it silently.
+type flexStrings []string
+
+func (f *flexStrings) UnmarshalJSON(b []byte) error {
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*f = arr
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	if s != "" {
+		*f = []string{s}
+	}
+	return nil
+}
+
+// rawExtractionResult is used for tolerant JSON decoding; its fields are then
+// copied into ExtractionResult.
+type rawExtractionResult struct {
+	Description     string               `json:"description"`
+	Locations       []ExtractionLocation `json:"locations"`
+	GeolocatedBy    flexStrings          `json:"geolocated_by"`
+	GeolocationURLs flexStrings          `json:"geolocation_urls"`
+	ProofURLs       flexStrings          `json:"proof_urls"`
+	LocationURL     string               `json:"location_url"`
+	SourceURLs      flexStrings          `json:"source_urls"`
+	Truncated       bool                 `json:"truncated,omitempty"`
+}
+
 // OllamaPipeline implements Pipeline by calling a locally-running Ollama server.
 // The model Path stored in the models table is treated as the Ollama model name
 // (e.g. "qwen2.5:3b"). The base URL comes from the application config.
@@ -170,11 +204,20 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 		return nil, fmt.Errorf("inference: ollama: decode response: %w", err)
 	}
 
-	var result ExtractionResult
-	if err := json.Unmarshal([]byte(chatResp.Message.Content), &result); err != nil {
+	var raw rawExtractionResult
+	if err := json.Unmarshal([]byte(chatResp.Message.Content), &raw); err != nil {
 		return nil, fmt.Errorf("inference: ollama: parse extraction JSON: %w", err)
 	}
-	return &result, nil
+	return &ExtractionResult{
+		Description:     raw.Description,
+		Locations:       raw.Locations,
+		GeolocatedBy:    []string(raw.GeolocatedBy),
+		GeolocationURLs: []string(raw.GeolocationURLs),
+		ProofURLs:       []string(raw.ProofURLs),
+		LocationURL:     raw.LocationURL,
+		SourceURLs:      []string(raw.SourceURLs),
+		Truncated:       raw.Truncated,
+	}, nil
 }
 
 const ollamaExtractionSystem = `You extract structured data from GeoConfirmed geo-confirmation posts on X (Twitter).
