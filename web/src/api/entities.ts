@@ -19,6 +19,9 @@ export interface EntityTrack {
   tweet_id: string
   match_source: 'text' | 'ner'
   context: string
+  summary?: string
+  tweet_text?: string
+  tweet_author_handle?: string
   created_at: string
 }
 

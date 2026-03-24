@@ -1,6 +1,12 @@
 // web/src/api/categorizations.ts
 import { apiFetch } from './client'
 
+export interface ExtractionLocation {
+  label?: string
+  coordinates: [number, number]
+  place?: string
+}
+
 export interface CategorizationResults {
   // classification / sentiment / emotion
   label?: string
@@ -10,6 +16,17 @@ export interface CategorizationResults {
   scores?: number[]
   // NER: word spans (new) or legacy token indices (old)
   entities?: { word?: string; token_index?: number; label: string; score: number }[]
+  // summarizer
+  summary?: string
+  // extraction (geo-event)
+  description?: string
+  locations?: ExtractionLocation[]
+  geolocated_by?: string[]
+  geolocation_urls?: string[]
+  proof_urls?: string[]
+  location_url?: string
+  source_urls?: string[]
+  truncated?: boolean
 }
 
 export interface Categorization {

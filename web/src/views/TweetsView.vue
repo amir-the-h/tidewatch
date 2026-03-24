@@ -19,6 +19,7 @@ const showDetail    = ref(false)
 const detail        = ref<TweetDetail | null>(null)
 const loadingDetail = ref(false)
 const deleting      = ref(false)
+const reprocessing  = ref(false)
 
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const hasSelection   = computed(() => checkedRowKeys.value.length > 0)
@@ -72,6 +73,39 @@ async function deleteSelected() {
   }
 }
 
+async function reprocessOne(id: string) {
+  reprocessing.value = true
+  try {
+    const { requeued } = await store.reprocess({ tweet_ids: [id] })
+    if (requeued) {
+      msg.success('Queued for reprocessing')
+      // Refresh detail after a brief delay so the worker has time to run
+      setTimeout(async () => {
+        detail.value = await store.getTweet(id)
+      }, 2000)
+    } else {
+      msg.warning('Tweet not found')
+    }
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    reprocessing.value = false
+  }
+}
+
+async function reprocessSelected() {
+  const ids = checkedRowKeys.value as string[]
+  reprocessing.value = true
+  try {
+    const { requeued } = await store.reprocess({ tweet_ids: ids })
+    msg.success(`Queued ${requeued} tweet${requeued !== 1 ? 's' : ''} for reprocessing`)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    reprocessing.value = false
+  }
+}
+
 const columns: DataTableColumns<Tweet> = [
   { type: 'selection', multiple: true },
   { title: 'ID',      key: 'id', width: 160, ellipsis: true },
@@ -115,6 +149,9 @@ const columns: DataTableColumns<Tweet> = [
     <!-- Bulk action toolbar -->
     <n-space v-if="hasSelection" align="center">
       <span>{{ checkedRowKeys.length }} selected</span>
+      <n-button type="primary" size="small" :loading="reprocessing" @click="reprocessSelected">
+        Reprocess selected
+      </n-button>
       <n-button type="error" size="small" :loading="deleting" @click="deleteSelected">
         Delete selected
       </n-button>
@@ -174,8 +211,35 @@ const columns: DataTableColumns<Tweet> = [
             <n-list-item v-for="cat in detail.categorizations" :key="cat.id">
               <n-space vertical size="small">
                 <n-tag size="small">{{ cat.model_name }}</n-tag>
+                <!-- Summarizer -->
+                <span v-if="cat.results.summary != null">{{ cat.results.summary || '(empty summary)' }}</span>
+                <!-- Extraction (geo-event): truncated retweet -->
+                <span v-else-if="cat.results.truncated" style="color: var(--n-text-color-disabled)">Truncated retweet — full text unavailable</span>
+                <!-- Extraction (geo-event) -->
+                <n-space v-else-if="cat.results.description != null" vertical size="small">
+                  <span v-if="cat.results.description">{{ cat.results.description }}</span>
+                  <n-space v-if="cat.results.locations?.length" wrap>
+                    <n-tag
+                      v-for="(loc, i) in cat.results.locations"
+                      :key="i"
+                      size="small"
+                      type="info"
+                    >
+                      {{ loc.label ? `${loc.label}: ` : '' }}{{ loc.coordinates[0].toFixed(5) }}, {{ loc.coordinates[1].toFixed(5) }}
+                      <template v-if="loc.place"> · {{ loc.place }}</template>
+                    </n-tag>
+                  </n-space>
+                  <n-space v-if="cat.results.geolocated_by?.length" wrap>
+                    <n-tag v-for="h in cat.results.geolocated_by" :key="h" size="small">{{ h }}</n-tag>
+                  </n-space>
+                  <n-space v-if="cat.results.location_url" wrap>
+                    <a :href="cat.results.location_url" target="_blank" rel="noopener noreferrer" style="font-size:12px">
+                      GeoConfirmed ↗
+                    </a>
+                  </n-space>
+                </n-space>
                 <!-- NER: word spans -->
-                <n-space v-if="cat.results.entities?.length" wrap>
+                <n-space v-else-if="cat.results.entities?.length" wrap>
                   <n-tag v-for="(e, i) in cat.results.entities" :key="i" size="small" type="success">
                     {{ e.word ?? `token[${e.token_index}]` }} · {{ e.label }} ({{ (e.score * 100).toFixed(0) }}%)
                   </n-tag>
@@ -191,6 +255,8 @@ const columns: DataTableColumns<Tweet> = [
                     {{ lbl }} ({{ ((cat.results.scores?.[i] ?? 0) * 100).toFixed(1) }}%)
                   </n-tag>
                 </n-space>
+                <!-- Zero-shot with no confident labels -->
+                <span v-else-if="cat.results.labels != null" style="color: var(--n-text-color-disabled)">(no label above threshold)</span>
                 <!-- Standard classification (label + score) -->
                 <n-space v-else>
                   <span>{{ cat.results.label ?? '—' }}</span>
@@ -212,6 +278,9 @@ const columns: DataTableColumns<Tweet> = [
                 size="small"
               >
                 Open on X
+              </n-button>
+              <n-button type="primary" size="small" :loading="reprocessing" @click="reprocessOne(detail.tweet.id)">
+                Reprocess
               </n-button>
               <n-button type="error" size="small" :loading="deleting" @click="deleteOne(detail.tweet.id)">
                 Delete tweet

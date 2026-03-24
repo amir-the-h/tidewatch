@@ -35,6 +35,15 @@ const columns: DataTableColumns<Categorization> = [
     title: 'Result', key: 'result',
     render: (row) => {
       const r = row.results
+      if (r.truncated) return '(truncated retweet)'
+      if (r.description != null) {
+        const parts: string[] = []
+        if (r.description) parts.push(r.description.slice(0, 80) + (r.description.length > 80 ? '…' : ''))
+        if (r.locations?.length) {
+          parts.push(r.locations.map(l => `(${l.coordinates[0].toFixed(4)}, ${l.coordinates[1].toFixed(4)})`).join(' · '))
+        }
+        return parts.join(' — ') || '(extraction)'
+      }
       if (r.entities?.length) {
         return r.entities.map(e => `${e.label}(${(e.score * 100).toFixed(0)}%)`).join(', ')
       }

@@ -55,5 +55,17 @@ export const useModelsStore = defineStore('models', () => {
     return api.removeModelLabel(id, label)
   }
 
-  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel }
+  async function addRule(id: number, ruleId: number) {
+    const m = await api.addModelRule(id, ruleId)
+    const idx = models.value.findIndex(m => m.id === id)
+    if (idx !== -1) models.value[idx] = m
+  }
+
+  async function removeRule(id: number, ruleId: number) {
+    const m = await api.removeModelRule(id, ruleId)
+    const idx = models.value.findIndex(m => m.id === id)
+    if (idx !== -1) models.value[idx] = m
+  }
+
+  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel, addRule, removeRule }
 })

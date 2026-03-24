@@ -1,13 +1,16 @@
 // web/src/api/models.ts
 import { apiFetch } from './client'
 
+export type ModelType = 'classification' | 'ner' | 'sentiment' | 'summarizer' | 'extraction'
+
 export interface Model {
   id: number
   name: string
   version: string
   path: string
-  type: string
+  type: ModelType
   active: boolean
+  rule_ids?: number[]
 }
 
 export const listModels     = () => apiFetch<Model[]>('/api/models')
@@ -25,3 +28,8 @@ export const addModelLabel     = (id: number, label: string) =>
   apiFetch<string[]>(`/api/models/${id}/labels`, { method: 'POST', body: JSON.stringify({ label }) })
 export const removeModelLabel  = (id: number, label: string) =>
   apiFetch<string[]>(`/api/models/${id}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' })
+
+export const addModelRule    = (id: number, rule_id: number) =>
+  apiFetch<Model>(`/api/models/${id}/rules`, { method: 'POST', body: JSON.stringify({ rule_id }) })
+export const removeModelRule = (id: number, rule_id: number) =>
+  apiFetch<Model>(`/api/models/${id}/rules/${rule_id}`, { method: 'DELETE' })

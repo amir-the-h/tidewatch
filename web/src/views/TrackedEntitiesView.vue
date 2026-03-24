@@ -254,12 +254,18 @@ function timeLabel(iso: string) {
               :type="t.match_source === 'ner' ? 'success' : 'info'"
               :title="`${dayLabel(t.created_at)} · ${timeLabel(t.created_at)}`"
             >
-              <n-flex align="center" gap="8">
-                <n-tag size="small" :type="t.match_source === 'ner' ? 'success' : 'info'" :bordered="false">
-                  {{ t.match_source === 'ner' ? 'NER' : 'text' }}
-                </n-tag>
-                <n-text code>{{ t.tweet_id }}</n-text>
-                <n-text v-if="t.context" depth="3" style="font-style: italic">"{{ t.context }}"</n-text>
+              <n-flex vertical gap="6">
+                <n-flex align="center" gap="8">
+                  <n-tag size="small" :type="t.match_source === 'ner' ? 'success' : 'info'" :bordered="false">
+                    {{ t.match_source === 'ner' ? 'NER' : 'text' }}
+                  </n-tag>
+                  <n-text v-if="t.tweet_author_handle" depth="3" style="font-size: 12px">
+                    @{{ t.tweet_author_handle }}
+                  </n-text>
+                  <n-text v-else code style="font-size: 11px; color: #888">{{ t.tweet_id }}</n-text>
+                </n-flex>
+                <n-text v-if="t.tweet_text" style="font-size: 13px">{{ t.tweet_text }}</n-text>
+                <n-text v-else-if="t.context" depth="3" style="font-style: italic; font-size: 13px">"{{ t.context }}"</n-text>
               </n-flex>
             </n-timeline-item>
           </n-timeline>
