@@ -95,8 +95,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	factory := func(m *model.Model) (inference.Pipeline, error) {
-		p := inference.NewONNXPipeline(m.Name)
-		return p, p.Load(m.Path)
+		switch m.Type {
+		case model.ModelTypeSummarizer:
+			p := inference.NewSeq2SeqPipeline(m.Name)
+			return p, p.Load(m.Path)
+		case model.ModelTypeExtraction:
+			p := inference.NewOllamaPipeline(m.Name, cfg.Ollama.BaseURL)
+			return p, p.Load(m.Path)
+		default:
+			p := inference.NewONNXPipeline(m.Name)
+			return p, p.Load(m.Path)
+		}
 	}
 
 	if err := reg.Load(ctx, activeModels, factory); err != nil {
@@ -127,7 +136,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	pool := worker.NewPool(workerCount, q, q, s, reg, emitter, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, logger, dispatcher)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

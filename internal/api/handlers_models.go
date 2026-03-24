@@ -122,14 +122,23 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 		}
 		activeModels := filterActive(models)
 		if reloadErr := s.registry.Reload(r.Context(), activeModels, func(m *model.Model) (inference.Pipeline, error) {
-			p := inference.NewONNXPipeline(m.Name)
-			if err := p.Load(m.Path); err != nil {
-				return nil, err
+			switch m.Type {
+			case model.ModelTypeSummarizer:
+				p := inference.NewSeq2SeqPipeline(m.Name)
+				return p, p.Load(m.Path)
+			case model.ModelTypeExtraction:
+				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL)
+				return p, p.Load(m.Path)
+			default:
+				p := inference.NewONNXPipeline(m.Name)
+				if err := p.Load(m.Path); err != nil {
+					return nil, err
+				}
+				if labels, labelsErr := s.store.ListModelLabels(r.Context(), m.Name); labelsErr == nil && len(labels) > 0 {
+					p.SetLabels(labels)
+				}
+				return p, nil
 			}
-			if labels, labelsErr := s.store.ListModelLabels(r.Context(), m.Name); labelsErr == nil && len(labels) > 0 {
-				p.SetLabels(labels)
-			}
-			return p, nil
 		}); reloadErr != nil {
 			s.logger.Error("api: set model active: registry reload", "model_id", id, "error", reloadErr)
 			writeError(w, http.StatusInternalServerError, "failed to reload model registry")
@@ -256,6 +265,65 @@ func (s *Server) handleRemoveModelLabel(w http.ResponseWriter, r *http.Request) 
 		s.registry.SetLabels(m.Name, labels)
 	}
 	writeJSON(w, http.StatusOK, labels)
+}
+
+func (s *Server) handleAddModelRule(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid model ID")
+		return
+	}
+
+	var req struct {
+		RuleID int64 `json:"rule_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RuleID == 0 {
+		writeError(w, http.StatusBadRequest, "rule_id is required")
+		return
+	}
+
+	if err := s.store.AddModelRule(r.Context(), id, req.RuleID); err != nil {
+		s.logger.Error("api: add model rule", "model_id", id, "rule_id", req.RuleID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to add rule association")
+		return
+	}
+
+	m, err := s.store.GetModel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve updated model")
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+func (s *Server) handleRemoveModelRule(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid model ID")
+		return
+	}
+
+	ruleIDStr := chi.URLParam(r, "rule_id")
+	ruleID, err := strconv.ParseInt(ruleIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid rule ID")
+		return
+	}
+
+	if err := s.store.RemoveModelRule(r.Context(), id, ruleID); err != nil {
+		s.logger.Error("api: remove model rule", "model_id", id, "rule_id", ruleID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to remove rule association")
+		return
+	}
+
+	m, err := s.store.GetModel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to retrieve updated model")
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
 }
 
 // resolveModel fetches the model by {id} URL param, writing errors on failure.

@@ -248,6 +248,12 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If a local rule's expression changed, recompile all dependent rules
+	// in the background so the response is not delayed.
+	if existing.Local && expressionChanged {
+		go s.cascadeRecompile(s.ctx, id)
+	}
+
 	writeJSON(w, http.StatusOK, existing)
 }
 

@@ -133,11 +133,27 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tweets, err := s.store.ListUncategorizedTweets(r.Context(), req.ModelNames)
-	if err != nil {
-		s.logger.Error("api: list uncategorized tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list uncategorized tweets")
-		return
+	var tweets []*model.Tweet
+
+	if len(req.TweetIDs) > 0 {
+		// Explicit list — fetch each and requeue regardless of categorization state.
+		for _, id := range req.TweetIDs {
+			tweet, err := s.store.GetTweet(r.Context(), id)
+			if err != nil {
+				s.logger.Warn("api: reprocess: tweet not found", "tweet_id", id, "error", err)
+				continue
+			}
+			tweets = append(tweets, tweet)
+		}
+	} else {
+		// Fallback: find tweets missing categorizations for the given models.
+		var err error
+		tweets, err = s.store.ListUncategorizedTweets(r.Context(), req.ModelNames)
+		if err != nil {
+			s.logger.Error("api: list uncategorized tweets", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to list uncategorized tweets")
+			return
+		}
 	}
 
 	count := 0

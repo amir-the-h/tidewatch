@@ -34,17 +34,18 @@ type streamClientInterface interface {
 
 // Server is the REST API server.
 type Server struct {
-	store      store.Store
-	producer   queue.Producer
-	registry   *inference.Registry
-	rules      ruleManagerInterface
-	stream     streamClientInterface
-	tier       string
-	dispatcher *notifier.Dispatcher
-	logger     *slog.Logger
-	router     chi.Router
-	http       *http.Server
-	ctx        context.Context
+	store          store.Store
+	producer       queue.Producer
+	registry       *inference.Registry
+	rules          ruleManagerInterface
+	stream         streamClientInterface
+	tier           string
+	ollamaBaseURL  string
+	dispatcher     *notifier.Dispatcher
+	logger         *slog.Logger
+	router         chi.Router
+	http           *http.Server
+	ctx            context.Context
 }
 
 // NewServer creates a new Server and registers all routes.
@@ -56,18 +57,20 @@ func NewServer(
 	rules ruleManagerInterface,
 	sc streamClientInterface,
 	tier string,
+	ollamaBaseURL string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
 ) *Server {
 	srv := &Server{
-		store:      s,
-		producer:   q,
-		registry:   reg,
-		rules:      rules,
-		stream:     sc,
-		tier:       tier,
-		dispatcher: dispatcher,
-		logger:     logger,
+		store:         s,
+		producer:      q,
+		registry:      reg,
+		rules:         rules,
+		stream:        sc,
+		tier:          tier,
+		ollamaBaseURL: ollamaBaseURL,
+		dispatcher:    dispatcher,
+		logger:        logger,
 	}
 
 	r := chi.NewRouter()
@@ -111,6 +114,8 @@ func NewServer(
 		r.Get("/models/{id}/labels", srv.handleListModelLabels)
 		r.Post("/models/{id}/labels", srv.handleAddModelLabel)
 		r.Delete("/models/{id}/labels/{label}", srv.handleRemoveModelLabel)
+		r.Post("/models/{id}/rules", srv.handleAddModelRule)
+		r.Delete("/models/{id}/rules/{rule_id}", srv.handleRemoveModelRule)
 
 		// Stream
 		r.Get("/stream/status", srv.handleStreamStatus)
@@ -205,8 +210,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // makeResolver returns a SourceResolver backed by the store,
 // returning only active sources.
 func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
+	return s.resolverWithCtx(r.Context())
+}
+
+// makeRuleResolver returns a RuleResolver backed by the store,
+// returning only active local rules.
+func (s *Server) makeRuleResolver(r *http.Request) stream.RuleResolver {
+	return s.ruleResolverWithCtx(r.Context())
+}
+
+func (s *Server) resolverWithCtx(ctx context.Context) stream.SourceResolver {
 	return func(id int64) (*model.Source, error) {
-		src, err := s.store.GetSource(r.Context(), id)
+		src, err := s.store.GetSource(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -217,11 +232,9 @@ func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
 	}
 }
 
-// makeRuleResolver returns a RuleResolver backed by the store,
-// returning only active local rules.
-func (s *Server) makeRuleResolver(r *http.Request) stream.RuleResolver {
+func (s *Server) ruleResolverWithCtx(ctx context.Context) stream.RuleResolver {
 	return func(id int64) (*model.Rule, error) {
-		rule, err := s.store.GetRule(r.Context(), id)
+		rule, err := s.store.GetRule(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -235,6 +248,77 @@ func (s *Server) makeRuleResolver(r *http.Request) stream.RuleResolver {
 	}
 }
 
+// cascadeRecompile recompiles all rules that directly or transitively
+// reference changedID. Active X stream rules are updated on X as well.
+// Intended to run in a background goroutine using the server's lifecycle
+// context (s.ctx) so it outlives the originating HTTP request.
+func (s *Server) cascadeRecompile(ctx context.Context, changedID int64) {
+	resolver := s.resolverWithCtx(ctx)
+	ruleResolver := s.ruleResolverWithCtx(ctx)
+	compiler := stream.NewRuleCompiler()
+
+	// BFS over the dependency graph.
+	visited := map[int64]bool{changedID: true}
+	queue := []int64{changedID}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		deps, err := s.store.ListRulesDependingOn(ctx, current)
+		if err != nil {
+			s.logger.Error("cascade: list dependents", "rule_id", current, "error", err)
+			return
+		}
+
+		for _, dep := range deps {
+			if visited[dep.ID] {
+				continue
+			}
+			visited[dep.ID] = true
+
+			var node model.ExprNode
+			if err := json.Unmarshal(dep.Expression, &node); err != nil {
+				s.logger.Error("cascade: parse expression", "rule_id", dep.ID, "error", err)
+				continue
+			}
+
+			compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
+			if err != nil {
+				s.logger.Warn("cascade: recompile failed", "rule_id", dep.ID, "error", err)
+				continue
+			}
+
+			dep.CompiledValue = compiled
+
+			if !dep.Local && dep.Active && dep.XRuleID != "" {
+				if err := s.rules.DeleteRule(ctx, dep.XRuleID); err != nil {
+					s.logger.Error("cascade: delete old x rule", "rule_id", dep.ID, "error", err)
+					continue
+				}
+				newXRuleID, err := s.rules.AddRule(ctx, dep.Name, compiled)
+				if err != nil {
+					s.logger.Error("cascade: add new x rule", "rule_id", dep.ID, "error", err)
+					continue
+				}
+				dep.XRuleID = newXRuleID
+				if err := s.store.SetRuleActive(ctx, dep.ID, true, newXRuleID); err != nil {
+					s.logger.Error("cascade: set rule active", "rule_id", dep.ID, "error", err)
+					continue
+				}
+			}
+
+			if err := s.store.UpdateRule(ctx, dep); err != nil {
+				s.logger.Error("cascade: update rule", "rule_id", dep.ID, "error", err)
+				continue
+			}
+
+			s.logger.Info("cascade: recompiled rule", "rule_id", dep.ID, "triggered_by", changedID)
+			queue = append(queue, dep.ID)
+		}
+	}
+}
+
 // NewServerWithConcreteRules is a convenience constructor for production use
 // where a *stream.RuleManager and *stream.Client are available.
 func NewServerWithConcreteRules(
@@ -245,8 +329,9 @@ func NewServerWithConcreteRules(
 	rules *stream.RuleManager,
 	sc *stream.Client,
 	tier string,
+	ollamaBaseURL string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, logger, dispatcher)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, logger, dispatcher)
 }
