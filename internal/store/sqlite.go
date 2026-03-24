@@ -27,6 +27,10 @@ func NewSQLiteStore(path string, migrationsFS fs.FS) (Store, error) {
 		return nil, fmt.Errorf("store: open: %w", err)
 	}
 
+	// SQLite only allows one concurrent writer. Cap the pool to one connection
+	// so all writes are serialized within the process without SQLITE_BUSY errors.
+	db.SetMaxOpenConns(1)
+
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: pragma wal: %w", err)
@@ -34,6 +38,12 @@ func NewSQLiteStore(path string, migrationsFS fs.FS) (Store, error) {
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: pragma foreign_keys: %w", err)
+	}
+	// Wait up to 5 s for a write lock before returning SQLITE_BUSY.
+	// Belt-and-suspenders alongside SetMaxOpenConns(1).
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: pragma busy_timeout: %w", err)
 	}
 
 	if err := RunMigrations(db, migrationsFS); err != nil {
@@ -480,6 +490,53 @@ func (s *sqliteStore) SetRuleActive(ctx context.Context, id int64, active bool, 
 	return nil
 }
 
+func (s *sqliteStore) ListRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.Rule, error) {
+	all, err := s.ListRules(ctx, RuleFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("store: list rules depending on %d: %w", ruleID, err)
+	}
+	var out []*model.Rule
+	for _, r := range all {
+		if r.ID == ruleID {
+			continue
+		}
+		if exprReferencesRule(r.Expression, ruleID) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// exprReferencesRule reports whether the JSON expression contains a direct
+// {"rule": ruleID} reference at any depth.
+func exprReferencesRule(expr json.RawMessage, ruleID int64) bool {
+	var node model.ExprNode
+	if err := json.Unmarshal(expr, &node); err != nil {
+		return false
+	}
+	return nodeReferencesRule(node, ruleID)
+}
+
+func nodeReferencesRule(node model.ExprNode, ruleID int64) bool {
+	if node.Rule != nil && *node.Rule == ruleID {
+		return true
+	}
+	for _, c := range node.AND {
+		if nodeReferencesRule(c, ruleID) {
+			return true
+		}
+	}
+	for _, c := range node.OR {
+		if nodeReferencesRule(c, ruleID) {
+			return true
+		}
+	}
+	if node.NOT != nil && nodeReferencesRule(*node.NOT, ruleID) {
+		return true
+	}
+	return false
+}
+
 func (s *sqliteStore) TweetRuleCount(ctx context.Context, ruleID int64) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
@@ -532,6 +589,9 @@ func (s *sqliteStore) GetModel(ctx context.Context, id int64) (*model.Model, err
 		}
 		return nil, fmt.Errorf("store: get model: %w", err)
 	}
+	if err := s.populateModelRuleIDs(ctx, []*model.Model{m}); err != nil {
+		return nil, fmt.Errorf("store: get model: rule ids: %w", err)
+	}
 	return m, nil
 }
 
@@ -551,7 +611,13 @@ func (s *sqliteStore) ListModels(ctx context.Context) ([]*model.Model, error) {
 		}
 		models = append(models, m)
 	}
-	return models, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.populateModelRuleIDs(ctx, models); err != nil {
+		return nil, fmt.Errorf("store: list models: rule ids: %w", err)
+	}
+	return models, nil
 }
 
 func (s *sqliteStore) DeleteModel(ctx context.Context, id int64) error {
@@ -607,12 +673,85 @@ func (s *sqliteStore) RemoveModelLabel(ctx context.Context, modelName, label str
 	return nil
 }
 
+func (s *sqliteStore) AddModelRule(ctx context.Context, modelID, ruleID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO rule_models (rule_id, model_id) VALUES (?, ?)`, ruleID, modelID)
+	if err != nil {
+		return fmt.Errorf("store: add model rule: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) RemoveModelRule(ctx context.Context, modelID, ruleID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM rule_models WHERE model_id = ? AND rule_id = ?`, modelID, ruleID)
+	if err != nil {
+		return fmt.Errorf("store: remove model rule: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT rule_id FROM tweet_rules WHERE tweet_id = ?`, tweetID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list tweet rule ids: %w", err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: list tweet rule ids: scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// populateModelRuleIDs fills in RuleIDs for each model from the rule_models table.
+func (s *sqliteStore) populateModelRuleIDs(ctx context.Context, models []*model.Model) error {
+	if len(models) == 0 {
+		return nil
+	}
+	// Build index by model ID.
+	idx := make(map[int64]*model.Model, len(models))
+	placeholders := make([]string, len(models))
+	args := make([]any, len(models))
+	for i, m := range models {
+		idx[m.ID] = m
+		placeholders[i] = "?"
+		args[i] = m.ID
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT model_id, rule_id FROM rule_models WHERE model_id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return fmt.Errorf("store: populate model rule ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var modelID, ruleID int64
+		if err := rows.Scan(&modelID, &ruleID); err != nil {
+			return fmt.Errorf("store: populate model rule ids: scan: %w", err)
+		}
+		if m, ok := idx[modelID]; ok {
+			m.RuleIDs = append(m.RuleIDs, ruleID)
+		}
+	}
+	return rows.Err()
+}
+
 // ── Categorizations ───────────────────────────────────────────────────────────
 
 func (s *sqliteStore) SaveCategorization(ctx context.Context, c *model.Categorization) error {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO categorizations (tweet_id, model_name, model_version, results, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(tweet_id, model_name) DO UPDATE SET
+		     model_version = excluded.model_version,
+		     results       = excluded.results,
+		     created_at    = excluded.created_at`,
 		c.TweetID, c.ModelName, c.ModelVersion, string(c.Results),
 		c.CreatedAt.UTC().Format(time.RFC3339),
 	)
@@ -1189,9 +1328,13 @@ func (s *sqliteStore) SetTrackedEntityActive(ctx context.Context, id int64, acti
 // are silently ignored via INSERT OR IGNORE so callers can always call this safely.
 func (s *sqliteStore) SaveEntityTrack(ctx context.Context, t *model.EntityTrack) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO entity_tracks (entity_id, tweet_id, match_source, context, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		t.EntityID, t.TweetID, t.MatchSource, t.Context,
+		`INSERT INTO entity_tracks (entity_id, tweet_id, match_source, context, summary, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(entity_id, tweet_id) DO UPDATE SET
+		     match_source = excluded.match_source,
+		     context      = excluded.context,
+		     summary      = excluded.summary`,
+		t.EntityID, t.TweetID, t.MatchSource, t.Context, t.Summary,
 		time.Now().UTC().Format(time.RFC3339),
 	)
 	if err != nil {
@@ -1203,9 +1346,11 @@ func (s *sqliteStore) SaveEntityTrack(ctx context.Context, t *model.EntityTrack)
 }
 
 func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error) {
-	query := `SELECT et.id, et.entity_id, te.name, et.tweet_id, et.match_source, et.context, et.created_at
+	query := `SELECT et.id, et.entity_id, te.name, et.tweet_id, et.match_source, et.context, et.summary,
+	                 COALESCE(tw.text, ''), COALESCE(tw.author_handle, ''), et.created_at
 	          FROM entity_tracks et
-	          JOIN tracked_entities te ON te.id = et.entity_id`
+	          JOIN tracked_entities te ON te.id = et.entity_id
+	          LEFT JOIN tweets tw ON tw.id = et.tweet_id`
 	var args []any
 	var where []string
 
@@ -1311,7 +1456,7 @@ func scanTrackedEntity(s scanner) (*model.TrackedEntity, error) {
 func scanEntityTrack(s scanner) (*model.EntityTrack, error) {
 	var t model.EntityTrack
 	var createdAt string
-	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.TweetID, &t.MatchSource, &t.Context, &createdAt); err != nil {
+	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.TweetID, &t.MatchSource, &t.Context, &t.Summary, &t.TweetText, &t.TweetAuthorHandle, &createdAt); err != nil {
 		return nil, err
 	}
 	var err error

@@ -84,6 +84,7 @@ type Store interface {
 	GetRule(ctx context.Context, id int64) (*model.Rule, error)
 	GetRuleByXRuleID(ctx context.Context, xRuleID string) (*model.Rule, error)
 	ListRules(ctx context.Context, filter RuleFilter) ([]*model.Rule, error)
+	ListRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.Rule, error)
 	UpdateRule(ctx context.Context, rule *model.Rule) error
 	DeleteRule(ctx context.Context, id int64) error
 	SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error
@@ -101,6 +102,11 @@ type Store interface {
 	ListModelLabels(ctx context.Context, modelName string) ([]string, error)
 	AddModelLabel(ctx context.Context, modelName, label string) error
 	RemoveModelLabel(ctx context.Context, modelName, label string) error
+
+	// Model rules (many-to-many: which rules trigger which models)
+	AddModelRule(ctx context.Context, modelID, ruleID int64) error
+	RemoveModelRule(ctx context.Context, modelID, ruleID int64) error
+	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
 
 	// Categorizations
 	SaveCategorization(ctx context.Context, c *model.Categorization) error
