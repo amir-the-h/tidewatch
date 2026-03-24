@@ -52,8 +52,15 @@ func (w *worker) run(ctx context.Context) {
 			continue
 		}
 
-		// Step 4: run each pipeline.
-		pipelines := w.registry.All()
+		// Step 4: resolve which rules this tweet matched, then select applicable pipelines.
+		tweetRuleIDs, ruleErr := w.store.ListTweetRuleIDs(ctx, streamTweet.Tweet.ID)
+		if ruleErr != nil && w.logger != nil {
+			w.logger.Warn("worker: run: list tweet rule ids",
+				"worker_id", w.id,
+				"tweet_id", streamTweet.Tweet.ID,
+				"error", ruleErr)
+		}
+		pipelines := w.registry.AllForRules(tweetRuleIDs)
 		var failedModels []queue.FailedModel
 
 		// nerEntities collects NER entities from any pipeline that returns them.

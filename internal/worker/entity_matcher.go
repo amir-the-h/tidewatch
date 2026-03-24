@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 )
 
@@ -20,6 +21,26 @@ func (w *worker) matchEntities(ctx context.Context, tweet *model.Tweet, nerEntit
 	}
 	if len(entities) == 0 {
 		return
+	}
+
+	// Generate summary once per tweet using the first active summarizer pipeline.
+	var summary string
+	for _, p := range w.registry.All() {
+		if sp, ok := p.(inference.SummarizationPipeline); ok {
+			s, sumErr := sp.Summarize(tweet.Text)
+			if sumErr != nil {
+				if w.logger != nil {
+					w.logger.Warn("worker: match entities: summarize",
+						"tweet_id", tweet.ID,
+						"pipeline", p.Name(),
+						"error", sumErr,
+					)
+				}
+			} else {
+				summary = s
+			}
+			break
+		}
 	}
 
 	tweetTextLower := strings.ToLower(tweet.Text)
@@ -40,6 +61,7 @@ func (w *worker) matchEntities(ctx context.Context, tweet *model.Tweet, nerEntit
 			TweetID:     tweet.ID,
 			MatchSource: matchSource,
 			Context:     context,
+			Summary:     summary,
 		}
 		if saveErr := w.store.SaveEntityTrack(ctx, track); saveErr != nil {
 			if w.logger != nil {

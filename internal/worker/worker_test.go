@@ -108,6 +108,9 @@ func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFil
 func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
 func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
 func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
+func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error                  { return nil }
+func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error               { return nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 // --- stubPipeline ---
