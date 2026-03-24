@@ -30,9 +30,24 @@ const columns: DataTableColumns<Categorization> = [
       onClick: () => router.push(`/tweets?highlight=${row.tweet_id}`)
     }, { default: () => row.tweet_id })
   },
-  { title: 'Model',   key: 'model_name' },
-  { title: 'Result',  key: 'result' },
-  { title: 'Score',   key: 'score' },
+  { title: 'Model', key: 'model_name' },
+  {
+    title: 'Result', key: 'result',
+    render: (row) => {
+      const r = row.results
+      if (r.entities?.length) {
+        return r.entities.map(e => `${e.label}(${(e.score * 100).toFixed(0)}%)`).join(', ')
+      }
+      return r.label ?? '—'
+    }
+  },
+  {
+    title: 'Score', key: 'score',
+    render: (row) => {
+      const s = row.results.score
+      return s != null ? `${(s * 100).toFixed(1)}%` : '—'
+    }
+  },
   { title: 'Created', key: 'created_at' },
 ]
 </script>

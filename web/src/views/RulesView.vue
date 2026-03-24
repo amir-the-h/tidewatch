@@ -15,7 +15,7 @@ const msg          = useMessage()
 
 const showDrawer  = ref(false)
 const editingRule = ref<Rule | null>(null)
-const form        = ref({ name: '', expression: { op: '' } as ExprNode })
+const form        = ref({ name: '', expression: { src: 0 } as ExprNode, local: false })
 const compiledPreview = ref('')
 const saving      = ref(false)
 
@@ -26,14 +26,14 @@ onMounted(() => {
 
 function openCreate() {
   editingRule.value = null
-  form.value = { name: '', expression: { op: '' } as ExprNode }
+  form.value = { name: '', expression: { src: 0 } as ExprNode, local: false }
   compiledPreview.value = ''
   showDrawer.value = true
 }
 
 function openEdit(rule: Rule) {
   editingRule.value = rule
-  form.value = { name: rule.name, expression: rule.expression as ExprNode }
+  form.value = { name: rule.name, expression: rule.expression as ExprNode, local: rule.local }
   compiledPreview.value = rule.compiled_value
   showDrawer.value = true
 }
@@ -42,10 +42,10 @@ async function onSave() {
   saving.value = true
   try {
     if (editingRule.value) {
-      const r = await store.updateRule(editingRule.value.id, { name: form.value.name, expression: form.value.expression })
+      const r = await store.updateRule(editingRule.value.id, { name: form.value.name, expression: form.value.expression, local: form.value.local })
       compiledPreview.value = r.compiled_value
     } else {
-      const r = await store.createRule(form.value.name, form.value.expression)
+      const r = await store.createRule(form.value.name, form.value.expression, form.value.local)
       compiledPreview.value = r.compiled_value
     }
     msg.success('Saved')
@@ -83,6 +83,11 @@ const columns: DataTableColumns<Rule> = [
   { title: 'Name',     key: 'name' },
   { title: 'Compiled', key: 'compiled_value', ellipsis: true },
   {
+    title: 'Local', key: 'local', width: 70,
+    render: (row) => h(NTag, { type: row.local ? 'warning' : 'default', size: 'small' },
+      { default: () => row.local ? 'Yes' : 'No' })
+  },
+  {
     title: 'Active', key: 'active', width: 80,
     render: (row) => h(NTag, { type: row.active ? 'success' : 'default', size: 'small' },
       { default: () => row.active ? 'Yes' : 'No' })
@@ -116,6 +121,9 @@ const columns: DataTableColumns<Rule> = [
         <n-form label-placement="top">
           <n-form-item label="Name">
             <n-input v-model:value="form.name" />
+          </n-form-item>
+          <n-form-item label="Local rule (building block, not pushed to X)">
+            <n-switch v-model:value="form.local" />
           </n-form-item>
           <n-form-item label="Expression">
             <div style="width: 100%">

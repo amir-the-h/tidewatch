@@ -8,11 +8,13 @@ import (
 // ExprNode is one node in a rule expression tree.
 // Exactly one field is set per node.
 type ExprNode struct {
-	Src *int64     `json:"src,omitempty"` // source reference by ID
-	Op  string     `json:"op,omitempty"`  // inline X operator literal (e.g. "is:retweet")
-	AND []ExprNode `json:"AND,omitempty"`
-	OR  []ExprNode `json:"OR,omitempty"`
-	NOT *ExprNode  `json:"NOT,omitempty"`
+	Src  *int64     `json:"src,omitempty"`  // single source reference by ID
+	Srcs []int64    `json:"srcs,omitempty"` // multi-source OR shorthand: compiles to (s1 OR s2 OR ...)
+	Op   string     `json:"op,omitempty"`   // inline X operator literal (e.g. "is:retweet")
+	AND  []ExprNode `json:"AND,omitempty"`
+	OR   []ExprNode `json:"OR,omitempty"`
+	NOT  *ExprNode  `json:"NOT,omitempty"`
+	Rule *int64     `json:"rule,omitempty"` // reference to another local rule by ID; inlined at compile time
 }
 
 type Rule struct {
@@ -22,6 +24,7 @@ type Rule struct {
 	CompiledValue string          `json:"compiled_value"`
 	XRuleID       string          `json:"x_rule_id"`
 	Active        bool            `json:"active"`
+	Local         bool            `json:"local"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }

@@ -87,6 +87,56 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, src)
 }
 
+func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid source ID")
+		return
+	}
+
+	existing, err := s.store.GetSource(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "source not found")
+		return
+	}
+
+	var req struct {
+		Name  string           `json:"name"`
+		Type  model.SourceType `json:"type"`
+		Value string           `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Type != "" && req.Type != existing.Type {
+		info, ok := model.SourceTypeMap[req.Type]
+		if !ok {
+			writeError(w, http.StatusBadRequest, "unknown source type")
+			return
+		}
+		existing.Type = req.Type
+		existing.Class = info.Class
+		existing.Operator = info.Operator
+	}
+	if req.Name != "" {
+		existing.Name = req.Name
+	}
+	if req.Value != "" {
+		existing.Value = req.Value
+	}
+
+	if err := s.store.UpdateSource(r.Context(), existing); err != nil {
+		s.logger.Error("api: update source", "source_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update source")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, existing)
+}
+
 func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)

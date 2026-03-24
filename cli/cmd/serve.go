@@ -72,6 +72,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	q := queue.NewRedisQueue(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 
+	if err := inference.InitRuntime(cfg.Inference.ONNXLibPath); err != nil {
+		return fmt.Errorf("failed to initialize ONNX runtime: %w", err)
+	}
+	defer func() {
+		if err := inference.DestroyRuntime(); err != nil {
+			logger.Error("serve: onnx runtime destroy error", "error", err)
+		}
+	}()
+
 	reg := inference.NewRegistry()
 	allModels, err := s.ListModels(ctx)
 	if err != nil {

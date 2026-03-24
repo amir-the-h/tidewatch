@@ -16,13 +16,13 @@ export const useRulesStore = defineStore('rules', () => {
     finally { loading.value = false }
   }
 
-  async function createRule(name: string, expression: ExprNode) {
-    const r = await api.createRule({ name, expression })
+  async function createRule(name: string, expression: ExprNode, local = false) {
+    const r = await api.createRule({ name, expression, local })
     rules.value.push(r)
     return r
   }
 
-  async function updateRule(id: number, body: { name?: string; expression?: ExprNode }) {
+  async function updateRule(id: number, body: { name?: string; expression?: ExprNode; local?: boolean }) {
     const r = await api.updateRule(id, body)
     const idx = rules.value.findIndex(r => r.id === id)
     if (idx !== -1) rules.value[idx] = r

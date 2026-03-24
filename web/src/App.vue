@@ -13,6 +13,7 @@ const menuOptions = [
   { label: 'Models',          key: '/models' },
   { label: 'Categorizations', key: '/categorizations' },
   { label: 'Notifications',   key: '/notifications' },
+  { label: 'Tracked Entities', key: '/tracked-entities' },
 ]
 
 const activeKey = computed(() => route.path)

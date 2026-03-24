@@ -50,6 +50,7 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name       string          `json:"name"`
 		Expression json.RawMessage `json:"expression"`
+		Local      bool            `json:"local"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -71,28 +72,61 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resolver := s.makeResolver(r)
+	ruleResolver := s.makeRuleResolver(r)
 	validator := stream.NewRuleValidator(s.tier)
-	if err := validator.Validate(node, resolver); err != nil {
+
+	now := time.Now().UTC()
+	rule := &model.Rule{
+		Name:      req.Name,
+		Expression: req.Expression,
+		Local:     req.Local,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if req.Local {
+		if err := validator.ValidateLocalRule(node, resolver, ruleResolver); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		compiler := stream.NewRuleCompiler()
+		compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		rule.CompiledValue = compiled
+		rule.Active = true
+
+		if err := s.store.SaveRule(r.Context(), rule); err != nil {
+			s.logger.Error("api: save local rule", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to save rule")
+			return
+		}
+		if err := s.store.SetRuleActive(r.Context(), rule.ID, true, ""); err != nil {
+			s.logger.Error("api: set local rule active", "rule_id", rule.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to activate rule")
+			return
+		}
+		rule.Active = true
+
+		writeJSON(w, http.StatusCreated, rule)
+		return
+	}
+
+	if err := validator.Validate(node, resolver, ruleResolver); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
 	compiler := stream.NewRuleCompiler()
-	compiled, err := compiler.Compile(node, resolver)
+	compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-
-	now := time.Now().UTC()
-	rule := &model.Rule{
-		Name:          req.Name,
-		Expression:    req.Expression,
-		CompiledValue: compiled,
-		Active:        false,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-	}
+	rule.CompiledValue = compiled
+	rule.Active = false
 
 	if err := s.store.SaveRule(r.Context(), rule); err != nil {
 		s.logger.Error("api: save rule", "error", err)
@@ -133,6 +167,7 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name       *string         `json:"name"`
 		Expression json.RawMessage `json:"expression"`
+		Local      *bool           `json:"local"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -142,6 +177,12 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		existing.Name = *req.Name
 	}
+	if req.Local != nil {
+		existing.Local = *req.Local
+	}
+
+	resolver := s.makeResolver(r)
+	ruleResolver := s.makeRuleResolver(r)
 
 	expressionChanged := false
 	if len(req.Expression) > 0 {
@@ -151,15 +192,21 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		resolver := s.makeResolver(r)
 		validator := stream.NewRuleValidator(s.tier)
-		if err := validator.Validate(node, resolver); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
+		if existing.Local {
+			if err := validator.ValidateLocalRule(node, resolver, ruleResolver); err != nil {
+				writeError(w, http.StatusUnprocessableEntity, err.Error())
+				return
+			}
+		} else {
+			if err := validator.Validate(node, resolver, ruleResolver); err != nil {
+				writeError(w, http.StatusUnprocessableEntity, err.Error())
+				return
+			}
 		}
 
 		compiler := stream.NewRuleCompiler()
-		compiled, err := compiler.Compile(node, resolver)
+		compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return
@@ -170,7 +217,7 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		expressionChanged = true
 	}
 
-	if existing.Active && expressionChanged {
+	if !existing.Local && existing.Active && expressionChanged {
 		if existing.XRuleID != "" {
 			if err := s.rules.DeleteRule(r.Context(), existing.XRuleID); err != nil {
 				s.logger.Error("api: delete old x rule on update", "rule_id", id, "error", err)
@@ -193,7 +240,7 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing.Active && expressionChanged {
+	if !existing.Local && existing.Active && expressionChanged {
 		if err := s.store.SetRuleActive(r.Context(), id, true, existing.XRuleID); err != nil {
 			s.logger.Error("api: set rule active after update", "rule_id", id, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to sync rule x_rule_id")
@@ -228,7 +275,7 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rule.Active && rule.XRuleID != "" {
+	if !rule.Local && rule.Active && rule.XRuleID != "" {
 		if err := s.rules.DeleteRule(r.Context(), rule.XRuleID); err != nil {
 			s.logger.Error("api: delete x rule", "rule_id", id, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to delete stream rule from X")
@@ -262,19 +309,32 @@ func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Local rules: just flip the DB flag, no X API calls.
+	if rule.Local {
+		if err := s.store.SetRuleActive(r.Context(), id, true, ""); err != nil {
+			s.logger.Error("api: activate local rule", "rule_id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to activate rule")
+			return
+		}
+		rule.Active = true
+		writeJSON(w, http.StatusOK, rule)
+		return
+	}
+
 	var node model.ExprNode
 	if err := json.Unmarshal(rule.Expression, &node); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to parse stored expression")
 		return
 	}
 	resolver := s.makeResolver(r)
+	ruleResolver := s.makeRuleResolver(r)
 	validator := stream.NewRuleValidator(s.tier)
-	if err := validator.Validate(node, resolver); err != nil {
+	if err := validator.Validate(node, resolver, ruleResolver); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "rule is no longer valid: "+err.Error())
 		return
 	}
 	compiler := stream.NewRuleCompiler()
-	compiled, err := compiler.Compile(node, resolver)
+	compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
@@ -310,6 +370,17 @@ func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !rule.Active {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Local rules: just flip the DB flag, no X API calls.
+	if rule.Local {
+		if err := s.store.SetRuleActive(r.Context(), id, false, ""); err != nil {
+			s.logger.Error("api: deactivate local rule", "rule_id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to deactivate rule")
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

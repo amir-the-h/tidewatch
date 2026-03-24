@@ -16,3 +16,10 @@ type Pipeline interface {
 	// Close releases ONNX Runtime resources.
 	Close() error
 }
+
+// LabeledPipeline is implemented by pipelines that support dynamic candidate labels
+// (e.g. zero-shot classification). Labels can be updated without reloading the model.
+type LabeledPipeline interface {
+	Pipeline
+	SetLabels(labels []string)
+}

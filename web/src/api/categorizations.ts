@@ -1,12 +1,23 @@
 // web/src/api/categorizations.ts
 import { apiFetch } from './client'
 
+export interface CategorizationResults {
+  // classification / sentiment / emotion
+  label?: string
+  score?: number
+  // zero-shot: sorted arrays of labels + scores
+  labels?: string[]
+  scores?: number[]
+  // NER: word spans (new) or legacy token indices (old)
+  entities?: { word?: string; token_index?: number; label: string; score: number }[]
+}
+
 export interface Categorization {
   id: number
   tweet_id: string
   model_name: string
-  result: string
-  score: number
+  model_version: string
+  results: CategorizationResults
   created_at: string
 }
 

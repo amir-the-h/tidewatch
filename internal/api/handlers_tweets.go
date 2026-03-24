@@ -68,7 +68,13 @@ func (s *Server) handleListTweets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list tweets")
 		return
 	}
-	writeJSON(w, http.StatusOK, tweets)
+	total, err := s.store.CountTweets(r.Context(), filter)
+	if err != nil {
+		s.logger.Error("api: count tweets", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to count tweets")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tweets": tweets, "total": total})
 }
 
 func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +100,27 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 		"tweet":           tweet,
 		"categorizations": cats,
 	})
+}
+
+func (s *Server) handleDeleteTweets(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+	n, err := s.store.DeleteTweets(r.Context(), req.IDs)
+	if err != nil {
+		s.logger.Error("api: delete tweets", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete tweets")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }
 
 func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {

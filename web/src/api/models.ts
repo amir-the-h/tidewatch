@@ -19,3 +19,9 @@ export const deactivateModel = (id: number) => apiFetch<Model>(`/api/models/${id
 export const downloadModel  = (repo_id: string) =>
   apiFetch<{ repo_id: string; local_dir: string; status: string }>(
     '/api/models/download', { method: 'POST', body: JSON.stringify({ repo_id }) })
+
+export const listModelLabels   = (id: number) => apiFetch<string[]>(`/api/models/${id}/labels`)
+export const addModelLabel     = (id: number, label: string) =>
+  apiFetch<string[]>(`/api/models/${id}/labels`, { method: 'POST', body: JSON.stringify({ label }) })
+export const removeModelLabel  = (id: number, label: string) =>
+  apiFetch<string[]>(`/api/models/${id}/labels/${encodeURIComponent(label)}`, { method: 'DELETE' })

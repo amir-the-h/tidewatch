@@ -43,5 +43,17 @@ export const useModelsStore = defineStore('models', () => {
     models.value = models.value.filter(m => m.id !== id)
   }
 
-  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove }
+  async function listLabels(id: number) {
+    return api.listModelLabels(id)
+  }
+
+  async function addLabel(id: number, label: string) {
+    return api.addModelLabel(id, label)
+  }
+
+  async function removeLabel(id: number, label: string) {
+    return api.removeModelLabel(id, label)
+  }
+
+  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel }
 })

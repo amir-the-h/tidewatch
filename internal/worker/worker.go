@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -55,6 +56,9 @@ func (w *worker) run(ctx context.Context) {
 		pipelines := w.registry.All()
 		var failedModels []queue.FailedModel
 
+		// nerEntities collects NER entities from any pipeline that returns them.
+		var nerEntities []model.NEREntity
+
 		for _, pipeline := range pipelines {
 			result, runErr := pipeline.Run([]byte(streamTweet.Tweet.Text))
 			if runErr != nil {
@@ -80,6 +84,14 @@ func (w *worker) run(ctx context.Context) {
 					})
 				}
 				continue
+			}
+
+			// Collect NER entities from any pipeline that produces them.
+			var nerOut struct {
+				Entities []model.NEREntity `json:"entities"`
+			}
+			if json.Unmarshal(result, &nerOut) == nil {
+				nerEntities = append(nerEntities, nerOut.Entities...)
 			}
 
 			c := &model.Categorization{
@@ -113,6 +125,9 @@ func (w *worker) run(ctx context.Context) {
 				})
 			}
 		}
+
+		// Step 4.5: match tweet against active tracked entities.
+		w.matchEntities(ctx, streamTweet.Tweet, nerEntities)
 
 		// Step 5: push to dead-letter queue if any models failed.
 		if len(failedModels) > 0 {

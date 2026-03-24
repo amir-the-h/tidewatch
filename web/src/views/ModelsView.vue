@@ -17,6 +17,13 @@ const downloading  = ref(false)
 const manualForm = ref({ name: '', version: '', path: '', type: 'classifier' })
 const repoID     = ref('')
 
+// label management
+const showLabels   = ref(false)
+const labelsModel  = ref<Model | null>(null)
+const labelsList   = ref<string[]>([])
+const newLabel     = ref('')
+const labelsLoading = ref(false)
+
 onMounted(() => store.fetchModels())
 
 async function onCreateManual() {
@@ -41,6 +48,34 @@ async function onDownload() {
   finally { downloading.value = false }
 }
 
+async function openLabels(row: Model) {
+  labelsModel.value = row
+  labelsLoading.value = true
+  showLabels.value = true
+  try {
+    labelsList.value = await store.listLabels(row.id)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    labelsLoading.value = false
+  }
+}
+
+async function onAddLabel() {
+  if (!labelsModel.value || !newLabel.value.trim()) return
+  try {
+    labelsList.value = await store.addLabel(labelsModel.value.id, newLabel.value.trim())
+    newLabel.value = ''
+  } catch (e: any) { msg.error(e.message) }
+}
+
+async function onRemoveLabel(label: string) {
+  if (!labelsModel.value) return
+  try {
+    labelsList.value = await store.removeLabel(labelsModel.value.id, label)
+  } catch (e: any) { msg.error(e.message) }
+}
+
 const columns: DataTableColumns<Model> = [
   { title: 'ID',      key: 'id',      width: 60 },
   { title: 'Name',    key: 'name' },
@@ -56,6 +91,7 @@ const columns: DataTableColumns<Model> = [
     title: 'Actions', key: 'actions',
     render: (row) => h(NSpace, {}, {
       default: () => [
+        h(NButton, { size: 'small', onClick: () => openLabels(row) }, { default: () => 'Labels' }),
         row.active
           ? h(NButton, { size: 'small', onClick: () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Deactivate' })
           : h(NButton, { size: 'small', type: 'primary', onClick: () => store.activate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Activate' }),
@@ -99,6 +135,37 @@ const columns: DataTableColumns<Model> = [
         </n-form>
         <template #footer>
           <n-button type="primary" :loading="saving" @click="onCreateManual">Register</n-button>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
+
+    <!-- Labels drawer -->
+    <n-drawer v-model:show="showLabels" :width="420">
+      <n-drawer-content :title="`Labels — ${labelsModel?.name ?? ''}`" closable>
+        <n-spin v-if="labelsLoading" />
+        <template v-else>
+          <n-space style="margin-bottom: 16px">
+            <n-input
+              v-model:value="newLabel"
+              placeholder="e.g. military"
+              style="width: 240px"
+              @keyup.enter="onAddLabel"
+            />
+            <n-button type="primary" @click="onAddLabel" :disabled="!newLabel.trim()">Add</n-button>
+          </n-space>
+
+          <n-empty v-if="!labelsList.length" description="No labels yet" />
+          <n-space v-else wrap>
+            <n-tag
+              v-for="lbl in labelsList"
+              :key="lbl"
+              size="medium"
+              closable
+              @close="onRemoveLabel(lbl)"
+            >
+              {{ lbl }}
+            </n-tag>
+          </n-space>
         </template>
       </n-drawer-content>
     </n-drawer>

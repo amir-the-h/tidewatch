@@ -4,18 +4,33 @@ import { ref } from 'vue'
 import * as api from '../api/tweets'
 import type { Tweet, TweetDetail, TweetListFilter } from '../api/tweets'
 
+
 export const useTweetsStore = defineStore('tweets', () => {
-  const tweets  = ref<Tweet[]>([])
-  const loading = ref(false)
-  const error   = ref<string | null>(null)
-  const page    = ref(1)
-  const perPage = ref(20)
+  const tweets   = ref<Tweet[]>([])
+  const total    = ref(0)
+  const loading  = ref(false)
+  const error    = ref<string | null>(null)
+  const page     = ref(1)
+  const perPage  = ref(20)
+
+  // Holds the last-used filter so page changes can re-apply it
+  let lastFilter: TweetListFilter = {}
 
   async function fetchTweets(filter: TweetListFilter = {}) {
+    lastFilter = filter
+    page.value = filter.page ?? 1
     loading.value = true; error.value = null
-    try { tweets.value = await api.listTweets({ page: page.value, per_page: perPage.value, ...filter }) }
+    try {
+      const res = await api.listTweets({ page: page.value, per_page: perPage.value, ...filter })
+      tweets.value = res.tweets
+      total.value  = res.total
+    }
     catch (e: any) { error.value = e.message }
     finally { loading.value = false }
+  }
+
+  async function goToPage(p: number) {
+    await fetchTweets({ ...lastFilter, page: p })
   }
 
   async function getTweet(id: string): Promise<TweetDetail> {
@@ -26,5 +41,11 @@ export const useTweetsStore = defineStore('tweets', () => {
     return api.reprocessTweets(body)
   }
 
-  return { tweets, loading, error, page, perPage, fetchTweets, getTweet, reprocess }
+  async function remove(ids: string[]) {
+    const result = await api.deleteTweets(ids)
+    tweets.value = tweets.value.filter(t => !ids.includes(t.id))
+    return result
+  }
+
+  return { tweets, total, loading, error, page, perPage, fetchTweets, goToPage, getTweet, reprocess, remove }
 })

@@ -3,7 +3,6 @@ package notifier
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"text/template"
 )
 
@@ -46,15 +45,13 @@ func ValidateTemplate(tmpl string) error {
 }
 
 func ExpandURL(urlTemplate string, event NotificationEvent) string {
-	tweetID := ""
-	authorHandle := ""
-	if event.Tweet != nil {
-		tweetID = event.Tweet.ID
-		authorHandle = event.Tweet.AuthorHandle
+	t, err := template.New("url").Parse(urlTemplate)
+	if err != nil {
+		return urlTemplate
 	}
-	r := strings.NewReplacer(
-		"{tweet_id}", tweetID,
-		"{author_handle}", authorHandle,
-	)
-	return r.Replace(urlTemplate)
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, event); err != nil {
+		return urlTemplate
+	}
+	return buf.String()
 }

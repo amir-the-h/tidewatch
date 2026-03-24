@@ -5,18 +5,9 @@ import (
 )
 
 func (s *Server) handleStreamStatus(w http.ResponseWriter, r *http.Request) {
-	connected := false
-	if s.stream != nil {
-		connected = s.stream.Connected()
-	}
-
-	status := "disconnected"
-	if connected {
-		status = "connected"
-	}
-
+	connected := s.stream != nil && s.stream.Connected()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"stream": status,
+		"connected": connected,
 	})
 }
 

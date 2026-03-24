@@ -31,6 +31,11 @@ const showCreate = ref(false)
 const form = ref({ name: '', type: 'keyword', value: '' })
 const saving = ref(false)
 
+const showEdit  = ref(false)
+const editId    = ref<number | null>(null)
+const editForm  = ref({ name: '', type: 'keyword', value: '' })
+const updating  = ref(false)
+
 const operatorFor = (type: string) =>
   SOURCE_TYPES.find(t => t.value === type)?.operator ?? ''
 
@@ -47,6 +52,26 @@ async function onCreate() {
     msg.error(e.message)
   } finally {
     saving.value = false
+  }
+}
+
+function openEdit(row: Source) {
+  editId.value = row.id
+  editForm.value = { name: row.name, type: row.type, value: row.value }
+  showEdit.value = true
+}
+
+async function onUpdate() {
+  if (editId.value == null) return
+  updating.value = true
+  try {
+    await store.update(editId.value, { name: editForm.value.name, type: editForm.value.type, value: editForm.value.value })
+    msg.success('Source updated')
+    showEdit.value = false
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    updating.value = false
   }
 }
 
@@ -82,6 +107,7 @@ const columns: DataTableColumns<Source> = [
     title: 'Actions', key: 'actions',
     render: (row) => h(NSpace, {}, {
       default: () => [
+        h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
         h(NButton, { size: 'small', disabled: !row.active, onClick: () => onDeactivate(row.id) }, { default: () => 'Deactivate' }),
         h(NButton, { size: 'small', type: 'error', onClick: () => onDelete(row.id) }, { default: () => 'Delete' }),
       ]
@@ -104,6 +130,7 @@ const columns: DataTableColumns<Source> = [
       :pagination="{ pageSize: 20 }"
     />
 
+    <!-- Create drawer -->
     <n-drawer v-model:show="showCreate" :width="400" title="New Source">
       <n-drawer-content title="New Source" closable>
         <n-form label-placement="top">
@@ -122,6 +149,29 @@ const columns: DataTableColumns<Source> = [
         </n-form>
         <template #footer>
           <n-button type="primary" :loading="saving" @click="onCreate">Create</n-button>
+        </template>
+      </n-drawer-content>
+    </n-drawer>
+
+    <!-- Edit drawer -->
+    <n-drawer v-model:show="showEdit" :width="400">
+      <n-drawer-content title="Edit Source" closable>
+        <n-form label-placement="top">
+          <n-form-item label="Name">
+            <n-input v-model:value="editForm.name" placeholder="e.g. Iran keyword" />
+          </n-form-item>
+          <n-form-item label="Type">
+            <n-select v-model:value="editForm.type" :options="SOURCE_TYPES" />
+          </n-form-item>
+          <n-form-item label="Operator (auto)">
+            <n-input :value="operatorFor(editForm.type)" disabled />
+          </n-form-item>
+          <n-form-item label="Value">
+            <n-input v-model:value="editForm.value" />
+          </n-form-item>
+        </n-form>
+        <template #footer>
+          <n-button type="primary" :loading="updating" @click="onUpdate">Save</n-button>
         </template>
       </n-drawer-content>
     </n-drawer>

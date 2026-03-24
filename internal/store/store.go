@@ -26,6 +26,7 @@ type SourceFilter struct {
 // RuleFilter defines optional filters for listing rules.
 type RuleFilter struct {
 	Active *bool
+	Local  *bool
 }
 
 // CategorizationFilter defines optional filters for listing categorizations.
@@ -43,15 +44,34 @@ type NotificationFilter struct {
 	RuleID    *int64
 }
 
+// TrackedEntityFilter defines optional filters for listing tracked entities.
+type TrackedEntityFilter struct {
+	Type   *string
+	Active *bool
+}
+
+// EntityTrackFilter defines optional filters for listing entity tracks.
+type EntityTrackFilter struct {
+	EntityID *int64
+	TweetID  *string
+	From     *time.Time
+	To       *time.Time
+	Page     int
+	PerPage  int
+}
+
 // Store is the repository interface for all persistent data.
 type Store interface {
 	// Tweets
 	SaveTweet(ctx context.Context, tweet *model.Tweet) error
 	GetTweet(ctx context.Context, id string) (*model.Tweet, error)
 	ListTweets(ctx context.Context, filter TweetFilter) ([]*model.Tweet, error)
+	CountTweets(ctx context.Context, filter TweetFilter) (int, error)
+	DeleteTweets(ctx context.Context, ids []string) (int64, error)
 
 	// Sources
 	SaveSource(ctx context.Context, source *model.Source) error
+	UpdateSource(ctx context.Context, source *model.Source) error
 	GetSource(ctx context.Context, id int64) (*model.Source, error)
 	ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error)
 	DeleteSource(ctx context.Context, id int64) error
@@ -78,6 +98,9 @@ type Store interface {
 	ListModels(ctx context.Context) ([]*model.Model, error)
 	DeleteModel(ctx context.Context, id int64) error
 	SetModelActive(ctx context.Context, id int64, active bool) error
+	ListModelLabels(ctx context.Context, modelName string) ([]string, error)
+	AddModelLabel(ctx context.Context, modelName, label string) error
+	RemoveModelLabel(ctx context.Context, modelName, label string) error
 
 	// Categorizations
 	SaveCategorization(ctx context.Context, c *model.Categorization) error
@@ -91,6 +114,20 @@ type Store interface {
 	UpdateNotification(ctx context.Context, n *model.Notification) error
 	DeleteNotification(ctx context.Context, id int64) error
 	SetNotificationActive(ctx context.Context, id int64, active bool) error
+
+	// TrackedEntities
+	SaveTrackedEntity(ctx context.Context, e *model.TrackedEntity) error
+	GetTrackedEntity(ctx context.Context, id int64) (*model.TrackedEntity, error)
+	ListTrackedEntities(ctx context.Context, filter TrackedEntityFilter) ([]*model.TrackedEntity, error)
+	UpdateTrackedEntity(ctx context.Context, e *model.TrackedEntity) error
+	DeleteTrackedEntity(ctx context.Context, id int64) error
+	SetTrackedEntityActive(ctx context.Context, id int64, active bool) error
+
+	// EntityTracks
+	ListActiveTrackedEntities(ctx context.Context) ([]*model.TrackedEntity, error)
+	SaveEntityTrack(ctx context.Context, t *model.EntityTrack) error
+	ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error)
+	CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error)
 
 	Close() error
 }

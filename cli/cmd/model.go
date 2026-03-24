@@ -174,6 +174,86 @@ var modelDeactivateCmd = &cobra.Command{
 	},
 }
 
+var modelLabelsCmd = &cobra.Command{
+	Use:   "labels",
+	Short: "Manage zero-shot candidate labels for a model",
+}
+
+var modelLabelsListCmd = &cobra.Command{
+	Use:   "list <model-id>",
+	Short: "List candidate labels for a model",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := url.PathEscape(args[0])
+		resp, err := http.Get(baseURL + "/api/models/" + id + "/labels")
+		if err != nil {
+			return fmt.Errorf("model labels list: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		var labels []string
+		if err := json.NewDecoder(resp.Body).Decode(&labels); err != nil {
+			return fmt.Errorf("model labels list: decode: %w", err)
+		}
+		if len(labels) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "(no labels)")
+			return nil
+		}
+		for _, l := range labels {
+			fmt.Fprintln(cmd.OutOrStdout(), l)
+		}
+		return nil
+	},
+}
+
+var modelLabelsAddCmd = &cobra.Command{
+	Use:   "add <model-id> <label>",
+	Short: "Add a candidate label to a model",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := url.PathEscape(args[0])
+		body := map[string]string{"label": args[1]}
+		data, _ := json.Marshal(body)
+		resp, err := http.Post(baseURL+"/api/models/"+id+"/labels", "application/json", bytes.NewReader(data))
+		if err != nil {
+			return fmt.Errorf("model labels add: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Label %q added to model %s\n", args[1], args[0])
+		return nil
+	},
+}
+
+var modelLabelsRemoveCmd = &cobra.Command{
+	Use:   "remove <model-id> <label>",
+	Short: "Remove a candidate label from a model",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id := url.PathEscape(args[0])
+		label := url.PathEscape(args[1])
+		req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/models/"+id+"/labels/"+label, nil)
+		if err != nil {
+			return fmt.Errorf("model labels remove: build request: %w", err)
+		}
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("model labels remove: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Label %q removed from model %s\n", args[1], args[0])
+		return nil
+	},
+}
+
 func init() {
 	modelAddCmd.Flags().StringVar(&modelName, "name", "", "Model name")
 	modelAddCmd.Flags().StringVar(&modelVersion, "version", "", "Model version")
@@ -183,10 +263,15 @@ func init() {
 	_ = modelAddCmd.MarkFlagRequired("path")
 	_ = modelAddCmd.MarkFlagRequired("type")
 
+	modelLabelsCmd.AddCommand(modelLabelsListCmd)
+	modelLabelsCmd.AddCommand(modelLabelsAddCmd)
+	modelLabelsCmd.AddCommand(modelLabelsRemoveCmd)
+
 	modelCmd.AddCommand(modelListCmd)
 	modelCmd.AddCommand(modelAddCmd)
 	modelCmd.AddCommand(modelRemoveCmd)
 	modelCmd.AddCommand(modelActivateCmd)
 	modelCmd.AddCommand(modelDeactivateCmd)
+	modelCmd.AddCommand(modelLabelsCmd)
 	rootCmd.AddCommand(modelCmd)
 }

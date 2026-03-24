@@ -82,6 +82,7 @@ func NewServer(
 		// Sources
 		r.Get("/sources", srv.handleListSources)
 		r.Post("/sources", srv.handleCreateSource)
+		r.Put("/sources/{id}", srv.handleUpdateSource)
 		r.Delete("/sources/{id}", srv.handleDeleteSource)
 		r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
 
@@ -94,8 +95,9 @@ func NewServer(
 		r.Post("/rules/{id}/activate", srv.handleActivateRule)
 		r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
 
-		// Tweets — static route /reprocess MUST be registered before /{id}
+		// Tweets — static routes MUST be registered before /{id}
 		r.Get("/tweets", srv.handleListTweets)
+		r.Delete("/tweets", srv.handleDeleteTweets)
 		r.Post("/tweets/reprocess", srv.handleReprocessTweets)
 		r.Get("/tweets/{id}", srv.handleGetTweet)
 
@@ -106,6 +108,9 @@ func NewServer(
 		r.Delete("/models/{id}", srv.handleDeleteModel)
 		r.Post("/models/{id}/activate", srv.handleActivateModel)
 		r.Post("/models/{id}/deactivate", srv.handleDeactivateModel)
+		r.Get("/models/{id}/labels", srv.handleListModelLabels)
+		r.Post("/models/{id}/labels", srv.handleAddModelLabel)
+		r.Delete("/models/{id}/labels/{label}", srv.handleRemoveModelLabel)
 
 		// Stream
 		r.Get("/stream/status", srv.handleStreamStatus)
@@ -114,6 +119,16 @@ func NewServer(
 
 		// Categorizations
 		r.Get("/categorizations", srv.handleListCategorizations)
+
+		// Tracked Entities — static routes before parameterized
+		r.Get("/tracked-entities", srv.handleListTrackedEntities)
+		r.Post("/tracked-entities", srv.handleCreateTrackedEntity)
+		r.Get("/tracked-entities/{id}", srv.handleGetTrackedEntity)
+		r.Put("/tracked-entities/{id}", srv.handleUpdateTrackedEntity)
+		r.Delete("/tracked-entities/{id}", srv.handleDeleteTrackedEntity)
+		r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
+		r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
+		r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
 
 		// Notifications — static routes before parameterized
 		r.Get("/notifications", srv.handleListNotifications)
@@ -199,6 +214,24 @@ func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
 			return nil, fmt.Errorf("source %d is inactive", id)
 		}
 		return src, nil
+	}
+}
+
+// makeRuleResolver returns a RuleResolver backed by the store,
+// returning only active local rules.
+func (s *Server) makeRuleResolver(r *http.Request) stream.RuleResolver {
+	return func(id int64) (*model.Rule, error) {
+		rule, err := s.store.GetRule(r.Context(), id)
+		if err != nil {
+			return nil, err
+		}
+		if !rule.Local {
+			return nil, fmt.Errorf("rule %d is not a local rule", id)
+		}
+		if !rule.Active {
+			return nil, fmt.Errorf("rule %d is inactive", id)
+		}
+		return rule, nil
 	}
 }
 

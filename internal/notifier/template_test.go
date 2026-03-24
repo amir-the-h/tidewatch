@@ -146,9 +146,9 @@ func TestExpandURL_WithTweet(t *testing.T) {
 		Type:  EventTweetMatched,
 		Tweet: tweet,
 	}
-	urlTmpl := "https://twitter.com/{author_handle}/status/{tweet_id}"
+	urlTmpl := "https://x.com/{{.Tweet.AuthorHandle}}/status/{{.Tweet.ID}}"
 	result := ExpandURL(urlTmpl, event)
-	expected := "https://twitter.com/testuser/status/1234567890"
+	expected := "https://x.com/testuser/status/1234567890"
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
 	}
@@ -159,9 +159,9 @@ func TestExpandURL_NilTweet(t *testing.T) {
 		Type:  EventStreamConnected,
 		Tweet: nil,
 	}
-	urlTmpl := "https://example.com/{author_handle}/{tweet_id}"
+	urlTmpl := "https://example.com/{{.Tweet.AuthorHandle}}/{{.Tweet.ID}}"
 	result := ExpandURL(urlTmpl, event)
-	expected := "https://example.com//"
+	expected := urlTmpl // returned as-is on template execute error (nil Tweet dereference)
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
 	}

@@ -123,7 +123,13 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 		activeModels := filterActive(models)
 		if reloadErr := s.registry.Reload(r.Context(), activeModels, func(m *model.Model) (inference.Pipeline, error) {
 			p := inference.NewONNXPipeline(m.Name)
-			return p, p.Load(m.Path)
+			if err := p.Load(m.Path); err != nil {
+				return nil, err
+			}
+			if labels, labelsErr := s.store.ListModelLabels(r.Context(), m.Name); labelsErr == nil && len(labels) > 0 {
+				p.SetLabels(labels)
+			}
+			return p, nil
 		}); reloadErr != nil {
 			s.logger.Error("api: set model active: registry reload", "model_id", id, "error", reloadErr)
 			writeError(w, http.StatusInternalServerError, "failed to reload model registry")
@@ -184,4 +190,86 @@ func (s *Server) handleDownloadModel(w http.ResponseWriter, r *http.Request) {
 		"local_dir": localDir,
 		"status":    "downloaded",
 	})
+}
+
+func (s *Server) handleListModelLabels(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.resolveModel(w, r)
+	if !ok {
+		return
+	}
+	labels, err := s.store.ListModelLabels(r.Context(), m.Name)
+	if err != nil {
+		s.logger.Error("api: list model labels", "model_id", m.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list labels")
+		return
+	}
+	if labels == nil {
+		labels = []string{}
+	}
+	writeJSON(w, http.StatusOK, labels)
+}
+
+func (s *Server) handleAddModelLabel(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.resolveModel(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Label == "" {
+		writeError(w, http.StatusBadRequest, "label is required")
+		return
+	}
+	if err := s.store.AddModelLabel(r.Context(), m.Name, req.Label); err != nil {
+		s.logger.Error("api: add model label", "model_id", m.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to add label")
+		return
+	}
+	labels, _ := s.store.ListModelLabels(r.Context(), m.Name)
+	if s.registry != nil {
+		s.registry.SetLabels(m.Name, labels)
+	}
+	writeJSON(w, http.StatusOK, labels)
+}
+
+func (s *Server) handleRemoveModelLabel(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.resolveModel(w, r)
+	if !ok {
+		return
+	}
+	label := chi.URLParam(r, "label")
+	if label == "" {
+		writeError(w, http.StatusBadRequest, "label is required")
+		return
+	}
+	if err := s.store.RemoveModelLabel(r.Context(), m.Name, label); err != nil {
+		s.logger.Error("api: remove model label", "model_id", m.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to remove label")
+		return
+	}
+	labels, _ := s.store.ListModelLabels(r.Context(), m.Name)
+	if labels == nil {
+		labels = []string{}
+	}
+	if s.registry != nil {
+		s.registry.SetLabels(m.Name, labels)
+	}
+	writeJSON(w, http.StatusOK, labels)
+}
+
+// resolveModel fetches the model by {id} URL param, writing errors on failure.
+func (s *Server) resolveModel(w http.ResponseWriter, r *http.Request) (*model.Model, bool) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid model ID")
+		return nil, false
+	}
+	m, err := s.store.GetModel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "model not found")
+		return nil, false
+	}
+	return m, true
 }

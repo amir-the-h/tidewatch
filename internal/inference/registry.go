@@ -98,6 +98,19 @@ func (r *Registry) Reload(ctx context.Context, models []*model.Model, factory fu
 	return nil
 }
 
+// SetLabels updates the candidate labels for a zero-shot pipeline identified by
+// name, without reloading or interrupting the model session.
+func (r *Registry) SetLabels(name string, labels []string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.active {
+		if lp, ok := p.(LabeledPipeline); ok && p.Name() == name {
+			lp.SetLabels(labels)
+			return
+		}
+	}
+}
+
 // NotifyChan returns a channel that receives a struct{} after each Reload call.
 // Workers select on this channel between tweet iterations to pick up model changes.
 // The channel is buffered(1) — if no worker is listening, the signal is not blocked.

@@ -24,7 +24,14 @@ export interface Notification {
   updated_at: string
 }
 
-export const VALID_EVENT_TYPES = ['tweet.new', 'tweet.categorized'] as const
+export const VALID_EVENT_TYPES = [
+  'tweet_matched',
+  'tweet_categorized',
+  'categorization_failed',
+  'stream_connected',
+  'stream_disconnected',
+  'stream_error',
+] as const
 
 export const listNotifications = (filter: { event_type?: string; active?: boolean; rule_id?: number } = {}) => {
   const params = new URLSearchParams()

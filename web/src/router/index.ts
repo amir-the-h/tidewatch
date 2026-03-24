@@ -6,6 +6,7 @@ import SourcesView from '../views/SourcesView.vue'
 import ModelsView from '../views/ModelsView.vue'
 import CategorizationsView from '../views/CategorizationsView.vue'
 import NotificationsView from '../views/NotificationsView.vue'
+import TrackedEntitiesView from '../views/TrackedEntitiesView.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -17,5 +18,6 @@ export default createRouter({
     { path: '/models', component: ModelsView },
     { path: '/categorizations', component: CategorizationsView },
     { path: '/notifications', component: NotificationsView },
+    { path: '/tracked-entities', component: TrackedEntitiesView },
   ],
 })

@@ -82,7 +82,7 @@ func (s *sqliteStore) GetTweet(ctx context.Context, id string) (*model.Tweet, er
 
 	// Populate Rules via join
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT r.id, r.name, r.expression, r.compiled_value, r.x_rule_id, r.active, r.created_at, r.updated_at
+		`SELECT r.id, r.name, r.expression, r.compiled_value, r.x_rule_id, r.active, r.local, r.created_at, r.updated_at
 		 FROM rules r
 		 JOIN tweet_rules tr ON tr.rule_id = r.id
 		 WHERE tr.tweet_id = ?`, id)
@@ -155,6 +155,68 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 		tweets = append(tweets, t)
 	}
 	return tweets, rows.Err()
+}
+
+func (s *sqliteStore) CountTweets(ctx context.Context, filter TweetFilter) (int, error) {
+	query := `SELECT COUNT(DISTINCT t.id) FROM tweets t`
+	var args []any
+	var where []string
+
+	if filter.RuleID != nil {
+		query += ` JOIN tweet_rules tr ON tr.tweet_id = t.id`
+		where = append(where, "tr.rule_id = ?")
+		args = append(args, *filter.RuleID)
+	}
+	if filter.From != nil {
+		where = append(where, "t.created_at >= ?")
+		args = append(args, filter.From.UTC().Format(time.RFC3339))
+	}
+	if filter.To != nil {
+		where = append(where, "t.created_at <= ?")
+		args = append(args, filter.To.UTC().Format(time.RFC3339))
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count tweets: %w", err)
+	}
+	return count, nil
+}
+
+func (s *sqliteStore) DeleteTweets(ctx context.Context, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete tweets: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, table := range []string{"categorizations", "tweet_rules"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE tweet_id IN (`+placeholders+`)`, args...); err != nil {
+			return 0, fmt.Errorf("store: delete tweets: clear %s: %w", table, err)
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM tweets WHERE id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete tweets: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("store: delete tweets: commit: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // ── Sources ───────────────────────────────────────────────────────────────────
@@ -235,6 +297,25 @@ func (s *sqliteStore) ListSources(ctx context.Context, filter SourceFilter) ([]*
 	return sources, rows.Err()
 }
 
+func (s *sqliteStore) UpdateSource(ctx context.Context, source *model.Source) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sources SET name = ?, type = ?, class = ?, operator = ?, value = ?, updated_at = ? WHERE id = ?`,
+		source.Name,
+		string(source.Type),
+		string(source.Class),
+		source.Operator,
+		source.Value,
+		now,
+		source.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update source: %w", err)
+	}
+	source.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
 func (s *sqliteStore) DeleteSource(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sources WHERE id = ?`, id)
 	if err != nil {
@@ -281,13 +362,14 @@ func (s *sqliteStore) RuleRefCount(ctx context.Context, sourceID int64) (int, er
 
 func (s *sqliteStore) SaveRule(ctx context.Context, rule *model.Rule) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO rules (name, expression, compiled_value, x_rule_id, active, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO rules (name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		rule.Name,
 		string(rule.Expression),
 		rule.CompiledValue,
 		rule.XRuleID,
 		boolToInt(rule.Active),
+		boolToInt(rule.Local),
 		rule.CreatedAt.UTC().Format(time.RFC3339),
 		rule.UpdatedAt.UTC().Format(time.RFC3339),
 	)
@@ -304,7 +386,7 @@ func (s *sqliteStore) SaveRule(ctx context.Context, rule *model.Rule) error {
 
 func (s *sqliteStore) GetRule(ctx context.Context, id int64) (*model.Rule, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, expression, compiled_value, x_rule_id, active, created_at, updated_at FROM rules WHERE id = ?`, id)
+		`SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM rules WHERE id = ?`, id)
 	rule, err := scanRule(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -317,7 +399,7 @@ func (s *sqliteStore) GetRule(ctx context.Context, id int64) (*model.Rule, error
 
 func (s *sqliteStore) GetRuleByXRuleID(ctx context.Context, xRuleID string) (*model.Rule, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, expression, compiled_value, x_rule_id, active, created_at, updated_at FROM rules WHERE x_rule_id = ?`, xRuleID)
+		`SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM rules WHERE x_rule_id = ?`, xRuleID)
 	rule, err := scanRule(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -329,11 +411,19 @@ func (s *sqliteStore) GetRuleByXRuleID(ctx context.Context, xRuleID string) (*mo
 }
 
 func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*model.Rule, error) {
-	query := `SELECT id, name, expression, compiled_value, x_rule_id, active, created_at, updated_at FROM rules`
+	query := `SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM rules`
 	var args []any
+	var where []string
 	if filter.Active != nil {
-		query += " WHERE active = ?"
+		where = append(where, "active = ?")
 		args = append(args, boolToInt(*filter.Active))
+	}
+	if filter.Local != nil {
+		where = append(where, "local = ?")
+		args = append(args, boolToInt(*filter.Local))
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	query += " ORDER BY id ASC"
 
@@ -356,12 +446,13 @@ func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*mode
 
 func (s *sqliteStore) UpdateRule(ctx context.Context, rule *model.Rule) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE rules SET name = ?, expression = ?, compiled_value = ?, x_rule_id = ?, active = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE rules SET name = ?, expression = ?, compiled_value = ?, x_rule_id = ?, active = ?, local = ?, updated_at = ? WHERE id = ?`,
 		rule.Name,
 		string(rule.Expression),
 		rule.CompiledValue,
 		rule.XRuleID,
 		boolToInt(rule.Active),
+		boolToInt(rule.Local),
 		rule.UpdatedAt.UTC().Format(time.RFC3339),
 		rule.ID,
 	)
@@ -476,6 +567,42 @@ func (s *sqliteStore) SetModelActive(ctx context.Context, id int64, active bool)
 		`UPDATE models SET active = ? WHERE id = ?`, boolToInt(active), id)
 	if err != nil {
 		return fmt.Errorf("store: set model active: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) ListModelLabels(ctx context.Context, modelName string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT label FROM model_labels WHERE model_name = ? ORDER BY created_at ASC`, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("store: list model labels: %w", err)
+	}
+	defer rows.Close()
+	var labels []string
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			return nil, fmt.Errorf("store: list model labels: scan: %w", err)
+		}
+		labels = append(labels, l)
+	}
+	return labels, rows.Err()
+}
+
+func (s *sqliteStore) AddModelLabel(ctx context.Context, modelName, label string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO model_labels (model_name, label) VALUES (?, ?)`, modelName, label)
+	if err != nil {
+		return fmt.Errorf("store: add model label: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) RemoveModelLabel(ctx context.Context, modelName, label string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM model_labels WHERE model_name = ? AND label = ?`, modelName, label)
+	if err != nil {
+		return fmt.Errorf("store: remove model label: %w", err)
 	}
 	return nil
 }
@@ -801,13 +928,14 @@ func scanSource(s scanner) (*model.Source, error) {
 func scanRule(s scanner) (*model.Rule, error) {
 	var r model.Rule
 	var expression string
-	var active int
+	var active, local int
 	var createdAt, updatedAt string
-	if err := s.Scan(&r.ID, &r.Name, &expression, &r.CompiledValue, &r.XRuleID, &active, &createdAt, &updatedAt); err != nil {
+	if err := s.Scan(&r.ID, &r.Name, &expression, &r.CompiledValue, &r.XRuleID, &active, &local, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	r.Expression = json.RawMessage(expression)
 	r.Active = active != 0
+	r.Local = local != 0
 	var err error
 	r.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 	if err != nil {
@@ -933,4 +1061,263 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ── TrackedEntities ───────────────────────────────────────────────────────────
+
+func (s *sqliteStore) SaveTrackedEntity(ctx context.Context, e *model.TrackedEntity) error {
+	aliasesJSON, err := json.Marshal(e.Aliases)
+	if err != nil {
+		return fmt.Errorf("store: save tracked entity: marshal aliases: %w", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO tracked_entities (name, type, aliases, notes, active, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		e.Name, e.Type, string(aliasesJSON), e.Notes, boolToInt(e.Active), now, now,
+	)
+	if err != nil {
+		return fmt.Errorf("store: save tracked entity: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("store: save tracked entity: last insert id: %w", err)
+	}
+	e.ID = id
+	return nil
+}
+
+func (s *sqliteStore) GetTrackedEntity(ctx context.Context, id int64) (*model.TrackedEntity, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT te.id, te.name, te.type, te.aliases, te.notes, te.active, te.created_at, te.updated_at,
+		        COUNT(et.id) AS track_count
+		 FROM tracked_entities te
+		 LEFT JOIN entity_tracks et ON et.entity_id = te.id
+		 WHERE te.id = ?
+		 GROUP BY te.id`, id)
+	e, err := scanTrackedEntity(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("store: get tracked entity: not found: %w", err)
+		}
+		return nil, fmt.Errorf("store: get tracked entity: %w", err)
+	}
+	return e, nil
+}
+
+func (s *sqliteStore) ListTrackedEntities(ctx context.Context, filter TrackedEntityFilter) ([]*model.TrackedEntity, error) {
+	query := `SELECT te.id, te.name, te.type, te.aliases, te.notes, te.active, te.created_at, te.updated_at,
+	                 COUNT(et.id) AS track_count
+	          FROM tracked_entities te
+	          LEFT JOIN entity_tracks et ON et.entity_id = te.id`
+	var args []any
+	var where []string
+
+	if filter.Type != nil {
+		where = append(where, "te.type = ?")
+		args = append(args, *filter.Type)
+	}
+	if filter.Active != nil {
+		where = append(where, "te.active = ?")
+		args = append(args, boolToInt(*filter.Active))
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " GROUP BY te.id ORDER BY te.name ASC"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list tracked entities: %w", err)
+	}
+	defer rows.Close()
+
+	entities := make([]*model.TrackedEntity, 0)
+	for rows.Next() {
+		e, err := scanTrackedEntity(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list tracked entities: scan: %w", err)
+		}
+		entities = append(entities, e)
+	}
+	return entities, rows.Err()
+}
+
+func (s *sqliteStore) ListActiveTrackedEntities(ctx context.Context) ([]*model.TrackedEntity, error) {
+	active := true
+	return s.ListTrackedEntities(ctx, TrackedEntityFilter{Active: &active})
+}
+
+func (s *sqliteStore) UpdateTrackedEntity(ctx context.Context, e *model.TrackedEntity) error {
+	aliasesJSON, err := json.Marshal(e.Aliases)
+	if err != nil {
+		return fmt.Errorf("store: update tracked entity: marshal aliases: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE tracked_entities SET name=?, type=?, aliases=?, notes=?, updated_at=? WHERE id=?`,
+		e.Name, e.Type, string(aliasesJSON), e.Notes,
+		time.Now().UTC().Format(time.RFC3339), e.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update tracked entity: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) DeleteTrackedEntity(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM tracked_entities WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete tracked entity: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) SetTrackedEntityActive(ctx context.Context, id int64, active bool) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE tracked_entities SET active=?, updated_at=? WHERE id=?`,
+		boolToInt(active), time.Now().UTC().Format(time.RFC3339), id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: set tracked entity active: %w", err)
+	}
+	return nil
+}
+
+// ── EntityTracks ──────────────────────────────────────────────────────────────
+
+// SaveEntityTrack inserts a track record. Duplicate (entity_id, tweet_id) pairs
+// are silently ignored via INSERT OR IGNORE so callers can always call this safely.
+func (s *sqliteStore) SaveEntityTrack(ctx context.Context, t *model.EntityTrack) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO entity_tracks (entity_id, tweet_id, match_source, context, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		t.EntityID, t.TweetID, t.MatchSource, t.Context,
+		time.Now().UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save entity track: %w", err)
+	}
+	id, _ := res.LastInsertId()
+	t.ID = id
+	return nil
+}
+
+func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error) {
+	query := `SELECT et.id, et.entity_id, te.name, et.tweet_id, et.match_source, et.context, et.created_at
+	          FROM entity_tracks et
+	          JOIN tracked_entities te ON te.id = et.entity_id`
+	var args []any
+	var where []string
+
+	if filter.EntityID != nil {
+		where = append(where, "et.entity_id = ?")
+		args = append(args, *filter.EntityID)
+	}
+	if filter.TweetID != nil {
+		where = append(where, "et.tweet_id = ?")
+		args = append(args, *filter.TweetID)
+	}
+	if filter.From != nil {
+		where = append(where, "et.created_at >= ?")
+		args = append(args, filter.From.UTC().Format(time.RFC3339))
+	}
+	if filter.To != nil {
+		where = append(where, "et.created_at <= ?")
+		args = append(args, filter.To.UTC().Format(time.RFC3339))
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY et.created_at DESC"
+
+	if filter.PerPage > 0 {
+		query += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.PerPage, (filter.Page-1)*filter.PerPage)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list entity tracks: %w", err)
+	}
+	defer rows.Close()
+
+	tracks := make([]*model.EntityTrack, 0)
+	for rows.Next() {
+		t, err := scanEntityTrack(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list entity tracks: scan: %w", err)
+		}
+		tracks = append(tracks, t)
+	}
+	return tracks, rows.Err()
+}
+
+func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error) {
+	query := `SELECT COUNT(*) FROM entity_tracks et`
+	var args []any
+	var where []string
+
+	if filter.EntityID != nil {
+		where = append(where, "et.entity_id = ?")
+		args = append(args, *filter.EntityID)
+	}
+	if filter.TweetID != nil {
+		where = append(where, "et.tweet_id = ?")
+		args = append(args, *filter.TweetID)
+	}
+	if filter.From != nil {
+		where = append(where, "et.created_at >= ?")
+		args = append(args, filter.From.UTC().Format(time.RFC3339))
+	}
+	if filter.To != nil {
+		where = append(where, "et.created_at <= ?")
+		args = append(args, filter.To.UTC().Format(time.RFC3339))
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	var count int
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count entity tracks: %w", err)
+	}
+	return count, nil
+}
+
+func scanTrackedEntity(s scanner) (*model.TrackedEntity, error) {
+	var e model.TrackedEntity
+	var active int
+	var aliasesRaw string
+	var createdAt, updatedAt string
+	if err := s.Scan(&e.ID, &e.Name, &e.Type, &aliasesRaw, &e.Notes, &active, &createdAt, &updatedAt, &e.TrackCount); err != nil {
+		return nil, err
+	}
+	e.Active = active != 0
+	if err := json.Unmarshal([]byte(aliasesRaw), &e.Aliases); err != nil {
+		e.Aliases = []string{}
+	}
+	var err error
+	e.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse tracked_entity created_at: %w", err)
+	}
+	e.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse tracked_entity updated_at: %w", err)
+	}
+	return &e, nil
+}
+
+func scanEntityTrack(s scanner) (*model.EntityTrack, error) {
+	var t model.EntityTrack
+	var createdAt string
+	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.TweetID, &t.MatchSource, &t.Context, &createdAt); err != nil {
+		return nil, err
+	}
+	var err error
+	t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse entity_track created_at: %w", err)
+	}
+	return &t, nil
 }

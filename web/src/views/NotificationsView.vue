@@ -38,7 +38,7 @@ interface NotificationForm {
 }
 
 const defaultForm = (): NotificationForm => ({
-  name: '', event_type: 'tweet.new', active: true,
+  name: '', event_type: 'tweet_matched', active: true,
   filter_rule_id: null, filter_model_name: null, filter_model_result: null,
   pushover_priority: 0, pushover_html: false,
   pushover_sound: null, pushover_device: null, pushover_title: null,

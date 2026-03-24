@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api/sources'
-import type { Source, CreateSourceRequest } from '../api/sources'
+import type { Source, CreateSourceRequest, UpdateSourceRequest } from '../api/sources'
 
 export const useSourcesStore = defineStore('sources', () => {
   const sources = ref<Source[]>([])
@@ -22,6 +22,13 @@ export const useSourcesStore = defineStore('sources', () => {
     return src
   }
 
+  async function update(id: number, body: UpdateSourceRequest) {
+    const src = await api.updateSource(id, body)
+    const idx = sources.value.findIndex(s => s.id === id)
+    if (idx !== -1) sources.value[idx] = src
+    return src
+  }
+
   async function deactivate(id: number) {
     await api.deactivateSource(id)
     const s = sources.value.find(s => s.id === id)
@@ -33,5 +40,5 @@ export const useSourcesStore = defineStore('sources', () => {
     sources.value = sources.value.filter(s => s.id !== id)
   }
 
-  return { sources, loading, error, fetchSources, createSource, deactivate, remove }
+  return { sources, loading, error, fetchSources, createSource, update, deactivate, remove }
 })
