@@ -32,6 +32,9 @@ type Config struct {
 		ONNXLibPath string `yaml:"onnx_lib_path"`
 		ModelsDir   string `yaml:"models_dir"`
 	} `yaml:"inference"`
+	Ollama struct {
+		BaseURL string `yaml:"base_url"`
+	} `yaml:"ollama"`
 	Log struct {
 		Level  string `yaml:"level"`
 		Format string `yaml:"format"`
@@ -51,6 +54,7 @@ func defaults() *Config {
 	cfg.SQLite.Path = "./data/iran-watcher.db"
 	cfg.API.Bind = "127.0.0.1:8080"
 	cfg.Inference.ModelsDir = "./models"
+	cfg.Ollama.BaseURL = "http://localhost:11434"
 	cfg.Log.Level = "info"
 	cfg.Log.Format = "text"
 	return cfg
@@ -129,6 +133,9 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_OLLAMA_BASE_URL"); v != "" {
+		cfg.Ollama.BaseURL = v
 	}
 	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_APP_TOKEN"); v != "" {
 		cfg.Pushover.AppToken = v
