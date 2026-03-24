@@ -8,6 +8,8 @@ const (
 	ModelTypeClassification ModelType = "classification"
 	ModelTypeNER            ModelType = "ner"
 	ModelTypeSentiment      ModelType = "sentiment"
+	ModelTypeSummarizer     ModelType = "summarizer"
+	ModelTypeExtraction     ModelType = "extraction"
 )
 
 type Model struct {
@@ -17,5 +19,6 @@ type Model struct {
 	Path      string    `json:"path"`
 	Type      ModelType `json:"type"`
 	Active    bool      `json:"active"`
+	RuleIDs   []int64   `json:"rule_ids,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
