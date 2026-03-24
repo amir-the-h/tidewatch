@@ -23,3 +23,17 @@ type LabeledPipeline interface {
 	Pipeline
 	SetLabels(labels []string)
 }
+
+// SummarizationPipeline is implemented by seq2seq pipelines that generate text summaries.
+// Workers use this interface to populate the summary field on entity tracks.
+type SummarizationPipeline interface {
+	Pipeline
+	Summarize(text string) (string, error)
+}
+
+// ExtractionPipeline is implemented by pipelines that extract structured fields
+// from tweet text (e.g. coordinates, URLs, attribution) into an ExtractionResult.
+type ExtractionPipeline interface {
+	Pipeline
+	Extract(text string) (*ExtractionResult, error)
+}
