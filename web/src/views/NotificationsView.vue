@@ -182,9 +182,9 @@ const columns: DataTableColumns<Notification> = [
       <n-button type="primary" @click="openCreate">+ New Notification</n-button>
     </n-space>
 
-    <n-data-table :columns="columns" :data="store.notifications" :loading="store.loading" />
+    <n-data-table :columns="columns" :data="store.notifications" :loading="store.loading" :scroll-x="560" />
 
-    <n-drawer v-model:show="showDrawer" :width="480">
+    <n-drawer v-model:show="showDrawer" :width="'min(480px, calc(100vw - 16px))'">
       <n-drawer-content :title="editingN ? 'Edit Notification' : 'New Notification'" closable>
         <n-form label-placement="top">
           <n-form-item label="Name">

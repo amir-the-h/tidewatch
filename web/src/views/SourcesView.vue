@@ -127,11 +127,12 @@ const columns: DataTableColumns<Source> = [
       :columns="columns"
       :data="store.sources"
       :loading="store.loading"
+      :scroll-x="680"
       :pagination="{ pageSize: 20 }"
     />
 
     <!-- Create drawer -->
-    <n-drawer v-model:show="showCreate" :width="400" title="New Source">
+    <n-drawer v-model:show="showCreate" :width="'min(400px, calc(100vw - 16px))'" title="New Source">
       <n-drawer-content title="New Source" closable>
         <n-form label-placement="top">
           <n-form-item label="Name">
@@ -154,7 +155,7 @@ const columns: DataTableColumns<Source> = [
     </n-drawer>
 
     <!-- Edit drawer -->
-    <n-drawer v-model:show="showEdit" :width="400">
+    <n-drawer v-model:show="showEdit" :width="'min(400px, calc(100vw - 16px))'">
       <n-drawer-content title="Edit Source" closable>
         <n-form label-placement="top">
           <n-form-item label="Name">

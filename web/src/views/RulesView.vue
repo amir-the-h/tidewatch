@@ -114,9 +114,9 @@ const columns: DataTableColumns<Rule> = [
       <n-button type="primary" @click="openCreate">+ New Rule</n-button>
     </n-space>
 
-    <n-data-table :columns="columns" :data="store.rules" :loading="store.loading" />
+    <n-data-table :columns="columns" :data="store.rules" :loading="store.loading" :scroll-x="680" />
 
-    <n-drawer v-model:show="showDrawer" :width="520">
+    <n-drawer v-model:show="showDrawer" :width="'min(520px, calc(100vw - 16px))'">
       <n-drawer-content :title="editingRule ? 'Edit Rule' : 'New Rule'" closable>
         <n-form label-placement="top">
           <n-form-item label="Name">

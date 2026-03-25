@@ -211,8 +211,8 @@ const columns: DataTableColumns<Tweet> = [
         clearable
         style="width: 200px"
       />
-      <n-date-picker v-model:value="filterFrom" type="datetime" placeholder="From" clearable />
-      <n-date-picker v-model:value="filterTo"   type="datetime" placeholder="To"   clearable />
+      <n-date-picker v-model:value="filterFrom" type="datetime" placeholder="From" clearable style="max-width: 220px" />
+      <n-date-picker v-model:value="filterTo"   type="datetime" placeholder="To"   clearable style="max-width: 220px" />
       <n-select
         v-model:value="perPageOption"
         :options="perPageOptions"
@@ -244,6 +244,7 @@ const columns: DataTableColumns<Tweet> = [
       :columns="columns"
       :data="store.tweets"
       :loading="store.loading"
+      :scroll-x="760"
       :pagination="{
         page: store.page,
         pageSize: effectivePerPage(),
@@ -256,7 +257,7 @@ const columns: DataTableColumns<Tweet> = [
     />
 
     <!-- Detail drawer -->
-    <n-drawer v-model:show="showDetail" :width="540">
+    <n-drawer v-model:show="showDetail" :width="'min(540px, calc(100vw - 16px))'">
       <n-drawer-content title="Tweet Detail" closable>
         <n-spin v-if="loadingDetail" />
         <div v-else-if="detail">

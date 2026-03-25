@@ -196,7 +196,7 @@ const columns: DataTableColumns<Model> = [
       </n-space>
     </n-space>
 
-    <n-data-table :columns="columns" :data="store.models" :loading="store.loading" />
+    <n-data-table :columns="columns" :data="store.models" :loading="store.loading" :scroll-x="760" />
 
     <!-- HuggingFace download modal -->
     <n-modal v-model:show="showDownload" preset="dialog" title="Download from HuggingFace">
@@ -209,7 +209,7 @@ const columns: DataTableColumns<Model> = [
     </n-modal>
 
     <!-- Manual register drawer -->
-    <n-drawer v-model:show="showManual" :width="420">
+    <n-drawer v-model:show="showManual" :width="'min(420px, calc(100vw - 16px))'">
       <n-drawer-content title="Register Model" closable>
         <n-form label-placement="top">
           <n-form-item label="Name">
@@ -235,7 +235,7 @@ const columns: DataTableColumns<Model> = [
     </n-drawer>
 
     <!-- Labels drawer (ONNX models only) -->
-    <n-drawer v-model:show="showLabels" :width="420">
+    <n-drawer v-model:show="showLabels" :width="'min(420px, calc(100vw - 16px))'">
       <n-drawer-content :title="`Labels — ${labelsModel?.name ?? ''}`" closable>
         <n-spin v-if="labelsLoading" />
         <template v-else>
@@ -266,7 +266,7 @@ const columns: DataTableColumns<Model> = [
     </n-drawer>
 
     <!-- Rules drawer -->
-    <n-drawer v-model:show="showRules" :width="460">
+    <n-drawer v-model:show="showRules" :width="'min(460px, calc(100vw - 16px))'">
       <n-drawer-content :title="`Rule Filters — ${rulesModel?.name ?? ''}`" closable>
         <n-alert type="info" style="margin-bottom: 16px">
           Models with no rule filters run on <strong>all tweets</strong>. Add rules to restrict this model to tweets that matched those rules only.

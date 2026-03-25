@@ -75,6 +75,7 @@ const columns: DataTableColumns<Categorization> = [
       :columns="columns"
       :data="store.items"
       :loading="store.loading"
+      :scroll-x="680"
       :pagination="{ pageSize: 20 }"
     />
   </n-space>
