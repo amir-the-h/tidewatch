@@ -101,7 +101,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			p := inference.NewSeq2SeqPipeline(m.Name)
 			return p, p.Load(m.Path)
 		case model.ModelTypeExtraction:
-			p := inference.NewOllamaPipeline(m.Name, cfg.Ollama.BaseURL)
+			prompt := inference.OllamaGenericSystem
+			if m.Name == "geoconfirmed-extractor" {
+				prompt = inference.OllamaGeoConfirmedSystem
+			}
+			p := inference.NewOllamaPipeline(m.Name, cfg.Ollama.BaseURL, prompt)
 			return p, p.Load(m.Path)
 		default:
 			p := inference.NewONNXPipeline(m.Name)
@@ -153,7 +157,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
 
 	pool := worker.NewPool(workerCount, q, q, s, reg, emitter, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher, searchScheduler, pool, q)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher, searchScheduler, pool, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

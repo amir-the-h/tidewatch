@@ -64,6 +64,7 @@ type Server struct {
 	searchScheduler  searchScheduler // nil if search not configured
 	pool             workerPoolStatsProvider
 	sizer            queueSizer
+	failureLister    queue.FailureLister
 	logger           *slog.Logger
 	router           chi.Router
 	http             *http.Server
@@ -85,6 +86,7 @@ func NewServer(
 	ss searchScheduler,
 	pool workerPoolStatsProvider,
 	sizer queueSizer,
+	lister queue.FailureLister,
 ) *Server {
 	srv := &Server{
 		store:           s,
@@ -98,6 +100,7 @@ func NewServer(
 		searchScheduler: ss,
 		pool:            pool,
 		sizer:           sizer,
+		failureLister:   lister,
 		logger:          logger,
 	}
 
@@ -140,6 +143,7 @@ func NewServer(
 		r.Delete("/models/{id}", srv.handleDeleteModel)
 		r.Post("/models/{id}/activate", srv.handleActivateModel)
 		r.Post("/models/{id}/deactivate", srv.handleDeactivateModel)
+		r.Post("/models/{id}/run", srv.handleRunModelPipeline)
 		r.Get("/models/{id}/labels", srv.handleListModelLabels)
 		r.Post("/models/{id}/labels", srv.handleAddModelLabel)
 		r.Delete("/models/{id}/labels/{label}", srv.handleRemoveModelLabel)
@@ -163,6 +167,13 @@ func NewServer(
 		r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
 		r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
 		r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
+
+		// Failures (dead-letter queue)
+		r.Get("/failures", srv.handleListFailures)
+		r.Delete("/failures", srv.handleClearFailures)
+
+		// Queue management
+		r.Delete("/queue", srv.handleFlushQueue)
 
 		// Search
 		r.Post("/search/run", srv.handleSearchRun)
@@ -367,6 +378,7 @@ func NewServerWithConcreteRules(
 	ss searchScheduler,
 	pool workerPoolStatsProvider,
 	sizer queueSizer,
+	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, logger, dispatcher, ss, pool, sizer)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, logger, dispatcher, ss, pool, sizer, lister)
 }

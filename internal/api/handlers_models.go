@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
 // repoIDPattern validates HuggingFace repo IDs: org/model format with safe characters only.
@@ -127,7 +130,11 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 				p := inference.NewSeq2SeqPipeline(m.Name)
 				return p, p.Load(m.Path)
 			case model.ModelTypeExtraction:
-				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL)
+				prompt := inference.OllamaGenericSystem
+				if m.Name == "geoconfirmed-extractor" {
+					prompt = inference.OllamaGeoConfirmedSystem
+				}
+				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, prompt)
 				return p, p.Load(m.Path)
 			default:
 				p := inference.NewONNXPipeline(m.Name)
@@ -326,7 +333,78 @@ func (s *Server) handleRemoveModelRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// resolveModel fetches the model by {id} URL param, writing errors on failure.
+func (s *Server) handleRunModelPipeline(w http.ResponseWriter, r *http.Request) {
+	m, ok := s.resolveModel(w, r)
+	if !ok {
+		return
+	}
+
+	if s.registry == nil {
+		writeError(w, http.StatusServiceUnavailable, "registry not available")
+		return
+	}
+
+	pipeline := s.registry.Get(m.Name)
+	if pipeline == nil {
+		writeError(w, http.StatusUnprocessableEntity, "model is not active or not loaded in the registry")
+		return
+	}
+
+	// Collect tweets matching the model's rule filters (or all tweets if none).
+	tweets, err := s.tweetsForModel(r.Context(), m)
+	if err != nil {
+		s.logger.Error("api: run model: fetch tweets", "model", m.Name, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch tweets")
+		return
+	}
+
+	// Push each tweet into the normal worker queue, tagged so workers run only
+	// this model. The queue gives visibility in the UI and respects the pool.
+	count := 0
+	for _, tweet := range tweets {
+		st := &model.StreamTweet{
+			Tweet:        tweet,
+			TargetModels: []string{pipeline.Name()},
+		}
+		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
+			s.logger.Error("api: run model: push", "tweet_id", tweet.ID, "error", err)
+			continue
+		}
+		count++
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
+}
+
+// tweetsForModel returns all tweets that should be processed by the given model.
+// If the model has rule_ids, only tweets that matched at least one of those rules
+// are returned. If no rules are set, all tweets are returned.
+func (s *Server) tweetsForModel(ctx context.Context, m *model.Model) ([]*model.Tweet, error) {
+	const pageSize = 5000
+
+	if len(m.RuleIDs) == 0 {
+		// Global model — run on all tweets.
+		return s.store.ListTweets(ctx, store.TweetFilter{Page: 1, PerPage: pageSize})
+	}
+
+	// Fetch tweets per rule and deduplicate by tweet ID.
+	seen := make(map[string]struct{})
+	var result []*model.Tweet
+	for _, ruleID := range m.RuleIDs {
+		id := ruleID
+		tweets, err := s.store.ListTweets(ctx, store.TweetFilter{RuleID: &id, Page: 1, PerPage: pageSize})
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range tweets {
+			if _, dup := seen[t.ID]; !dup {
+				seen[t.ID] = struct{}{}
+				result = append(result, t)
+			}
+		}
+	}
+	return result, nil
+}
 func (s *Server) resolveModel(w http.ResponseWriter, r *http.Request) (*model.Model, bool) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
