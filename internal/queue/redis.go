@@ -16,6 +16,8 @@ type redisClient interface {
 	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	BRPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd
 	LLen(ctx context.Context, key string) *redis.IntCmd
+	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 // RedisQueue implements both Producer and Consumer using Redis lists.
@@ -87,6 +89,41 @@ func (q *RedisQueue) Len(ctx context.Context, queue string) (int64, error) {
 		return 0, fmt.Errorf("queue: len: %w", err)
 	}
 	return n, nil
+}
+
+// ListFailed returns up to limit FailedTweet entries starting at offset
+// without consuming them from the queue.
+func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTweet, error) {
+	stop := offset + limit - 1
+	items, err := q.client.LRange(ctx, QueueFailed, offset, stop).Result()
+	if err != nil {
+		return nil, fmt.Errorf("queue: list failed: %w", err)
+	}
+	result := make([]*FailedTweet, 0, len(items))
+	for _, item := range items {
+		var ft FailedTweet
+		if err := json.Unmarshal([]byte(item), &ft); err != nil {
+			continue // skip malformed entries
+		}
+		result = append(result, &ft)
+	}
+	return result, nil
+}
+
+// ClearFailed deletes all entries from the dead-letter queue.
+func (q *RedisQueue) ClearFailed(ctx context.Context) error {
+	if err := q.client.Del(ctx, QueueFailed).Err(); err != nil {
+		return fmt.Errorf("queue: clear failed: %w", err)
+	}
+	return nil
+}
+
+// FlushQueue deletes all pending entries from the raw queue.
+func (q *RedisQueue) FlushQueue(ctx context.Context) error {
+	if err := q.client.Del(ctx, QueueRaw).Err(); err != nil {
+		return fmt.Errorf("queue: flush: %w", err)
+	}
+	return nil
 }
 
 // PopFailed pops a FailedTweet from the dead-letter queue.

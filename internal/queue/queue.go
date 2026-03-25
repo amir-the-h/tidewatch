@@ -46,3 +46,10 @@ type Consumer interface {
 type Sizer interface {
 	Len(ctx context.Context, queue string) (int64, error)
 }
+
+// FailureLister can non-destructively enumerate and clear dead-letter queue entries.
+type FailureLister interface {
+	ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTweet, error)
+	ClearFailed(ctx context.Context) error
+	FlushQueue(ctx context.Context) error
+}
