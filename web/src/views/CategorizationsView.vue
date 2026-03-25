@@ -6,6 +6,7 @@ import { useCategorizationsStore } from '../stores/categorizations'
 import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Categorization } from '../api/categorizations'
+import { formatDateTime } from '../utils/format'
 
 const store  = useCategorizationsStore()
 const router = useRouter()
@@ -57,7 +58,7 @@ const columns: DataTableColumns<Categorization> = [
       return s != null ? `${(s * 100).toFixed(1)}%` : '—'
     }
   },
-  { title: 'Created', key: 'created_at' },
+  { title: 'Created', key: 'created_at', render: (row) => formatDateTime(row.created_at) },
 ]
 </script>
 

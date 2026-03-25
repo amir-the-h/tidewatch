@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useEntitiesStore } from '../stores/entities'
 import type { TrackedEntity } from '../api/entities'
+import { formatDateTime } from '../utils/format'
 
 const store   = useEntitiesStore()
 const message = useMessage()
+const router  = useRouter()
 
 // ── entity list ───────────────────────────────────────────────────────────────
 
@@ -129,13 +132,6 @@ const tracks      = computed(() => store.tracks?.tracks ?? [])
 const tracksTotal = computed(() => store.tracks?.total ?? 0)
 const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
 
-function dayLabel(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function timeLabel(iso: string) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-}
 
 </script>
 
@@ -252,7 +248,7 @@ function timeLabel(iso: string) {
               v-for="t in tracks"
               :key="t.id"
               :type="t.match_source === 'ner' ? 'success' : 'info'"
-              :title="`${dayLabel(t.created_at)} · ${timeLabel(t.created_at)}`"
+              :title="formatDateTime(t.created_at)"
             >
               <n-flex vertical gap="6">
                 <n-flex align="center" gap="8">
@@ -262,7 +258,14 @@ function timeLabel(iso: string) {
                   <n-text v-if="t.tweet_author_handle" depth="3" style="font-size: 12px">
                     @{{ t.tweet_author_handle }}
                   </n-text>
-                  <n-text v-else code style="font-size: 11px; color: #888">{{ t.tweet_id }}</n-text>
+                  <n-button
+                    text
+                    size="tiny"
+                    style="font-size: 11px; color: #888"
+                    @click="router.push(`/tweets?tweet=${t.tweet_id}`)"
+                  >
+                    {{ t.tweet_author_handle ? '↗' : `${t.tweet_id} ↗` }}
+                  </n-button>
                 </n-flex>
                 <n-text v-if="t.tweet_text" style="font-size: 13px">{{ t.tweet_text }}</n-text>
                 <n-text v-else-if="t.context" depth="3" style="font-style: italic; font-size: 13px">"{{ t.context }}"</n-text>

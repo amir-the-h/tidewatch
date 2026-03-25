@@ -1,11 +1,16 @@
 <!-- web/src/views/TweetsView.vue -->
 <script setup lang="ts">
-import { h, onMounted, ref, computed } from 'vue'
+import { h, onMounted, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useTweetsStore } from '../stores/tweets'
 import { useRulesStore } from '../stores/rules'
 import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns, DataTableRowKey } from 'naive-ui'
 import type { Tweet, TweetDetail } from '../api/tweets'
+import { formatDateTime } from '../utils/format'
+
+const route  = useRoute()
+const router = useRouter()
 
 const store      = useTweetsStore()
 const rulesStore = useRulesStore()
@@ -14,34 +19,87 @@ const msg        = useMessage()
 const filterRuleId = ref<number | null>(null)
 const filterFrom   = ref<number | null>(null)
 const filterTo     = ref<number | null>(null)
+const perPageOption = ref<number>(20)
+
+const perPageOptions = [
+  { label: '20',  value: 20  },
+  { label: '50',  value: 50  },
+  { label: '100', value: 100 },
+  { label: 'All', value: 0   },
+]
+
+function effectivePerPage() {
+  return perPageOption.value === 0 ? 999999 : perPageOption.value
+}
 
 const showDetail    = ref(false)
 const detail        = ref<TweetDetail | null>(null)
 const loadingDetail = ref(false)
 const deleting      = ref(false)
 const reprocessing  = ref(false)
+const deletingNoise = ref(false)
 
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const hasSelection   = computed(() => checkedRowKeys.value.length > 0)
 
-onMounted(() => {
-  store.fetchTweets()
+function syncQueryToUrl() {
+  const q: Record<string, string> = {}
+  if (filterRuleId.value != null) q.rule_id = String(filterRuleId.value)
+  if (filterFrom.value != null)   q.from    = new Date(filterFrom.value).toISOString()
+  if (filterTo.value != null)     q.to      = new Date(filterTo.value).toISOString()
+  if (detail.value && showDetail.value) q.tweet = detail.value.tweet.id
+  router.replace({ query: q })
+}
+
+onMounted(async () => {
   rulesStore.fetchRules()
+
+  // Restore filters from URL
+  const { rule_id, from, to, tweet } = route.query
+  if (rule_id) filterRuleId.value = Number(rule_id)
+  if (from)    filterFrom.value   = new Date(String(from)).getTime()
+  if (to)      filterTo.value     = new Date(String(to)).getTime()
+
+  await store.fetchTweets({
+    rule_id:  filterRuleId.value ?? undefined,
+    from:     filterFrom.value ? new Date(filterFrom.value).toISOString() : undefined,
+    to:       filterTo.value   ? new Date(filterTo.value).toISOString()   : undefined,
+    per_page: effectivePerPage(),
+  })
+
+  // Open drawer if tweet param is present
+  if (tweet) {
+    await openDetail(String(tweet))
+  }
+})
+
+// Remove tweet param from URL when drawer is closed
+watch(showDetail, (val) => {
+  if (!val) {
+    const q = { ...route.query }
+    delete q.tweet
+    router.replace({ query: q })
+  }
 })
 
 async function onFilter() {
   checkedRowKeys.value = []
   await store.fetchTweets({
-    rule_id: filterRuleId.value ?? undefined,
-    from:    filterFrom.value ? new Date(filterFrom.value).toISOString() : undefined,
-    to:      filterTo.value   ? new Date(filterTo.value).toISOString()   : undefined,
+    rule_id:  filterRuleId.value ?? undefined,
+    from:     filterFrom.value ? new Date(filterFrom.value).toISOString() : undefined,
+    to:       filterTo.value   ? new Date(filterTo.value).toISOString()   : undefined,
+    per_page: effectivePerPage(),
   })
+  syncQueryToUrl()
 }
 
 async function openDetail(id: string) {
   loadingDetail.value = true
   showDetail.value = true
-  try { detail.value = await store.getTweet(id) }
+  try {
+    detail.value = await store.getTweet(id)
+    syncQueryToUrl()
+  }
   catch (e: any) { msg.error(e.message); showDetail.value = false }
   finally { loadingDetail.value = false }
 }
@@ -93,6 +151,19 @@ async function reprocessOne(id: string) {
   }
 }
 
+async function deleteNoise() {
+  deletingNoise.value = true
+  try {
+    const { deleted } = await store.deleteNoise()
+    checkedRowKeys.value = []
+    msg.success(`Deleted ${deleted} noise tweet${deleted !== 1 ? 's' : ''}`)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    deletingNoise.value = false
+  }
+}
+
 async function reprocessSelected() {
   const ids = checkedRowKeys.value as string[]
   reprocessing.value = true
@@ -114,7 +185,7 @@ const columns: DataTableColumns<Tweet> = [
     title: 'Author', key: 'author_handle', width: 160,
     render: (row) => row.author_handle ? `@${row.author_handle}` : row.author_id,
   },
-  { title: 'Created', key: 'created_at', width: 180 },
+  { title: 'Created', key: 'created_at', width: 200, render: (row) => formatDateTime(row.created_at) },
   {
     title: '', key: 'actions', width: 120,
     render: (row) => h(NSpace, { size: 'small' }, {
@@ -142,8 +213,20 @@ const columns: DataTableColumns<Tweet> = [
       />
       <n-date-picker v-model:value="filterFrom" type="datetime" placeholder="From" clearable />
       <n-date-picker v-model:value="filterTo"   type="datetime" placeholder="To"   clearable />
+      <n-select
+        v-model:value="perPageOption"
+        :options="perPageOptions"
+        style="width: 90px"
+        @update:value="onFilter"
+      />
       <n-button @click="onFilter">Apply</n-button>
-      <n-button secondary @click="filterRuleId = null; filterFrom = null; filterTo = null; store.fetchTweets(); checkedRowKeys = []">Reset</n-button>
+      <n-button secondary @click="filterRuleId = null; filterFrom = null; filterTo = null; perPageOption = 20; store.fetchTweets({ per_page: 20 }); checkedRowKeys = []; router.replace({ query: {} })">Reset</n-button>
+      <n-popconfirm @positive-click="deleteNoise">
+        <template #trigger>
+          <n-button type="warning" :loading="deletingNoise">Delete noise</n-button>
+        </template>
+        Delete all tweets with no rules or only local rules?
+      </n-popconfirm>
     </n-space>
 
     <!-- Bulk action toolbar -->
@@ -163,9 +246,9 @@ const columns: DataTableColumns<Tweet> = [
       :loading="store.loading"
       :pagination="{
         page: store.page,
-        pageSize: store.perPage,
+        pageSize: effectivePerPage(),
         itemCount: store.total,
-        onChange: (p: number) => store.goToPage(p),
+        onChange: (p: number) => store.goToPage(p, effectivePerPage()),
       }"
       :remote="true"
       :row-key="(row: Tweet) => row.id"
@@ -188,7 +271,7 @@ const columns: DataTableColumns<Tweet> = [
               >@{{ detail.tweet.author_handle }}</a>
               <span v-else>{{ detail.tweet.author_id }}</span>
             </n-descriptions-item>
-            <n-descriptions-item label="Created">{{ detail.tweet.created_at }}</n-descriptions-item>
+            <n-descriptions-item label="Created">{{ formatDateTime(detail.tweet.created_at) }}</n-descriptions-item>
             <n-descriptions-item label="Text">{{ detail.tweet.text }}</n-descriptions-item>
           </n-descriptions>
 

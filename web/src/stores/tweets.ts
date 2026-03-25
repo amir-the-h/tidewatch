@@ -29,8 +29,8 @@ export const useTweetsStore = defineStore('tweets', () => {
     finally { loading.value = false }
   }
 
-  async function goToPage(p: number) {
-    await fetchTweets({ ...lastFilter, page: p })
+  async function goToPage(p: number, pp?: number) {
+    await fetchTweets({ ...lastFilter, page: p, ...(pp !== undefined ? { per_page: pp } : {}) })
   }
 
   async function getTweet(id: string): Promise<TweetDetail> {
@@ -47,5 +47,11 @@ export const useTweetsStore = defineStore('tweets', () => {
     return result
   }
 
-  return { tweets, total, loading, error, page, perPage, fetchTweets, goToPage, getTweet, reprocess, remove }
+  async function deleteNoise() {
+    const result = await api.deleteNoiseTweets()
+    await fetchTweets()
+    return result
+  }
+
+  return { tweets, total, loading, error, page, perPage, fetchTweets, goToPage, getTweet, reprocess, remove, deleteNoise }
 })

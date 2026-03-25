@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import StreamView from '../views/StreamView.vue'
 import TweetsView from '../views/TweetsView.vue'
+import SearchView from '../views/SearchView.vue'
 import RulesView from '../views/RulesView.vue'
 import SourcesView from '../views/SourcesView.vue'
 import ModelsView from '../views/ModelsView.vue'
@@ -13,6 +14,7 @@ export default createRouter({
   routes: [
     { path: '/', component: StreamView },
     { path: '/tweets', component: TweetsView },
+    { path: '/search', component: SearchView },
     { path: '/rules', component: RulesView },
     { path: '/sources', component: SourcesView },
     { path: '/models', component: ModelsView },

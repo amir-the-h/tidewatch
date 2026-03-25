@@ -1,0 +1,207 @@
+<!-- web/src/views/SearchView.vue -->
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useMessage } from 'naive-ui'
+import { useSearchStore } from '../stores/search'
+import { useRulesStore } from '../stores/rules'
+import { ApiError } from '../api/client'
+
+const router     = useRouter()
+const msg        = useMessage()
+const store      = useSearchStore()
+const rulesStore = useRulesStore()
+
+const selectedRuleIds = ref<number[]>([])
+const startMs         = ref<number | null>(null)
+const endMs           = ref<number | null>(null)
+const maxResults      = ref<number>(100)
+const totalLimit      = ref<number>(0)
+const sinceId         = ref<string>('')
+const untilId         = ref<string>('')
+const showAdvanced    = ref(false)
+const running         = ref(false)
+const errorIs503      = ref(false)
+
+const ruleOptions = computed(() =>
+  rulesStore.rules.map(r => ({ label: r.name, value: r.id }))
+)
+
+onMounted(() => {
+  rulesStore.fetchRules(true)
+})
+
+function buildParams() {
+  const params: Record<string, any> = {}
+  if (selectedRuleIds.value.length > 0) params.rule_ids   = selectedRuleIds.value
+  if (startMs.value != null)            params.start_time  = new Date(startMs.value).toISOString()
+  if (endMs.value != null)              params.end_time    = new Date(endMs.value).toISOString()
+  if (maxResults.value > 0)             params.max_results = maxResults.value
+  if (totalLimit.value > 0)             params.limit       = totalLimit.value
+  if (sinceId.value.trim())             params.since_id    = sinceId.value.trim()
+  if (untilId.value.trim())             params.until_id    = untilId.value.trim()
+  return params
+}
+
+async function onRun() {
+  running.value = true
+  errorIs503.value = false
+  try {
+    await store.run(buildParams())
+    msg.success('Search completed')
+  } catch (e: any) {
+    if (e instanceof ApiError && e.status === 503) {
+      errorIs503.value = true
+    }
+    // store.error is already set; error display is handled in template
+  } finally {
+    running.value = false
+  }
+}
+</script>
+
+<template>
+  <n-space vertical size="large">
+    <n-h2>Search</n-h2>
+
+    <!-- Form card -->
+    <n-card title="Search Parameters">
+      <n-form label-placement="top" :show-feedback="false">
+        <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
+
+          <!-- Rules selector -->
+          <n-grid-item :span="2">
+            <n-form-item label="Rules">
+              <n-select
+                v-model:value="selectedRuleIds"
+                :options="ruleOptions"
+                :loading="rulesStore.loading"
+                multiple
+                clearable
+                placeholder="All active rules (leave empty)"
+              />
+            </n-form-item>
+          </n-grid-item>
+
+          <!-- Date range -->
+          <n-grid-item>
+            <n-form-item label="Start time">
+              <n-date-picker
+                v-model:value="startMs"
+                type="datetime"
+                placeholder="Start time"
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+          </n-grid-item>
+          <n-grid-item>
+            <n-form-item label="End time">
+              <n-date-picker
+                v-model:value="endMs"
+                type="datetime"
+                placeholder="End time"
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+          </n-grid-item>
+
+          <!-- Max results / Limit -->
+          <n-grid-item>
+            <n-form-item label="Max per page">
+              <n-input-number
+                v-model:value="maxResults"
+                :min="1"
+                :max="100"
+                placeholder="100"
+                style="width: 100%"
+              />
+            </n-form-item>
+          </n-grid-item>
+          <n-grid-item>
+            <n-form-item label="Total limit">
+              <n-input-number
+                v-model:value="totalLimit"
+                :min="0"
+                placeholder="0 = unlimited"
+                style="width: 100%"
+              />
+            </n-form-item>
+          </n-grid-item>
+
+        </n-grid>
+
+        <!-- Advanced section -->
+        <div style="margin-top: 8px">
+          <n-button text @click="showAdvanced = !showAdvanced">
+            {{ showAdvanced ? '▾ Hide advanced' : '▸ Advanced options' }}
+          </n-button>
+        </div>
+
+        <n-collapse-transition :show="showAdvanced">
+          <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" style="margin-top: 12px">
+            <n-grid-item>
+              <n-form-item label="Since ID">
+                <n-input
+                  v-model:value="sinceId"
+                  placeholder="Fetch tweets after this tweet ID"
+                  clearable
+                />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item label="Until ID">
+                <n-input
+                  v-model:value="untilId"
+                  placeholder="Fetch tweets before this tweet ID"
+                  clearable
+                />
+              </n-form-item>
+            </n-grid-item>
+          </n-grid>
+        </n-collapse-transition>
+
+        <!-- Run button -->
+        <div style="margin-top: 20px">
+          <n-button
+            type="primary"
+            :loading="store.loading || running"
+            :disabled="store.loading || running"
+            @click="onRun"
+          >
+            Run Search
+          </n-button>
+        </div>
+      </n-form>
+    </n-card>
+
+    <!-- Error alert -->
+    <n-alert v-if="store.error" type="error" title="Search failed" closable @close="store.error = null">
+      <template v-if="errorIs503">
+        Search is not enabled. Set <n-text code>search.enabled: true</n-text> in your config.
+      </template>
+      <template v-else>
+        {{ store.error }}
+      </template>
+    </n-alert>
+
+    <!-- Success result -->
+    <n-card v-if="store.result" title="Search Complete">
+      <n-space vertical size="small">
+        <n-statistic label="Tweets fetched" :value="store.result.tweets_fetched" />
+        <n-statistic
+          v-if="store.result.rules_queried != null"
+          label="Rules queried"
+          :value="store.result.rules_queried"
+        />
+        <div style="margin-top: 12px">
+          <n-button type="primary" @click="router.push('/tweets')">
+            View tweets →
+          </n-button>
+        </div>
+      </n-space>
+    </n-card>
+
+  </n-space>
+</template>

@@ -63,3 +63,6 @@ export const reprocessTweets = (body: { tweet_ids?: string[]; model_names?: stri
 
 export const deleteTweets = (ids: string[]) =>
   apiFetch<{ deleted: number }>('/api/tweets', { method: 'DELETE', body: JSON.stringify({ ids }) })
+
+export const deleteNoiseTweets = () =>
+  apiFetch<{ deleted: number }>('/api/tweets/noise', { method: 'DELETE' })
