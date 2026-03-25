@@ -9,7 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/leaflet": "^1.9.21",
     "@vicons/ionicons5": "^0.13.0",
+    "leaflet": "^1.9.4",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",
     "vfonts": "^0.0.3",
