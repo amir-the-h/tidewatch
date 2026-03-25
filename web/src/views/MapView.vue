@@ -64,7 +64,7 @@ onMounted(async () => {
       if (loc.label) lines.push(`<b>${escHtml(loc.label)}</b>`)
       if (loc.place) lines.push(escHtml(loc.place))
       if (cat.results.description) lines.push(escHtml(cat.results.description))
-      lines.push(`<a href="/tweets?tweet_id=${cat.tweet_id}" style="color:#89b4fa">Tweet ${cat.tweet_id}</a>`)
+      lines.push(`<a href="/tweets?tweet=${cat.tweet_id}" style="color:#89b4fa">Tweet ${cat.tweet_id}</a>`)
       lines.push(`<span style="color:#6c7086;font-size:11px">${cat.model_name}</span>`)
 
       marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })
