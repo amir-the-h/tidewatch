@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
 	defaultOllamaBaseURL = "http://localhost:11434"
-	ollamaRequestTimeout = 60 * time.Second
+	ollamaRequestTimeout = 120 * time.Second
+	ollamaLoadTimeout    = 5 * time.Minute
 )
 
 // ExtractionLocation holds a single geographic location extracted from a tweet.
@@ -56,12 +58,53 @@ func (f *flexStrings) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// flexCoordinates unmarshals a [lat, lon] pair where the LLM may emit numbers
+// or quoted strings for the coordinate values.
+type flexCoordinates [2]float64
+
+func (f *flexCoordinates) UnmarshalJSON(b []byte) error {
+	var raw [2]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	for i, r := range raw {
+		// Try as a JSON number first.
+		var n json.Number
+		if err := json.Unmarshal(r, &n); err == nil {
+			v, err := n.Float64()
+			if err != nil {
+				return err
+			}
+			f[i] = v
+			continue
+		}
+		// Fall back to a quoted string.
+		var s string
+		if err := json.Unmarshal(r, &s); err != nil {
+			return fmt.Errorf("inference: ollama: coordinate[%d] is not a number or string", i)
+		}
+		v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		if err != nil {
+			return fmt.Errorf("inference: ollama: coordinate[%d] %q: %w", i, s, err)
+		}
+		f[i] = v
+	}
+	return nil
+}
+
+// rawExtractionLocation mirrors ExtractionLocation but uses flexCoordinates.
+type rawExtractionLocation struct {
+	Label       string          `json:"label,omitempty"`
+	Coordinates flexCoordinates `json:"coordinates"`
+	Place       string          `json:"place,omitempty"`
+}
+
 // rawExtractionResult is used for tolerant JSON decoding; its fields are then
 // copied into ExtractionResult.
 type rawExtractionResult struct {
-	Description     string               `json:"description"`
-	Locations       []ExtractionLocation `json:"locations"`
-	GeolocatedBy    flexStrings          `json:"geolocated_by"`
+	Description     string                  `json:"description"`
+	Locations       []rawExtractionLocation `json:"locations"`
+	GeolocatedBy    flexStrings             `json:"geolocated_by"`
 	GeolocationURLs flexStrings          `json:"geolocation_urls"`
 	ProofURLs       flexStrings          `json:"proof_urls"`
 	LocationURL     string               `json:"location_url"`
@@ -72,11 +115,16 @@ type rawExtractionResult struct {
 // OllamaPipeline implements Pipeline by calling a locally-running Ollama server.
 // The model Path stored in the models table is treated as the Ollama model name
 // (e.g. "qwen2.5:3b"). The base URL comes from the application config.
+//
+// A semaphore (sem) limits concurrent in-flight requests to 1. Ollama queues
+// requests internally anyway, so firing N concurrent requests just causes the
+// Nth one to time out waiting. Serialising here prevents that.
 type OllamaPipeline struct {
 	name    string
 	baseURL string
 	model   string
 	client  *http.Client
+	sem     chan struct{} // capacity 1 — only one call in flight at a time
 }
 
 // NewOllamaPipeline creates a new OllamaPipeline. baseURL defaults to
@@ -88,7 +136,8 @@ func NewOllamaPipeline(name, baseURL string) *OllamaPipeline {
 	return &OllamaPipeline{
 		name:    name,
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: ollamaRequestTimeout},
+		client:  &http.Client{}, // no global timeout — each request carries its own context deadline
+		sem:     make(chan struct{}, 1),
 	}
 }
 
@@ -142,6 +191,76 @@ func (p *OllamaPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
 // Close is a no-op; the HTTP client has no persistent state to release.
 func (p *OllamaPipeline) Close() error { return nil }
 
+// ensureLoaded checks /api/ps to see if the model is currently loaded in Ollama.
+// If it is not, it calls warmUp to load it before returning.
+// Must be called with the semaphore held.
+func (p *OllamaPipeline) ensureLoaded() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/api/ps", nil)
+	if err != nil {
+		return fmt.Errorf("inference: ollama: ps request: %w", err)
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("inference: ollama: ps: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var ps struct {
+		Models []struct {
+			Model string `json:"model"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
+		return fmt.Errorf("inference: ollama: ps decode: %w", err)
+	}
+	for _, m := range ps.Models {
+		if m.Model == p.model {
+			return nil // already loaded
+		}
+	}
+
+	return p.warmUp()
+}
+
+// warmUp sends a no-op generate request to load the model into memory before
+// actual inference requests begin. Uses ollamaLoadTimeout to accommodate cold
+// starts. Ollama's default keep_alive (5 min idle) applies — the model unloads
+// naturally when not in use. Must be called with the semaphore held.
+func (p *OllamaPipeline) warmUp() error {
+	type generateRequest struct {
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
+	}
+	body, err := json.Marshal(generateRequest{Model: p.model, Stream: false})
+	if err != nil {
+		return fmt.Errorf("inference: ollama: warmup marshal: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ollamaLoadTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/generate", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("inference: ollama: warmup request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("inference: ollama: warmup: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("inference: ollama: warmup returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // isTruncated reports whether text appears to be a truncated retweet.
 func isTruncated(text string) bool {
 	return strings.HasPrefix(text, "RT @") && strings.HasSuffix(strings.TrimSpace(text), "\u2026")
@@ -179,6 +298,16 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 		return nil, fmt.Errorf("inference: ollama: marshal request: %w", err)
 	}
 
+	// Acquire semaphore — only one Ollama request in flight at a time.
+	p.sem <- struct{}{}
+	defer func() { <-p.sem }()
+
+	// Ensure the model is loaded before sending the real request.
+	// If it is not running, warmUp blocks until Ollama has loaded it.
+	if err := p.ensureLoaded(); err != nil {
+		return nil, fmt.Errorf("inference: ollama: ensure loaded: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), ollamaRequestTimeout)
 	defer cancel()
 
@@ -208,9 +337,17 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 	if err := json.Unmarshal([]byte(chatResp.Message.Content), &raw); err != nil {
 		return nil, fmt.Errorf("inference: ollama: parse extraction JSON: %w", err)
 	}
+	locs := make([]ExtractionLocation, len(raw.Locations))
+	for i, l := range raw.Locations {
+		locs[i] = ExtractionLocation{
+			Label:       l.Label,
+			Coordinates: [2]float64(l.Coordinates),
+			Place:       l.Place,
+		}
+	}
 	return &ExtractionResult{
 		Description:     raw.Description,
-		Locations:       raw.Locations,
+		Locations:       locs,
 		GeolocatedBy:    []string(raw.GeolocatedBy),
 		GeolocationURLs: []string(raw.GeolocationURLs),
 		ProofURLs:       []string(raw.ProofURLs),
