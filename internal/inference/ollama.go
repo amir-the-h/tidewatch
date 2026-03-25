@@ -6,11 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// numericPattern matches any integer or decimal number (optionally signed)
+// that could represent a coordinate value in tweet text.
+var numericPattern = regexp.MustCompile(`[-+]?[0-9]+(?:\.[0-9]+)?`)
 
 const (
 	defaultOllamaBaseURL = "http://localhost:11434"
@@ -63,31 +69,45 @@ func (f *flexStrings) UnmarshalJSON(b []byte) error {
 type flexCoordinates [2]float64
 
 func (f *flexCoordinates) UnmarshalJSON(b []byte) error {
+	// Entire field is null or wrong shape — mark both as invalid.
+	if string(b) == "null" {
+		f[0], f[1] = math.NaN(), math.NaN()
+		return nil
+	}
 	var raw [2]json.RawMessage
 	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
+		f[0], f[1] = math.NaN(), math.NaN()
+		return nil
 	}
 	for i, r := range raw {
+		if string(r) == "null" {
+			f[i] = math.NaN()
+			continue
+		}
 		// Try as a JSON number first.
 		var n json.Number
 		if err := json.Unmarshal(r, &n); err == nil {
 			v, err := n.Float64()
 			if err != nil {
-				return err
+				f[i] = math.NaN()
+				continue
 			}
 			f[i] = v
 			continue
 		}
 		// Fall back to a quoted string.
 		var s string
-		if err := json.Unmarshal(r, &s); err != nil {
-			return fmt.Errorf("inference: ollama: coordinate[%d] is not a number or string", i)
+		if err := json.Unmarshal(r, &s); err == nil {
+			v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+			if err != nil {
+				f[i] = math.NaN()
+				continue
+			}
+			f[i] = v
+			continue
 		}
-		v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-		if err != nil {
-			return fmt.Errorf("inference: ollama: coordinate[%d] %q: %w", i, s, err)
-		}
-		f[i] = v
+		// Anything else (object, array, bool) — mark invalid.
+		f[i] = math.NaN()
 	}
 	return nil
 }
@@ -120,24 +140,31 @@ type rawExtractionResult struct {
 // requests internally anyway, so firing N concurrent requests just causes the
 // Nth one to time out waiting. Serialising here prevents that.
 type OllamaPipeline struct {
-	name    string
-	baseURL string
-	model   string
-	client  *http.Client
-	sem     chan struct{} // capacity 1 — only one call in flight at a time
+	name         string
+	baseURL      string
+	model        string
+	systemPrompt string
+	client       *http.Client
+	sem          chan struct{} // capacity 1 — only one call in flight at a time
 }
 
 // NewOllamaPipeline creates a new OllamaPipeline. baseURL defaults to
-// http://localhost:11434 if empty.
-func NewOllamaPipeline(name, baseURL string) *OllamaPipeline {
+// http://localhost:11434 if empty. systemPrompt selects the extraction
+// instruction set; pass OllamaGeoConfirmedSystem or OllamaGenericSystem.
+// An empty systemPrompt falls back to OllamaGenericSystem.
+func NewOllamaPipeline(name, baseURL, systemPrompt string) *OllamaPipeline {
 	if baseURL == "" {
 		baseURL = defaultOllamaBaseURL
 	}
+	if systemPrompt == "" {
+		systemPrompt = OllamaGenericSystem
+	}
 	return &OllamaPipeline{
-		name:    name,
-		baseURL: baseURL,
-		client:  &http.Client{}, // no global timeout — each request carries its own context deadline
-		sem:     make(chan struct{}, 1),
+		name:         name,
+		baseURL:      baseURL,
+		systemPrompt: systemPrompt,
+		client:       &http.Client{}, // no global timeout — each request carries its own context deadline
+		sem:          make(chan struct{}, 1),
 	}
 }
 
@@ -261,6 +288,22 @@ func (p *OllamaPipeline) warmUp() error {
 	return nil
 }
 
+// coordinateAppearsInText returns true when coord is present as a literal number
+// in text (within 0.001° ≈ 100 m). This guards against the LLM geocoding place
+// names instead of extracting explicit numeric coordinates from the text.
+func coordinateAppearsInText(coord float64, text string) bool {
+	for _, m := range numericPattern.FindAllString(text, -1) {
+		v, err := strconv.ParseFloat(m, 64)
+		if err != nil {
+			continue
+		}
+		if math.Abs(v-coord) < 0.001 {
+			return true
+		}
+	}
+	return false
+}
+
 // isTruncated reports whether text appears to be a truncated retweet.
 func isTruncated(text string) bool {
 	return strings.HasPrefix(text, "RT @") && strings.HasSuffix(strings.TrimSpace(text), "\u2026")
@@ -288,7 +331,7 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 	body, err := json.Marshal(chatRequest{
 		Model: p.model,
 		Messages: []message{
-			{Role: "system", Content: ollamaExtractionSystem},
+			{Role: "system", Content: p.systemPrompt},
 			{Role: "user", Content: text},
 		},
 		Stream: false,
@@ -337,13 +380,22 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 	if err := json.Unmarshal([]byte(chatResp.Message.Content), &raw); err != nil {
 		return nil, fmt.Errorf("inference: ollama: parse extraction JSON: %w", err)
 	}
-	locs := make([]ExtractionLocation, len(raw.Locations))
-	for i, l := range raw.Locations {
-		locs[i] = ExtractionLocation{
+	locs := make([]ExtractionLocation, 0, len(raw.Locations))
+	for _, l := range raw.Locations {
+		if math.IsNaN(l.Coordinates[0]) || math.IsNaN(l.Coordinates[1]) {
+			continue // LLM returned null or unparseable value — skip this location
+		}
+		// Reject coordinates the LLM inferred from place names rather than reading
+		// from the text. Both values must appear as literal numbers in the tweet.
+		if !coordinateAppearsInText(l.Coordinates[0], text) ||
+			!coordinateAppearsInText(l.Coordinates[1], text) {
+			continue
+		}
+		locs = append(locs, ExtractionLocation{
 			Label:       l.Label,
 			Coordinates: [2]float64(l.Coordinates),
 			Place:       l.Place,
-		}
+		})
 	}
 	return &ExtractionResult{
 		Description:     raw.Description,
@@ -357,7 +409,8 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 	}, nil
 }
 
-const ollamaExtractionSystem = `You extract structured data from GeoConfirmed geo-confirmation posts on X (Twitter).
+// OllamaGeoConfirmedSystem is the extraction prompt for structured GeoConfirmed posts.
+const OllamaGeoConfirmedSystem = `You extract structured data from GeoConfirmed geo-confirmation posts on X (Twitter).
 
 REPORT FORMAT — posts follow this exact layout:
   GeoConfirmed Iran.
@@ -411,6 +464,41 @@ location_url:
 
 source_urls:
   All https:// URLs under the "Sources:" section.
+
+OUTPUT: Return only a valid JSON object with these exact keys. No markdown, no explanation.
+Use [] for missing arrays and "" for missing strings.`
+
+// OllamaGenericSystem is the extraction prompt for any tweet that may contain
+// geographic information, with no assumptions about post format.
+const OllamaGenericSystem = `You extract explicit geographic coordinates from tweet text.
+
+EXTRACTION RULES:
+
+description:
+  The full narrative text of the tweet. Do NOT include URLs or metadata lines.
+
+locations (array):
+  ONLY add an entry here if the tweet contains explicit numeric coordinates (decimal degrees, DMS, or similar).
+  Do NOT infer or guess coordinates from place names — if no numeric coordinates appear in the text, return [].
+  For each coordinate pair found:
+  - "label": a short label the tweet associates with this coordinate (e.g. "strike site"). Empty string if none.
+  - "coordinates": [latitude, longitude] parsed as numbers exactly as written in the tweet.
+  - "place": a place name the tweet associates with this coordinate. Empty string if none.
+
+geolocated_by:
+  @handles that claim to have geolocated or verified the location. Include the @ prefix. [] if none.
+
+geolocation_urls:
+  URLs linking to geolocation evidence (maps, satellite imagery, etc.). [] if none.
+
+proof_urls:
+  URLs to supporting proof or sources for the geolocation. [] if none.
+
+location_url:
+  A single URL specifically linking to a map pin or location marker. "" if absent.
+
+source_urls:
+  Any other source URLs mentioned in the tweet. [] if none.
 
 OUTPUT: Return only a valid JSON object with these exact keys. No markdown, no explanation.
 Use [] for missing arrays and "" for missing strings.`

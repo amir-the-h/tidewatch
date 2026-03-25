@@ -78,6 +78,18 @@ func (r *Registry) Load(ctx context.Context, models []*model.Model, factory func
 	return nil
 }
 
+// Get returns the active pipeline with the given name, or nil if not loaded.
+func (r *Registry) Get(name string) Pipeline {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, e := range r.entries {
+		if e.pipeline.Name() == name {
+			return e.pipeline
+		}
+	}
+	return nil
+}
+
 // All returns all active pipelines regardless of rule restrictions.
 func (r *Registry) All() []Pipeline {
 	r.mu.RLock()
