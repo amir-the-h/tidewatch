@@ -16,6 +16,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/iran-watcher/internal/search"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
 	"github.com/amir-the-h/iran-watcher/internal/worker"
@@ -135,8 +136,24 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		workerCount = 1
 	}
 
+	// Build search scheduler (nil when search is disabled).
+	searchParams := search.SearchParams{
+		MaxResults:  cfg.Search.MaxResults,
+		Limit:       cfg.Search.Limit,
+		TweetFields: cfg.Search.TweetFields,
+		UserFields:  cfg.Search.UserFields,
+		Expansions:  cfg.Search.Expansions,
+	}
+	if cfg.Search.StartTime != "" {
+		if t, err := time.Parse(time.RFC3339, cfg.Search.StartTime); err == nil {
+			searchParams.StartTime = t
+		}
+	}
+	searchClient := search.NewClient(cfg.X.BearerToken, cfg.X.Tier, s, q, logger)
+	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
+
 	pool := worker.NewPool(workerCount, q, q, s, reg, emitter, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher, searchScheduler, pool, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -156,6 +173,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		go func() {
 			logger.Info("serve: starting notification dispatcher", "component", "notifier")
 			dispatcher.Start(ctx)
+		}()
+	}
+
+	if cfg.Search.Enabled {
+		go func() {
+			logger.Info("serve: starting search scheduler", "component", "search", "interval", cfg.Search.Interval)
+			if err := searchScheduler.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("serve: search scheduler stopped", "error", err)
+			}
 		}()
 	}
 
