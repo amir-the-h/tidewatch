@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+
+	"github.com/amir-the-h/iran-watcher/internal/queue"
 )
 
 func (s *Server) handleGetHealth(w http.ResponseWriter, r *http.Request) {
@@ -19,9 +21,25 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, r *http.Request) {
 		streamStatus = "connected"
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"status": "ok",
 		"stream": streamStatus,
 		"models": modelNames,
-	})
+	}
+
+	if s.sizer != nil {
+		pending, _ := s.sizer.Len(r.Context(), queue.QueueRaw)
+		failed, _ := s.sizer.Len(r.Context(), queue.QueueFailed)
+		resp["queue"] = map[string]any{
+			"pending": pending,
+			"failed":  failed,
+		}
+	}
+
+	if s.pool != nil {
+		stats := s.pool.Stats()
+		resp["workers"] = stats
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }

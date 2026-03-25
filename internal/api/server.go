@@ -14,9 +14,28 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/iran-watcher/internal/search"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
+
+// queueSizer can report the number of items in a named queue.
+type queueSizer interface {
+	Len(ctx context.Context, queue string) (int64, error)
+}
+
+// workerPoolStatsProvider is satisfied by *worker.Pool.
+type workerPoolStatsProvider interface {
+	Stats() worker.PoolStats
+}
+
+// searchScheduler is satisfied by *search.Scheduler.
+type searchScheduler interface {
+	RunOnce(ctx context.Context) (int, error)
+	RunWithParams(ctx context.Context, ruleIDs []int64, params search.SearchParams) (int, error)
+	DefaultParams() search.SearchParams
+}
 
 // ruleManagerInterface allows mocking of stream.RuleManager in tests.
 type ruleManagerInterface interface {
@@ -34,18 +53,21 @@ type streamClientInterface interface {
 
 // Server is the REST API server.
 type Server struct {
-	store          store.Store
-	producer       queue.Producer
-	registry       *inference.Registry
-	rules          ruleManagerInterface
-	stream         streamClientInterface
-	tier           string
-	ollamaBaseURL  string
-	dispatcher     *notifier.Dispatcher
-	logger         *slog.Logger
-	router         chi.Router
-	http           *http.Server
-	ctx            context.Context
+	store            store.Store
+	producer         queue.Producer
+	registry         *inference.Registry
+	rules            ruleManagerInterface
+	stream           streamClientInterface
+	tier             string
+	ollamaBaseURL    string
+	dispatcher       *notifier.Dispatcher
+	searchScheduler  searchScheduler // nil if search not configured
+	pool             workerPoolStatsProvider
+	sizer            queueSizer
+	logger           *slog.Logger
+	router           chi.Router
+	http             *http.Server
+	ctx              context.Context
 }
 
 // NewServer creates a new Server and registers all routes.
@@ -60,17 +82,23 @@ func NewServer(
 	ollamaBaseURL string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
+	ss searchScheduler,
+	pool workerPoolStatsProvider,
+	sizer queueSizer,
 ) *Server {
 	srv := &Server{
-		store:         s,
-		producer:      q,
-		registry:      reg,
-		rules:         rules,
-		stream:        sc,
-		tier:          tier,
-		ollamaBaseURL: ollamaBaseURL,
-		dispatcher:    dispatcher,
-		logger:        logger,
+		store:           s,
+		producer:        q,
+		registry:        reg,
+		rules:           rules,
+		stream:          sc,
+		tier:            tier,
+		ollamaBaseURL:   ollamaBaseURL,
+		dispatcher:      dispatcher,
+		searchScheduler: ss,
+		pool:            pool,
+		sizer:           sizer,
+		logger:          logger,
 	}
 
 	r := chi.NewRouter()
@@ -102,6 +130,7 @@ func NewServer(
 		r.Get("/tweets", srv.handleListTweets)
 		r.Delete("/tweets", srv.handleDeleteTweets)
 		r.Post("/tweets/reprocess", srv.handleReprocessTweets)
+		r.Delete("/tweets/noise", srv.handleDeleteNoiseTweets)
 		r.Get("/tweets/{id}", srv.handleGetTweet)
 
 		// Models — static routes before parameterized
@@ -134,6 +163,9 @@ func NewServer(
 		r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
 		r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
 		r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
+
+		// Search
+		r.Post("/search/run", srv.handleSearchRun)
 
 		// Notifications — static routes before parameterized
 		r.Get("/notifications", srv.handleListNotifications)
@@ -332,6 +364,9 @@ func NewServerWithConcreteRules(
 	ollamaBaseURL string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
+	ss searchScheduler,
+	pool workerPoolStatsProvider,
+	sizer queueSizer,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, logger, dispatcher)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, logger, dispatcher, ss, pool, sizer)
 }

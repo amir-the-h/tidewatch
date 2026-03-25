@@ -171,3 +171,13 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]int{"requeued": count})
 }
+
+func (s *Server) handleDeleteNoiseTweets(w http.ResponseWriter, r *http.Request) {
+	n, err := s.store.DeleteNoiseTweets(r.Context())
+	if err != nil {
+		s.logger.Error("api: delete noise tweets", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete noise tweets")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}
