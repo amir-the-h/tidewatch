@@ -15,6 +15,7 @@ import (
 type redisClient interface {
 	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	BRPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd
+	LLen(ctx context.Context, key string) *redis.IntCmd
 }
 
 // RedisQueue implements both Producer and Consumer using Redis lists.
@@ -77,6 +78,15 @@ func (q *RedisQueue) Pop(ctx context.Context, queue string, timeout time.Duratio
 		return nil, fmt.Errorf("queue: pop: unmarshal: %w", err)
 	}
 	return &tweet, nil
+}
+
+// Len returns the number of items currently in the named queue.
+func (q *RedisQueue) Len(ctx context.Context, queue string) (int64, error) {
+	n, err := q.client.LLen(ctx, queue).Result()
+	if err != nil {
+		return 0, fmt.Errorf("queue: len: %w", err)
+	}
+	return n, nil
 }
 
 // PopFailed pops a FailedTweet from the dead-letter queue.

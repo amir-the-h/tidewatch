@@ -41,3 +41,8 @@ type Consumer interface {
 	// PopFailed pops from the dead-letter queue.
 	PopFailed(ctx context.Context, timeout time.Duration) (*FailedTweet, error)
 }
+
+// Sizer can report the number of items currently in a named queue.
+type Sizer interface {
+	Len(ctx context.Context, queue string) (int64, error)
+}
