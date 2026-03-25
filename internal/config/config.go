@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -43,6 +44,16 @@ type Config struct {
 		AppToken string `yaml:"app_token"`
 		UserKey  string `yaml:"user_key"`
 	} `yaml:"pushover"`
+	Search struct {
+		Enabled     bool          `yaml:"enabled"`
+		Interval    time.Duration `yaml:"interval"`
+		MaxResults  int           `yaml:"max_results"`
+		Limit       int           `yaml:"limit"`
+		TweetFields []string      `yaml:"tweet_fields"`
+		UserFields  []string      `yaml:"user_fields"`
+		Expansions  []string      `yaml:"expansions"`
+		StartTime   string        `yaml:"start_time"`
+	} `yaml:"search"`
 }
 
 // defaults returns a Config populated with sensible default values.
@@ -57,6 +68,13 @@ func defaults() *Config {
 	cfg.Ollama.BaseURL = "http://localhost:11434"
 	cfg.Log.Level = "info"
 	cfg.Log.Format = "text"
+	cfg.Search.Enabled = false
+	cfg.Search.Interval = 15 * time.Minute
+	cfg.Search.MaxResults = 100
+	cfg.Search.Limit = 0
+	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text"}
+	cfg.Search.UserFields = []string{"username"}
+	cfg.Search.Expansions = []string{"author_id", "referenced_tweets.id"}
 	return cfg
 }
 

@@ -25,3 +25,20 @@ log:
 pushover:
   app_token: ""
   user_key: ""
+
+search:
+  enabled: false
+  interval: 15m
+  max_results: 100
+  limit: 0
+  tweet_fields:
+    - author_id
+    - created_at
+    - referenced_tweets
+    - text
+  user_fields:
+    - username
+  expansions:
+    - author_id
+    - referenced_tweets.id
+  start_time: ""
