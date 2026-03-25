@@ -229,6 +229,44 @@ func (s *sqliteStore) DeleteTweets(ctx context.Context, ids []string) (int64, er
 	return n, nil
 }
 
+func (s *sqliteStore) DeleteNoiseTweets(ctx context.Context) (int64, error) {
+	// A "noise" tweet is one that either:
+	//   (a) has no entries in tweet_rules at all, OR
+	//   (b) every rule it matches has local=true
+	//
+	// We identify them with a single query, then delete in a transaction that
+	// also cleans up categorizations and tweet_rules (same as DeleteTweets).
+	const noiseQuery = `
+		SELECT t.id FROM tweets t
+		WHERE NOT EXISTS (
+			SELECT 1 FROM tweet_rules tr
+			JOIN rules r ON r.id = tr.rule_id
+			WHERE tr.tweet_id = t.id AND r.local = FALSE
+		)`
+
+	rows, err := s.db.QueryContext(ctx, noiseQuery)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete noise tweets: query: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("store: delete noise tweets: scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("store: delete noise tweets: rows: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return s.DeleteTweets(ctx, ids)
+}
+
 // ── Sources ───────────────────────────────────────────────────────────────────
 
 func (s *sqliteStore) SaveSource(ctx context.Context, source *model.Source) error {

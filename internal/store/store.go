@@ -68,6 +68,9 @@ type Store interface {
 	ListTweets(ctx context.Context, filter TweetFilter) ([]*model.Tweet, error)
 	CountTweets(ctx context.Context, filter TweetFilter) (int, error)
 	DeleteTweets(ctx context.Context, ids []string) (int64, error)
+	// DeleteNoiseTweets deletes tweets that either match no rules at all, or
+	// whose every matching rule is marked local=true. Returns the count deleted.
+	DeleteNoiseTweets(ctx context.Context) (int64, error)
 
 	// Sources
 	SaveSource(ctx context.Context, source *model.Source) error
