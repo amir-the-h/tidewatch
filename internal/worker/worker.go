@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
@@ -22,6 +23,7 @@ type worker struct {
 	registry *inference.Registry
 	logger   *slog.Logger
 	emitter  notifier.EventEmitter
+	active   *atomic.Int32 // shared with Pool; incremented while processing a tweet
 }
 
 func (w *worker) run(ctx context.Context) {
@@ -50,6 +52,10 @@ func (w *worker) run(ctx context.Context) {
 		// Step 3: nil result means timeout — loop back.
 		if streamTweet == nil {
 			continue
+		}
+
+		if w.active != nil {
+			w.active.Add(1)
 		}
 
 		// Step 4: resolve which rules this tweet matched, then select applicable pipelines.
@@ -150,6 +156,10 @@ func (w *worker) run(ctx context.Context) {
 						"error", fmt.Errorf("worker: run: %w", pushErr))
 				}
 			}
+		}
+
+		if w.active != nil {
+			w.active.Add(-1)
 		}
 	}
 }
