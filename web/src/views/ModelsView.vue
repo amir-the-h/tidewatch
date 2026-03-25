@@ -33,6 +33,9 @@ const showRules    = ref(false)
 const rulesModel   = ref<Model | null>(null)
 const rulesLoading = ref(false)
 
+// pipeline run
+const runningIds = ref<Set<number>>(new Set())
+
 onMounted(() => {
   store.fetchModels()
   rulesStore.fetchRules()
@@ -148,6 +151,21 @@ async function onRemoveRule(ruleId: number) {
   } catch (e: any) { msg.error(e.message) }
 }
 
+async function onRun(row: Model) {
+  runningIds.value = new Set([...runningIds.value, row.id])
+  try {
+    const res = await store.run(row.id)
+    const scope = row.rule_ids?.length
+      ? `${row.rule_ids.length} rule(s)`
+      : 'all tweets'
+    msg.success(`Running ${row.name} on ${res.queued} tweets (${scope})`)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    runningIds.value = new Set([...runningIds.value].filter(id => id !== row.id))
+  }
+}
+
 // ── table ──────────────────────────────────────────────────────────────────
 
 const columns: DataTableColumns<Model> = [
@@ -176,6 +194,13 @@ const columns: DataTableColumns<Model> = [
           ? h(NButton, { size: 'small', onClick: () => openLabels(row) }, { default: () => 'Labels' })
           : null,
         h(NButton, { size: 'small', onClick: () => openRules(row) }, { default: () => 'Rules' }),
+        row.active
+          ? h(NButton, {
+              size: 'small', type: 'primary',
+              loading: runningIds.value.has(row.id),
+              onClick: () => onRun(row),
+            }, { default: () => 'Run' })
+          : null,
         row.active
           ? h(NButton, { size: 'small', onClick: () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Deactivate' })
           : h(NButton, { size: 'small', type: 'primary', onClick: () => store.activate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Activate' }),

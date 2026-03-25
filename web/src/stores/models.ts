@@ -67,5 +67,9 @@ export const useModelsStore = defineStore('models', () => {
     if (idx !== -1) models.value[idx] = m
   }
 
-  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel, addRule, removeRule }
+  async function run(id: number) {
+    return api.runModelPipeline(id)
+  }
+
+  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel, addRule, removeRule, run }
 })

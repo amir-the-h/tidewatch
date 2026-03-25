@@ -8,11 +8,14 @@ import ModelsView from '../views/ModelsView.vue'
 import CategorizationsView from '../views/CategorizationsView.vue'
 import NotificationsView from '../views/NotificationsView.vue'
 import TrackedEntitiesView from '../views/TrackedEntitiesView.vue'
+import MapView from '../views/MapView.vue'
+import FailuresView from '../views/FailuresView.vue'
 
 export default createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: StreamView },
+    { path: '/map', component: MapView },
     { path: '/tweets', component: TweetsView },
     { path: '/search', component: SearchView },
     { path: '/rules', component: RulesView },
@@ -21,5 +24,6 @@ export default createRouter({
     { path: '/categorizations', component: CategorizationsView },
     { path: '/notifications', component: NotificationsView },
     { path: '/tracked-entities', component: TrackedEntitiesView },
+    { path: '/failures', component: FailuresView },
   ],
 })

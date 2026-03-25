@@ -33,3 +33,6 @@ export const addModelRule    = (id: number, rule_id: number) =>
   apiFetch<Model>(`/api/models/${id}/rules`, { method: 'POST', body: JSON.stringify({ rule_id }) })
 export const removeModelRule = (id: number, rule_id: number) =>
   apiFetch<Model>(`/api/models/${id}/rules/${rule_id}`, { method: 'DELETE' })
+
+export const runModelPipeline = (id: number) =>
+  apiFetch<{ queued: number }>(`/api/models/${id}/run`, { method: 'POST' })

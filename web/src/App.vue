@@ -9,6 +9,7 @@ const router = useRouter()
 
 const menuOptions = [
   { label: 'Stream',           key: '/' },
+  { label: 'Map',              key: '/map' },
   { label: 'Tweets',           key: '/tweets' },
   { label: 'Search',           key: '/search' },
   { label: 'Rules',            key: '/rules' },
@@ -17,6 +18,7 @@ const menuOptions = [
   { label: 'Categorizations',  key: '/categorizations' },
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
+  { label: 'Failures',         key: '/failures' },
 ]
 
 const activeKey  = computed(() => route.path)
