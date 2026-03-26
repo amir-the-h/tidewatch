@@ -37,3 +37,10 @@ type ExtractionPipeline interface {
 	Pipeline
 	Extract(text string) (*ExtractionResult, error)
 }
+
+// DigestPipeline is implemented by pipelines that can produce a single
+// briefing/summary from a collection of pre-formatted tweet strings.
+type DigestPipeline interface {
+	Pipeline
+	Digest(tweets []string) (string, error)
+}

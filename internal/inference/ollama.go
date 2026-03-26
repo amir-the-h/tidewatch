@@ -21,6 +21,7 @@ var numericPattern = regexp.MustCompile(`[-+]?[0-9]+(?:\.[0-9]+)?`)
 const (
 	defaultOllamaBaseURL = "http://localhost:11434"
 	ollamaRequestTimeout = 120 * time.Second
+	ollamaDigestTimeout  = 10 * time.Minute
 	ollamaLoadTimeout    = 5 * time.Minute
 )
 
@@ -408,6 +409,84 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 		Truncated:       raw.Truncated,
 	}, nil
 }
+
+// Digest calls Ollama with the OllamaDigestSystem prompt and a numbered list of
+// pre-formatted tweet strings, returning a single plain-text briefing.
+func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
+	var sb strings.Builder
+	for i, t := range tweets {
+		fmt.Fprintf(&sb, "[%d] %s\n\n", i+1, t)
+	}
+
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type chatRequest struct {
+		Model    string    `json:"model"`
+		Messages []message `json:"messages"`
+		Stream   bool      `json:"stream"`
+	}
+	type chatResponse struct {
+		Message message `json:"message"`
+	}
+
+	body, err := json.Marshal(chatRequest{
+		Model: p.model,
+		Messages: []message{
+			{Role: "system", Content: OllamaDigestSystem},
+			{Role: "user", Content: sb.String()},
+		},
+		Stream: false,
+	})
+	if err != nil {
+		return "", fmt.Errorf("inference: ollama: digest: marshal request: %w", err)
+	}
+
+	p.sem <- struct{}{}
+	defer func() { <-p.sem }()
+
+	if err := p.ensureLoaded(); err != nil {
+		return "", fmt.Errorf("inference: ollama: digest: ensure loaded: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), ollamaDigestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("inference: ollama: digest: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("inference: ollama: digest: chat: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("inference: ollama: digest: chat returned %d: %s", resp.StatusCode, raw)
+	}
+
+	var chatResp chatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return "", fmt.Errorf("inference: ollama: digest: decode response: %w", err)
+	}
+	return strings.TrimSpace(chatResp.Message.Content), nil
+}
+
+// OllamaDigestSystem is the prompt for multi-tweet digest/briefing generation.
+const OllamaDigestSystem = `You are an intelligence analyst specialising in Iran. You will receive a numbered list of tweets from open-source social media monitoring.
+
+Produce a structured intelligence briefing that:
+- Opens with a one-sentence executive summary of the overall situation
+- Groups events by theme (military, political, economic, civil unrest, etc.)
+- Within each theme, summarises the key developments in bullet points
+- Concludes with any notable patterns, escalations, or trends
+
+Write in plain text with clear section headings. Be concise and factual. Synthesise across tweets — do not list them individually.`
 
 // OllamaGeoConfirmedSystem is the extraction prompt for structured GeoConfirmed posts.
 const OllamaGeoConfirmedSystem = `You extract structured data from GeoConfirmed geo-confirmation posts on X (Twitter).

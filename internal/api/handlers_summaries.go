@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -135,6 +136,87 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
+}
+
+// handleDigest fetches tweets matching the given filters, sends them all to the
+// active DigestPipeline (Ollama), and returns a single plain-text briefing.
+// This is a synchronous call — the response may take up to several minutes.
+func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
+	if s.registry == nil {
+		writeError(w, http.StatusServiceUnavailable, "registry not available")
+		return
+	}
+
+	var digestPipeline inference.DigestPipeline
+	for _, p := range s.registry.All() {
+		if dp, ok := p.(inference.DigestPipeline); ok {
+			digestPipeline = dp
+			break
+		}
+	}
+	if digestPipeline == nil {
+		writeError(w, http.StatusUnprocessableEntity, "no active digest-capable model (requires an Ollama extraction model)")
+		return
+	}
+
+	var req struct {
+		From     *time.Time `json:"from"`
+		To       *time.Time `json:"to"`
+		RuleID   *int64     `json:"rule_id"`
+		SourceID *int64     `json:"source_id"`
+		EntityID *int64     `json:"entity_id"`
+		Limit    int        `json:"limit"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Limit <= 0 || req.Limit > 1000 {
+		req.Limit = 200
+	}
+
+	tweets, err := s.store.ListTweets(r.Context(), store.TweetFilter{
+		RuleID:   req.RuleID,
+		SourceID: req.SourceID,
+		EntityID: req.EntityID,
+		From:     req.From,
+		To:       req.To,
+		Page:     1,
+		PerPage:  req.Limit,
+	})
+	if err != nil {
+		s.logger.Error("api: digest: list tweets", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch tweets")
+		return
+	}
+	if len(tweets) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"digest":      "No tweets found matching the selected filters.",
+			"tweet_count": 0,
+		})
+		return
+	}
+
+	formatted := make([]string, len(tweets))
+	for i, t := range tweets {
+		if t.AuthorHandle != "" {
+			formatted[i] = fmt.Sprintf("@%s: %s", t.AuthorHandle, t.Text)
+		} else {
+			formatted[i] = t.Text
+		}
+	}
+
+	digest, err := digestPipeline.Digest(formatted)
+	if err != nil {
+		s.logger.Error("api: digest: run", "error", err)
+		writeError(w, http.StatusInternalServerError, "digest generation failed: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"digest":      digest,
+		"tweet_count": len(tweets),
+	})
 }
 
 // parseIntParam parses a string as int, returning def on failure.

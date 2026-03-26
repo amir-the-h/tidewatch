@@ -27,7 +27,7 @@ const baseMenuOptions = [
 const menuOptions = computed(() => {
   const opts = [...baseMenuOptions]
   if (hasSummarizer.value) {
-    opts.push({ label: 'Summarize', key: '/summarize' })
+    opts.push({ label: 'Digest', key: '/summarize' })
   }
   return opts
 })
@@ -35,7 +35,7 @@ const menuOptions = computed(() => {
 async function checkSummarizer() {
   try {
     const models = await listModels()
-    hasSummarizer.value = models.some(m => m.type === 'summarizer')
+    hasSummarizer.value = models.some(m => m.active && (m.type === 'extraction' || m.type === 'summarizer'))
   } catch { /* server unreachable */ }
 }
 

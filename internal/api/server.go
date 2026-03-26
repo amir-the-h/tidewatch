@@ -172,6 +172,9 @@ func NewServer(
 		r.Get("/summaries", srv.handleListSummaries)
 		r.Post("/summaries/run", srv.handleRunSummaries)
 
+		// Digest
+		r.Post("/digest", srv.handleDigest)
+
 		// Failures (dead-letter queue)
 		r.Get("/failures", srv.handleListFailures)
 		r.Delete("/failures", srv.handleClearFailures)
