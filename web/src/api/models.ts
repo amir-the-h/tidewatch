@@ -1,7 +1,7 @@
 // web/src/api/models.ts
 import { apiFetch } from './client'
 
-export type ModelType = 'classification' | 'ner' | 'sentiment' | 'summarizer' | 'extraction'
+export type ModelType = 'classification' | 'ner' | 'sentiment' | 'summarizer' | 'extraction' | 'digest'
 
 export interface Model {
   id: number

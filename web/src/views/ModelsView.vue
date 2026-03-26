@@ -49,6 +49,7 @@ const typeTagType: Record<ModelType, TagProps['type']> = {
   sentiment:      'warning',
   summarizer:     'success',
   extraction:     'error',
+  digest:         'default',
 }
 
 const typeOptions: { label: string; value: ModelType }[] = [
@@ -57,16 +58,17 @@ const typeOptions: { label: string; value: ModelType }[] = [
   { label: 'Sentiment',      value: 'sentiment' },
   { label: 'Summarizer',     value: 'summarizer' },
   { label: 'Extraction (Ollama)', value: 'extraction' },
+  { label: 'Digest (Ollama)', value: 'digest' },
 ]
 
 const pathPlaceholder = computed(() =>
-  manualForm.value.type === 'extraction'
-    ? 'e.g. qwen2.5:3b'
+  manualForm.value.type === 'extraction' || manualForm.value.type === 'digest'
+    ? 'e.g. qwen2.5:7b-instruct'
     : '/models/org/model/model.onnx',
 )
 
 const pathLabel = computed(() =>
-  manualForm.value.type === 'extraction' ? 'Ollama Model Name' : 'Path',
+  manualForm.value.type === 'extraction' || manualForm.value.type === 'digest' ? 'Ollama Model Name' : 'Path',
 )
 
 // ── actions ────────────────────────────────────────────────────────────────
