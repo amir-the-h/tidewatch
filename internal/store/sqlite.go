@@ -869,10 +869,11 @@ func (s *sqliteStore) ListCategorizations(ctx context.Context, filter Categoriza
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
-const notificationColumns = `id, name, event_type, active, filter_rule_id, filter_model_name,
+const notificationColumns = `id, name, event_type, active, provider, filter_rule_id, filter_model_name,
 	filter_model_result, pushover_priority, pushover_sound, pushover_device, pushover_title,
 	pushover_url, pushover_url_title, pushover_ttl, pushover_html, pushover_retry, pushover_expire,
-	message_template, created_at, updated_at`
+	telegram_chat_id, telegram_parse_mode, telegram_disable_web_page_preview, telegram_disable_notification,
+	telegram_message_thread_id, message_template, created_at, updated_at`
 
 func (s *sqliteStore) SaveNotification(ctx context.Context, n *model.Notification) error {
 	var filterModelResult *string
@@ -882,14 +883,17 @@ func (s *sqliteStore) SaveNotification(ctx context.Context, n *model.Notificatio
 	}
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO notifications
-		 (name, event_type, active, filter_rule_id, filter_model_name, filter_model_result,
+		 (name, event_type, active, provider, filter_rule_id, filter_model_name, filter_model_result,
 		  pushover_priority, pushover_sound, pushover_device, pushover_title, pushover_url,
 		  pushover_url_title, pushover_ttl, pushover_html, pushover_retry, pushover_expire,
+		  telegram_chat_id, telegram_parse_mode, telegram_disable_web_page_preview,
+		  telegram_disable_notification, telegram_message_thread_id,
 		  message_template, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.Name,
 		n.EventType,
 		boolToInt(n.Active),
+		n.Provider,
 		n.FilterRuleID,
 		n.FilterModelName,
 		filterModelResult,
@@ -903,6 +907,11 @@ func (s *sqliteStore) SaveNotification(ctx context.Context, n *model.Notificatio
 		boolToInt(n.PushoverHTML),
 		n.PushoverRetry,
 		n.PushoverExpire,
+		n.TelegramChatID,
+		n.TelegramParseMode,
+		boolToInt(n.TelegramDisableWebPagePreview),
+		boolToInt(n.TelegramDisableNotification),
+		n.TelegramMessageThreadID,
 		n.MessageTemplate,
 		n.CreatedAt.UTC().Format(time.RFC3339),
 		n.UpdatedAt.UTC().Format(time.RFC3339),
@@ -978,15 +987,18 @@ func (s *sqliteStore) UpdateNotification(ctx context.Context, n *model.Notificat
 	}
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE notifications SET
-		 name = ?, event_type = ?, active = ?, filter_rule_id = ?, filter_model_name = ?,
+		 name = ?, event_type = ?, active = ?, provider = ?, filter_rule_id = ?, filter_model_name = ?,
 		 filter_model_result = ?, pushover_priority = ?, pushover_sound = ?, pushover_device = ?,
 		 pushover_title = ?, pushover_url = ?, pushover_url_title = ?, pushover_ttl = ?,
-		 pushover_html = ?, pushover_retry = ?, pushover_expire = ?, message_template = ?,
-		 updated_at = ?
+		 pushover_html = ?, pushover_retry = ?, pushover_expire = ?,
+		 telegram_chat_id = ?, telegram_parse_mode = ?, telegram_disable_web_page_preview = ?,
+		 telegram_disable_notification = ?, telegram_message_thread_id = ?,
+		 message_template = ?, updated_at = ?
 		 WHERE id = ?`,
 		n.Name,
 		n.EventType,
 		boolToInt(n.Active),
+		n.Provider,
 		n.FilterRuleID,
 		n.FilterModelName,
 		filterModelResult,
@@ -1000,6 +1012,11 @@ func (s *sqliteStore) UpdateNotification(ctx context.Context, n *model.Notificat
 		boolToInt(n.PushoverHTML),
 		n.PushoverRetry,
 		n.PushoverExpire,
+		n.TelegramChatID,
+		n.TelegramParseMode,
+		boolToInt(n.TelegramDisableWebPagePreview),
+		boolToInt(n.TelegramDisableNotification),
+		n.TelegramMessageThreadID,
 		n.MessageTemplate,
 		n.UpdatedAt.UTC().Format(time.RFC3339),
 		n.ID,
@@ -1183,15 +1200,22 @@ func scanNotification(s scanner) (*model.Notification, error) {
 	var filterModelName, filterModelResult sql.NullString
 	var pushoverSound, pushoverDevice, pushoverTitle, pushoverURL, pushoverURLTitle sql.NullString
 	var pushoverTTL, pushoverRetry, pushoverExpire sql.NullInt64
+	var telegramChatID, telegramParseMode sql.NullString
+	var telegramDisableWebPagePreview, telegramDisableNotification int
+	var telegramMessageThreadID sql.NullInt64
 	var messageTemplate sql.NullString
 	var createdAt, updatedAt string
 
 	if err := s.Scan(
-		&n.ID, &n.Name, &n.EventType, &active,
+		&n.ID, &n.Name, &n.EventType, &active, &n.Provider,
 		&filterRuleID, &filterModelName, &filterModelResult,
 		&n.PushoverPriority, &pushoverSound, &pushoverDevice, &pushoverTitle,
 		&pushoverURL, &pushoverURLTitle, &pushoverTTL, &html,
-		&pushoverRetry, &pushoverExpire, &messageTemplate,
+		&pushoverRetry, &pushoverExpire,
+		&telegramChatID, &telegramParseMode,
+		&telegramDisableWebPagePreview, &telegramDisableNotification,
+		&telegramMessageThreadID,
+		&messageTemplate,
 		&createdAt, &updatedAt,
 	); err != nil {
 		return nil, err
@@ -1199,6 +1223,8 @@ func scanNotification(s scanner) (*model.Notification, error) {
 
 	n.Active = active != 0
 	n.PushoverHTML = html != 0
+	n.TelegramDisableWebPagePreview = telegramDisableWebPagePreview != 0
+	n.TelegramDisableNotification = telegramDisableNotification != 0
 
 	if filterRuleID.Valid {
 		n.FilterRuleID = &filterRuleID.Int64
@@ -1236,6 +1262,15 @@ func scanNotification(s scanner) (*model.Notification, error) {
 	if pushoverExpire.Valid {
 		v := int(pushoverExpire.Int64)
 		n.PushoverExpire = &v
+	}
+	if telegramChatID.Valid {
+		n.TelegramChatID = &telegramChatID.String
+	}
+	if telegramParseMode.Valid {
+		n.TelegramParseMode = &telegramParseMode.String
+	}
+	if telegramMessageThreadID.Valid {
+		n.TelegramMessageThreadID = &telegramMessageThreadID.Int64
 	}
 	if messageTemplate.Valid {
 		n.MessageTemplate = &messageTemplate.String
@@ -1633,4 +1668,142 @@ func scanEntityTrack(s scanner) (*model.EntityTrack, error) {
 		return nil, fmt.Errorf("parse entity_track created_at: %w", err)
 	}
 	return &t, nil
+}
+
+// ── DigestJobs ────────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) SaveDigestJob(ctx context.Context, job *model.DigestJob) error {
+	paramsJSON, err := json.Marshal(job.Params)
+	if err != nil {
+		return fmt.Errorf("store: save digest job: marshal params: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO digest_jobs (id, status, params, tweet_count, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		job.ID,
+		string(job.Status),
+		string(paramsJSON),
+		job.TweetCount,
+		job.CreatedAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save digest job: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) GetDigestJob(ctx context.Context, id string) (*model.DigestJob, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, status, params, result, error, tweet_count, created_at, completed_at
+		 FROM digest_jobs WHERE id = ?`, id)
+	job, err := scanDigestJob(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("store: get digest job: not found: %w", err)
+		}
+		return nil, fmt.Errorf("store: get digest job: %w", err)
+	}
+	return job, nil
+}
+
+func (s *sqliteStore) UpdateDigestJob(ctx context.Context, job *model.DigestJob) error {
+	var completedAt *string
+	if job.CompletedAt != nil {
+		s := job.CompletedAt.UTC().Format(time.RFC3339)
+		completedAt = &s
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE digest_jobs SET status=?, result=?, error=?, tweet_count=?, completed_at=? WHERE id=?`,
+		string(job.Status),
+		nullString(job.Result),
+		nullString(job.Error),
+		job.TweetCount,
+		completedAt,
+		job.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update digest job: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) ListDigestJobs(ctx context.Context, limit int) ([]*model.DigestJob, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, status, params, result, error, tweet_count, created_at, completed_at
+		 FROM digest_jobs ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list digest jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []*model.DigestJob
+	for rows.Next() {
+		job, err := scanDigestJob(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list digest jobs: scan: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+	if jobs == nil {
+		jobs = []*model.DigestJob{}
+	}
+	return jobs, rows.Err()
+}
+
+func (s *sqliteStore) DeleteDigestJob(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM digest_jobs WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete digest job: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("store: delete digest job: not found")
+	}
+	return nil
+}
+
+type digestJobScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanDigestJob(s digestJobScanner) (*model.DigestJob, error) {
+	var job model.DigestJob
+	var status, paramsJSON, createdAt string
+	var result, errStr, completedAt sql.NullString
+	if err := s.Scan(&job.ID, &status, &paramsJSON, &result, &errStr, &job.TweetCount, &createdAt, &completedAt); err != nil {
+		return nil, err
+	}
+	job.Status = model.DigestStatus(status)
+	if result.Valid {
+		job.Result = result.String
+	}
+	if errStr.Valid {
+		job.Error = errStr.String
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &job.Params); err != nil {
+		return nil, fmt.Errorf("parse digest job params: %w", err)
+	}
+	var err error
+	job.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse digest job created_at: %w", err)
+	}
+	if completedAt.Valid && completedAt.String != "" {
+		t, err := time.Parse(time.RFC3339, completedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse digest job completed_at: %w", err)
+		}
+		job.CompletedAt = &t
+	}
+	return &job, nil
+}
+
+func nullString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

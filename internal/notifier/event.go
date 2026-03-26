@@ -14,6 +14,8 @@ const (
 	EventStreamConnected      = "stream_connected"
 	EventStreamDisconnected   = "stream_disconnected"
 	EventStreamError          = "stream_error"
+	EventDigestDone           = "digest_done"
+	EventDigestFailed         = "digest_failed"
 )
 
 // ValidEventTypes is the set of all valid event type values.
@@ -24,12 +26,15 @@ var ValidEventTypes = map[string]bool{
 	EventStreamConnected:      true,
 	EventStreamDisconnected:   true,
 	EventStreamError:          true,
+	EventDigestDone:           true,
+	EventDigestFailed:         true,
 }
 
 // NotificationEvent is the data emitted by components for the dispatcher.
 type NotificationEvent struct {
 	Type      string
 	Tweet     *model.Tweet
+	DigestJob *model.DigestJob
 	RuleIDs   []int64
 	ModelName string
 	Results   json.RawMessage

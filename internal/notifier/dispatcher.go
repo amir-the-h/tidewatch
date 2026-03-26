@@ -13,22 +13,25 @@ import (
 
 const channelBufferSize = 256
 
-// Dispatcher listens for NotificationEvents and dispatches Pushover messages
-// to all matching active notification configurations.
+// Dispatcher listens for NotificationEvents and dispatches messages to all
+// matching active notification configurations via Pushover or Telegram.
 type Dispatcher struct {
-	ch     chan NotificationEvent
-	store  store.Store
-	client *PushoverClient
-	logger *slog.Logger
+	ch       chan NotificationEvent
+	store    store.Store
+	pushover *PushoverClient
+	telegram *TelegramClient
+	logger   *slog.Logger
 }
 
 // NewDispatcher creates a new Dispatcher. It satisfies the EventEmitter interface.
-func NewDispatcher(s store.Store, client *PushoverClient, logger *slog.Logger) *Dispatcher {
+// Either pushover or telegram may be nil if that provider is not configured.
+func NewDispatcher(s store.Store, pushover *PushoverClient, telegram *TelegramClient, logger *slog.Logger) *Dispatcher {
 	return &Dispatcher{
-		ch:     make(chan NotificationEvent, channelBufferSize),
-		store:  s,
-		client: client,
-		logger: logger,
+		ch:       make(chan NotificationEvent, channelBufferSize),
+		store:    s,
+		pushover: pushover,
+		telegram: telegram,
+		logger:   logger,
 	}
 }
 
@@ -91,21 +94,14 @@ func (d *Dispatcher) handle(ctx context.Context, event NotificationEvent) {
 			continue
 		}
 
-		msg, err := buildMessage(cfg, event)
-		if err != nil {
-			d.logger.Error("notifier: dispatcher: build message",
-				"error", err, "notification_id", cfg.ID)
-			continue
-		}
-
-		if err := d.client.Send(ctx, msg); err != nil {
-			d.logger.Error("notifier: dispatcher: send pushover",
-				"error", err, "notification_id", cfg.ID)
+		if err := d.send(ctx, cfg, event); err != nil {
+			d.logger.Error("notifier: dispatcher: send",
+				"error", err, "notification_id", cfg.ID, "provider", cfg.Provider)
 			continue
 		}
 
 		d.logger.Info("notifier: dispatcher: sent notification",
-			"notification_id", cfg.ID, "event_type", event.Type)
+			"notification_id", cfg.ID, "event_type", event.Type, "provider", cfg.Provider)
 	}
 }
 
@@ -178,11 +174,35 @@ func matchModelResult(filterJSON, resultsJSON json.RawMessage) bool {
 	return true
 }
 
-// buildMessage renders a PushoverMessage from a notification config and event.
-func buildMessage(cfg *model.Notification, event NotificationEvent) (PushoverMessage, error) {
+// send routes the notification to the correct provider client.
+func (d *Dispatcher) send(ctx context.Context, cfg *model.Notification, event NotificationEvent) error {
+	switch cfg.Provider {
+	case "telegram":
+		if d.telegram == nil {
+			return fmt.Errorf("notifier: telegram client not configured")
+		}
+		msg, err := buildTelegramMessage(cfg, event)
+		if err != nil {
+			return err
+		}
+		return d.telegram.Send(ctx, msg)
+	default: // "pushover" or empty (legacy rows)
+		if d.pushover == nil {
+			return fmt.Errorf("notifier: pushover client not configured")
+		}
+		msg, err := buildPushoverMessage(cfg, event)
+		if err != nil {
+			return err
+		}
+		return d.pushover.Send(ctx, msg)
+	}
+}
+
+// buildPushoverMessage renders a PushoverMessage from a notification config and event.
+func buildPushoverMessage(cfg *model.Notification, event NotificationEvent) (PushoverMessage, error) {
 	text, err := RenderMessage(event, cfg.MessageTemplate)
 	if err != nil {
-		return PushoverMessage{}, fmt.Errorf("notifier: build message: %w", err)
+		return PushoverMessage{}, fmt.Errorf("notifier: build pushover message: %w", err)
 	}
 
 	msg := PushoverMessage{
@@ -218,6 +238,34 @@ func buildMessage(cfg *model.Notification, event NotificationEvent) (PushoverMes
 	return msg, nil
 }
 
+// buildTelegramMessage renders a TelegramMessage from a notification config and event.
+func buildTelegramMessage(cfg *model.Notification, event NotificationEvent) (TelegramMessage, error) {
+	text, err := RenderMessage(event, cfg.MessageTemplate)
+	if err != nil {
+		return TelegramMessage{}, fmt.Errorf("notifier: build telegram message: %w", err)
+	}
+
+	chatID := ""
+	if cfg.TelegramChatID != nil {
+		chatID = *cfg.TelegramChatID
+	}
+
+	msg := TelegramMessage{
+		ChatID:                chatID,
+		Text:                  text,
+		DisableWebPagePreview: cfg.TelegramDisableWebPagePreview,
+		DisableNotification:   cfg.TelegramDisableNotification,
+	}
+	if cfg.TelegramParseMode != nil {
+		msg.ParseMode = *cfg.TelegramParseMode
+	}
+	if cfg.TelegramMessageThreadID != nil {
+		msg.MessageThreadID = *cfg.TelegramMessageThreadID
+	}
+
+	return msg, nil
+}
+
 // SendTestNotification retrieves a notification config by id, constructs a
 // synthetic test event, and sends it immediately.
 func (d *Dispatcher) SendTestNotification(ctx context.Context, id int64) error {
@@ -241,10 +289,5 @@ func (d *Dispatcher) SendTestNotification(ctx context.Context, id int64) error {
 		Timestamp: time.Now(),
 	}
 
-	msg, err := buildMessage(cfg, event)
-	if err != nil {
-		return fmt.Errorf("notifier: send test notification: %w", err)
-	}
-
-	return d.client.Send(ctx, msg)
+	return d.send(ctx, cfg, event)
 }

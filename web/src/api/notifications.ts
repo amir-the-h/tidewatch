@@ -6,9 +6,12 @@ export interface Notification {
   name: string
   event_type: string
   active: boolean
+  /** Delivery backend: "pushover" (default) or "telegram" */
+  provider: string
   filter_rule_id?: number
   filter_model_name?: string
   filter_model_result?: unknown
+  // Pushover-specific
   pushover_priority: number
   pushover_sound?: string
   pushover_device?: string
@@ -19,6 +22,12 @@ export interface Notification {
   pushover_html: boolean
   pushover_retry?: number
   pushover_expire?: number
+  // Telegram-specific
+  telegram_chat_id?: string
+  telegram_parse_mode?: string
+  telegram_disable_web_page_preview: boolean
+  telegram_disable_notification: boolean
+  telegram_message_thread_id?: number
   message_template?: string
   created_at: string
   updated_at: string
@@ -31,6 +40,8 @@ export const VALID_EVENT_TYPES = [
   'stream_connected',
   'stream_disconnected',
   'stream_error',
+  'digest_done',
+  'digest_failed',
 ] as const
 
 export const listNotifications = (filter: { event_type?: string; active?: boolean; rule_id?: number } = {}) => {

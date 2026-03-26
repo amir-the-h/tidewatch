@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -60,23 +61,9 @@ func (s *Server) handleCreateNotification(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid event_type")
 		return
 	}
-	if n.PushoverPriority == 2 {
-		retry := 0
-		if n.PushoverRetry != nil {
-			retry = *n.PushoverRetry
-		}
-		expire := 0
-		if n.PushoverExpire != nil {
-			expire = *n.PushoverExpire
-		}
-		if retry < 30 {
-			writeError(w, http.StatusBadRequest, "pushover_retry must be >= 30 for emergency priority")
-			return
-		}
-		if expire <= 0 || expire > 10800 {
-			writeError(w, http.StatusBadRequest, "pushover_expire must be between 1 and 10800 for emergency priority")
-			return
-		}
+	if err := validateNotificationProvider(&n); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if n.MessageTemplate != nil {
 		if err := notifier.ValidateTemplate(*n.MessageTemplate); err != nil {
@@ -85,6 +72,9 @@ func (s *Server) handleCreateNotification(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	if n.Provider == "" {
+		n.Provider = "pushover"
+	}
 	n.Active = true
 	now := time.Now()
 	n.CreatedAt = now
@@ -142,23 +132,9 @@ func (s *Server) handleUpdateNotification(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid event_type")
 		return
 	}
-	if n.PushoverPriority == 2 {
-		retry := 0
-		if n.PushoverRetry != nil {
-			retry = *n.PushoverRetry
-		}
-		expire := 0
-		if n.PushoverExpire != nil {
-			expire = *n.PushoverExpire
-		}
-		if retry < 30 {
-			writeError(w, http.StatusBadRequest, "pushover_retry must be >= 30 for emergency priority")
-			return
-		}
-		if expire <= 0 || expire > 10800 {
-			writeError(w, http.StatusBadRequest, "pushover_expire must be between 1 and 10800 for emergency priority")
-			return
-		}
+	if err := validateNotificationProvider(n); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	if n.MessageTemplate != nil {
 		if err := notifier.ValidateTemplate(*n.MessageTemplate); err != nil {
@@ -243,6 +219,36 @@ func (s *Server) handleTestNotification(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+}
+
+// validateNotificationProvider checks provider-specific required fields.
+func validateNotificationProvider(n *model.Notification) error {
+	switch n.Provider {
+	case "telegram":
+		if n.TelegramChatID == nil || *n.TelegramChatID == "" {
+			return fmt.Errorf("telegram_chat_id is required for telegram provider")
+		}
+	case "", "pushover":
+		if n.PushoverPriority == 2 {
+			retry := 0
+			if n.PushoverRetry != nil {
+				retry = *n.PushoverRetry
+			}
+			expire := 0
+			if n.PushoverExpire != nil {
+				expire = *n.PushoverExpire
+			}
+			if retry < 30 {
+				return fmt.Errorf("pushover_retry must be >= 30 for emergency priority")
+			}
+			if expire <= 0 || expire > 10800 {
+				return fmt.Errorf("pushover_expire must be between 1 and 10800 for emergency priority")
+			}
+		}
+	default:
+		return fmt.Errorf("invalid provider %q: must be \"pushover\" or \"telegram\"", n.Provider)
+	}
+	return nil
 }
 
 // parseNotificationID extracts and parses the {id} path parameter.

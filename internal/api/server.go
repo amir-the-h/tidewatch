@@ -172,8 +172,11 @@ func NewServer(
 		r.Get("/summaries", srv.handleListSummaries)
 		r.Post("/summaries/run", srv.handleRunSummaries)
 
-		// Digest
+		// Digest jobs
+		r.Get("/digest", srv.handleListDigests)
 		r.Post("/digest", srv.handleDigest)
+		r.Get("/digest/{id}", srv.handleGetDigest)
+		r.Delete("/digest/{id}", srv.handleDeleteDigest)
 
 		// Failures (dead-letter queue)
 		r.Get("/failures", srv.handleListFailures)

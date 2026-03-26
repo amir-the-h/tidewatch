@@ -189,7 +189,7 @@ func newTestDispatcher(t *testing.T, s *mockStore, srv *httptest.Server) *Dispat
 	t.Helper()
 	client := NewPushoverClient("app-token", "user-key", newNopLogger())
 	client.apiURL = srv.URL
-	return NewDispatcher(s, client, newNopLogger())
+	return NewDispatcher(s, client, nil, newNopLogger())
 }
 
 func newNopLogger() *slog.Logger {

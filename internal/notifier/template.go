@@ -13,6 +13,8 @@ var defaultTemplates = map[string]string{
 	EventStreamConnected:      `Stream connected`,
 	EventStreamDisconnected:   `Stream disconnected`,
 	EventStreamError:          `Stream error: {{.Error}}`,
+	EventDigestDone:           `Digest ready ({{.DigestJob.TweetCount}} tweets): {{.DigestJob.Result}}`,
+	EventDigestFailed:         `Digest failed: {{.Error}}`,
 }
 
 func RenderMessage(event NotificationEvent, customTemplate *string) (string, error) {

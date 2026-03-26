@@ -1,31 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import StreamView from '../views/StreamView.vue'
-import TweetsView from '../views/TweetsView.vue'
-import SearchView from '../views/SearchView.vue'
-import RulesView from '../views/RulesView.vue'
-import SourcesView from '../views/SourcesView.vue'
-import ModelsView from '../views/ModelsView.vue'
-import CategorizationsView from '../views/CategorizationsView.vue'
-import NotificationsView from '../views/NotificationsView.vue'
-import TrackedEntitiesView from '../views/TrackedEntitiesView.vue'
-import MapView from '../views/MapView.vue'
-import FailuresView from '../views/FailuresView.vue'
-import SummarizeView from '../views/SummarizeView.vue'
 
 export default createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: StreamView },
-    { path: '/map', component: MapView },
-    { path: '/tweets', component: TweetsView },
-    { path: '/search', component: SearchView },
-    { path: '/rules', component: RulesView },
-    { path: '/sources', component: SourcesView },
-    { path: '/models', component: ModelsView },
-    { path: '/categorizations', component: CategorizationsView },
-    { path: '/notifications', component: NotificationsView },
-    { path: '/tracked-entities', component: TrackedEntitiesView },
-    { path: '/failures', component: FailuresView },
-    { path: '/summarize', component: SummarizeView },
+    { path: '/', component: () => import('../views/StreamView.vue') },
+    { path: '/map', component: () => import('../views/MapView.vue') },
+    { path: '/tweets', component: () => import('../views/TweetsView.vue') },
+    { path: '/search', component: () => import('../views/SearchView.vue') },
+    { path: '/rules', component: () => import('../views/RulesView.vue') },
+    { path: '/sources', component: () => import('../views/SourcesView.vue') },
+    { path: '/models', component: () => import('../views/ModelsView.vue') },
+    { path: '/categorizations', component: () => import('../views/CategorizationsView.vue') },
+    { path: '/notifications', component: () => import('../views/NotificationsView.vue') },
+    { path: '/tracked-entities', component: () => import('../views/TrackedEntitiesView.vue') },
+    { path: '/failures', component: () => import('../views/FailuresView.vue') },
+    { path: '/summarize', component: () => import('../views/SummarizeView.vue') },
   ],
 })

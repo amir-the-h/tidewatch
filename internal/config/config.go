@@ -44,6 +44,12 @@ type Config struct {
 		AppToken string `yaml:"app_token"`
 		UserKey  string `yaml:"user_key"`
 	} `yaml:"pushover"`
+	Telegram struct {
+		BotToken string `yaml:"bot_token"`
+	} `yaml:"telegram"`
+	Stream struct {
+		AutoConnect bool `yaml:"auto_connect"`
+	} `yaml:"stream"`
 	Search struct {
 		Enabled     bool          `yaml:"enabled"`
 		Interval    time.Duration `yaml:"interval"`
@@ -160,6 +166,12 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_USER_KEY"); v != "" {
 		cfg.Pushover.UserKey = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_TELEGRAM_BOT_TOKEN"); v != "" {
+		cfg.Telegram.BotToken = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_STREAM_AUTO_CONNECT"); v != "" {
+		cfg.Stream.AutoConnect = v == "true" || v == "1"
 	}
 	return nil
 }

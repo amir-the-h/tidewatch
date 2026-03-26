@@ -48,6 +48,8 @@ onMounted(async () => {
     sources.value = sourcesData.value.map(s => ({ label: s.name || s.value, value: s.id }))
   if (entitiesData.status === 'fulfilled')
     entities.value = entitiesData.value.map(e => ({ label: e.name, value: e.id }))
+
+  await store.fetchJobs()
 })
 </script>
 
@@ -61,11 +63,11 @@ onMounted(async () => {
     <n-card size="small" title="Filters">
       <n-space wrap size="medium" align="flex-end">
         <n-form-item label="From" size="small" style="min-width: 200px; margin-bottom: 0;">
-          <n-date-picker v-model:value="filterFrom" type="datetime" clearable placeholder="Start date" style="width: 100%;" />
+          <n-date-picker v-model:value="filterFrom" type="datetime" clearable placeholder="Start date" default-time="00:00:00" style="width: 100%;" />
         </n-form-item>
 
         <n-form-item label="To" size="small" style="min-width: 200px; margin-bottom: 0;">
-          <n-date-picker v-model:value="filterTo" type="datetime" clearable placeholder="End date" style="width: 100%;" />
+          <n-date-picker v-model:value="filterTo" type="datetime" clearable placeholder="End date" default-time="23:59:59" style="width: 100%;" />
         </n-form-item>
 
         <n-form-item label="Rule" size="small" style="min-width: 180px; margin-bottom: 0;">
@@ -87,34 +89,58 @@ onMounted(async () => {
 
       <template #footer>
         <n-button type="primary" :loading="store.loading" @click="onGenerate" style="width: 100%;">
-          {{ store.loading ? 'Generating digest (may take a minute)…' : 'Generate Digest' }}
+          {{ store.loading ? 'Generating digest…' : 'Generate Digest' }}
         </n-button>
       </template>
     </n-card>
 
     <n-alert v-if="store.error" type="error">{{ store.error }}</n-alert>
 
-    <!-- Loading skeleton -->
-    <n-card v-if="store.loading" size="small">
-      <n-space vertical>
-        <n-skeleton text :repeat="6" />
-        <n-skeleton text style="width: 60%" />
-      </n-space>
-    </n-card>
+    <!-- Jobs list -->
+    <template v-if="store.jobs.length > 0">
+      <n-card
+        v-for="job in store.jobs"
+        :key="job.id"
+        size="small"
+      >
+        <template #header>
+          <n-space align="center" justify="space-between" style="width: 100%;">
+            <n-space align="center">
+              <span>Digest</span>
+              <n-tag
+                :type="job.status === 'done' ? 'success' : job.status === 'error' ? 'error' : 'warning'"
+                size="small"
+                round
+              >{{ job.status }}</n-tag>
+              <n-tag v-if="job.tweet_count > 0" type="info" size="small" round>{{ job.tweet_count }} tweets</n-tag>
+              <n-text depth="3" style="font-size: 12px;">{{ new Date(job.created_at).toLocaleString() }}</n-text>
+            </n-space>
+            <n-button
+              size="tiny"
+              type="error"
+              secondary
+              :disabled="job.status === 'pending' || job.status === 'running'"
+              @click="store.deleteJob(job.id).catch(() => msg.error('Failed to delete digest'))"
+            >Delete</n-button>
+          </n-space>
+        </template>
 
-    <!-- Digest output -->
-    <n-card v-else-if="store.digest" size="small">
-      <template #header>
-        <n-space align="center">
-          <span>Digest</span>
-          <n-tag type="info" size="small" round>{{ store.tweetCount }} tweets</n-tag>
+        <!-- Running / pending -->
+        <n-space v-if="job.status === 'pending' || job.status === 'running'" vertical>
+          <n-skeleton text :repeat="4" />
+          <n-skeleton text style="width: 60%" />
         </n-space>
-      </template>
-      <div style="white-space: pre-wrap; line-height: 1.7; font-size: 14px;">{{ store.digest }}</div>
-    </n-card>
+
+        <!-- Error -->
+        <n-alert v-else-if="job.status === 'error'" type="error">{{ job.error }}</n-alert>
+
+        <!-- Done -->
+        <div v-else style="white-space: pre-wrap; line-height: 1.7; font-size: 14px;">{{ job.result }}</div>
+      </n-card>
+    </template>
 
     <n-empty
-      v-else
+      v-else-if="!store.loading"
       description="Set your filters and click Generate Digest"
       style="padding: 64px 0;"
     />

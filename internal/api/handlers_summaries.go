@@ -8,8 +8,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -138,9 +142,8 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
 }
 
-// handleDigest fetches tweets matching the given filters, sends them all to the
-// active DigestPipeline (Ollama), and returns a single plain-text briefing.
-// This is a synchronous call — the response may take up to several minutes.
+// handleDigest accepts digest parameters, creates a background job, and returns
+// the job ID immediately. Poll GET /digest/{id} for status and result.
 func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
 		writeError(w, http.StatusServiceUnavailable, "registry not available")
@@ -165,41 +168,71 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		From     *time.Time `json:"from"`
-		To       *time.Time `json:"to"`
-		RuleID   *int64     `json:"rule_id"`
-		SourceID *int64     `json:"source_id"`
-		EntityID *int64     `json:"entity_id"`
-		Limit    int        `json:"limit"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	var params model.DigestParams
+	if err := json.NewDecoder(r.Body).Decode(&params); err != nil && err != io.EOF {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Limit <= 0 || req.Limit > 1000 {
-		req.Limit = 200
+	if params.Limit <= 0 || params.Limit > 1000 {
+		params.Limit = 200
 	}
 
-	tweets, err := s.store.ListTweets(r.Context(), store.TweetFilter{
-		RuleID:   req.RuleID,
-		SourceID: req.SourceID,
-		EntityID: req.EntityID,
-		From:     req.From,
-		To:       req.To,
-		Page:     1,
-		PerPage:  req.Limit,
-	})
-	if err != nil {
-		s.logger.Error("api: digest: list tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to fetch tweets")
+	job := &model.DigestJob{
+		ID:        uuid.New().String(),
+		Status:    model.DigestStatusPending,
+		Params:    params,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.store.SaveDigestJob(r.Context(), job); err != nil {
+		s.logger.Error("api: digest: save job", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create digest job")
 		return
 	}
+
+	go s.runDigestJob(job, digestPipeline, digestPipeline.Name())
+
+	writeJSON(w, http.StatusAccepted, job)
+}
+
+// runDigestJob executes the digest in the background and persists the result.
+func (s *Server) runDigestJob(job *model.DigestJob, pipeline inference.DigestPipeline, pipelineName string) {
+	ctx := s.ctx
+
+	job.Status = model.DigestStatusRunning
+	if err := s.store.UpdateDigestJob(ctx, job); err != nil {
+		s.logger.Error("api: digest job: mark running", "job_id", job.ID, "error", err)
+	}
+
+	p := job.Params
+	tweets, err := s.store.ListTweets(ctx, store.TweetFilter{
+		RuleID:   p.RuleID,
+		SourceID: p.SourceID,
+		EntityID: p.EntityID,
+		From:     p.From,
+		To:       p.To,
+		Page:     1,
+		PerPage:  p.Limit,
+	})
+
+	now := time.Now().UTC()
+	job.CompletedAt = &now
+
+	if err != nil {
+		s.logger.Error("api: digest job: list tweets", "job_id", job.ID, "error", err)
+		job.Status = model.DigestStatusError
+		job.Error = "failed to fetch tweets: " + err.Error()
+		_ = s.store.UpdateDigestJob(ctx, job)
+		s.emitDigestEvent(job, pipelineName)
+		return
+	}
+
+	job.TweetCount = len(tweets)
+
 	if len(tweets) == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"digest":      "No tweets found matching the selected filters.",
-			"tweet_count": 0,
-		})
+		job.Status = model.DigestStatusDone
+		job.Result = "No tweets found matching the selected filters."
+		_ = s.store.UpdateDigestJob(ctx, job)
+		s.emitDigestEvent(job, pipelineName)
 		return
 	}
 
@@ -212,17 +245,73 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	digest, err := digestPipeline.Digest(formatted)
+	digest, err := pipeline.Digest(formatted)
 	if err != nil {
-		s.logger.Error("api: digest: run", "error", err)
-		writeError(w, http.StatusInternalServerError, "digest generation failed: "+err.Error())
+		s.logger.Error("api: digest job: run", "job_id", job.ID, "error", err)
+		job.Status = model.DigestStatusError
+		job.Error = "digest generation failed: " + err.Error()
+		_ = s.store.UpdateDigestJob(ctx, job)
+		s.emitDigestEvent(job, pipelineName)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"digest":      digest,
-		"tweet_count": len(tweets),
+	job.Status = model.DigestStatusDone
+	job.Result = digest
+	if err := s.store.UpdateDigestJob(ctx, job); err != nil {
+		s.logger.Error("api: digest job: save result", "job_id", job.ID, "error", err)
+	}
+	s.emitDigestEvent(job, pipelineName)
+}
+
+// emitDigestEvent fires a digest_done or digest_failed notification event.
+func (s *Server) emitDigestEvent(job *model.DigestJob, pipelineName string) {
+	if s.dispatcher == nil {
+		return
+	}
+	eventType := notifier.EventDigestDone
+	if job.Status == model.DigestStatusError {
+		eventType = notifier.EventDigestFailed
+	}
+	s.dispatcher.Emit(notifier.NotificationEvent{
+		Type:      eventType,
+		DigestJob: job,
+		ModelName: pipelineName,
+		Error:     job.Error,
+		Timestamp: time.Now().UTC(),
 	})
+}
+
+// handleGetDigest returns the status and result of a digest job.
+func (s *Server) handleGetDigest(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	job, err := s.store.GetDigestJob(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "digest job not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+// handleListDigests returns recent digest jobs.
+func (s *Server) handleListDigests(w http.ResponseWriter, r *http.Request) {
+	limit := parseIntParam(r.URL.Query().Get("limit"), 20)
+	jobs, err := s.store.ListDigestJobs(r.Context(), limit)
+	if err != nil {
+		s.logger.Error("api: list digests", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list digest jobs")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+}
+
+// handleDeleteDigest deletes a digest job by ID.
+func (s *Server) handleDeleteDigest(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.store.DeleteDigestJob(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, "digest job not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // parseIntParam parses a string as int, returning def on failure.

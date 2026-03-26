@@ -120,16 +120,28 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load inference registry: %w", err)
 	}
 
-	// Initialize Pushover notifier (optional — skipped if credentials not configured).
-	var dispatcher *notifier.Dispatcher
-	var emitter notifier.EventEmitter
+	// Initialize notifier clients (each optional — skipped if credentials not configured).
+	var pushClient *notifier.PushoverClient
 	if cfg.Pushover.AppToken != "" && cfg.Pushover.UserKey != "" {
-		pushClient := notifier.NewPushoverClient(cfg.Pushover.AppToken, cfg.Pushover.UserKey, logger)
-		dispatcher = notifier.NewDispatcher(s, pushClient, logger)
-		emitter = dispatcher
+		pushClient = notifier.NewPushoverClient(cfg.Pushover.AppToken, cfg.Pushover.UserKey, logger)
 		logger.Info("serve: pushover notifier enabled", "component", "notifier")
 	} else {
 		logger.Info("serve: pushover notifier disabled (no credentials)", "component", "notifier")
+	}
+
+	var telegramClient *notifier.TelegramClient
+	if cfg.Telegram.BotToken != "" {
+		telegramClient = notifier.NewTelegramClient(cfg.Telegram.BotToken, logger)
+		logger.Info("serve: telegram notifier enabled", "component", "notifier")
+	} else {
+		logger.Info("serve: telegram notifier disabled (no bot token)", "component", "notifier")
+	}
+
+	var dispatcher *notifier.Dispatcher
+	var emitter notifier.EventEmitter
+	if pushClient != nil || telegramClient != nil {
+		dispatcher = notifier.NewDispatcher(s, pushClient, telegramClient, logger)
+		emitter = dispatcher
 	}
 
 	rules := stream.NewRuleManager(cfg.X.BearerToken, nil)
@@ -167,7 +179,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	errCh := make(chan error, 2)
 
-	logger.Info("serve: stream is disconnected; use API or CLI to connect", "component", "stream")
+	if cfg.Stream.AutoConnect {
+		logger.Info("serve: auto-connecting stream", "component", "stream")
+		if err := streamClient.Connect(ctx); err != nil {
+			logger.Error("serve: stream auto-connect failed", "component", "stream", "error", err)
+		}
+	} else {
+		logger.Info("serve: stream is disconnected; use API or CLI to connect", "component", "stream")
+	}
 
 	go func() {
 		logger.Info("serve: starting worker pool", "component", "worker", "count", workerCount)

@@ -155,5 +155,12 @@ type Store interface {
 	ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error)
 	CountSummaries(ctx context.Context, filter SummaryFilter) (int, error)
 
+	// DigestJobs
+	SaveDigestJob(ctx context.Context, job *model.DigestJob) error
+	GetDigestJob(ctx context.Context, id string) (*model.DigestJob, error)
+	UpdateDigestJob(ctx context.Context, job *model.DigestJob) error
+	ListDigestJobs(ctx context.Context, limit int) ([]*model.DigestJob, error)
+	DeleteDigestJob(ctx context.Context, id string) error
+
 	Close() error
 }
