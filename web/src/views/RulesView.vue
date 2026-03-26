@@ -3,7 +3,7 @@
 import { computed, h, onMounted, ref } from 'vue'
 import { useRulesStore } from '../stores/rules'
 import { useSourcesStore } from '../stores/sources'
-import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
+import { useMessage, NSpace, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Rule, ExprNode } from '../api/rules'
 import { ApiError } from '../api/client'

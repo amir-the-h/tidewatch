@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useSourcesStore } from '../stores/sources'
-import { useMessage, NButton, NSpace } from 'naive-ui'
+import { useMessage, NSpace } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Source } from '../api/sources'
 import { ApiError } from '../api/client'
