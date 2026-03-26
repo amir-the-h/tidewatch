@@ -5,15 +5,16 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { apiFetch } from './api/client'
 import { listModels } from './api/models'
 import { useAuthStore } from './stores/auth'
+import { useStreamStore } from './stores/stream'
 
 const route  = useRoute()
 const router = useRouter()
 const auth   = useAuthStore()
+const stream = useStreamStore()
 
 const hasSummarizer = ref(false)
 
 const adminMenuOptions = [
-  { label: 'Stream',           key: '/' },
   { label: 'Map',              key: '/map' },
   { label: 'Tweets',           key: '/tweets' },
   { label: 'Search',           key: '/search' },
@@ -80,6 +81,17 @@ async function fetchStats() {
     if (h.queue)   queueStats.value  = h.queue
     if (h.workers) workerStats.value = h.workers
   } catch { /* server unreachable */ }
+  if (auth.isAdmin) {
+    try { await stream.fetchStatus() } catch { /* ignore */ }
+  }
+}
+
+async function connectStream() {
+  try { await stream.connect() } catch { /* error visible via stream.error */ }
+}
+
+async function disconnectStream() {
+  try { await stream.disconnect() } catch { /* error visible via stream.error */ }
 }
 
 const flushing = ref(false)
@@ -149,6 +161,31 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
           <span v-if="workerStats">
             W: {{ workerStats.active }}/{{ workerStats.total }}
           </span>
+        </div>
+
+        <!-- Stream controls (admin only) -->
+        <div v-if="auth.isAdmin" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+          <span :style="{ color: stream.connected ? '#a6e3a1' : '#f38ba8' }">
+            {{ stream.connected ? '● Stream' : '○ Stream' }}
+          </span>
+          <button
+            v-if="!stream.connected"
+            @click="connectStream"
+            :disabled="stream.loading"
+            style="
+              background: rgba(166,227,161,0.12); border: 1px solid rgba(166,227,161,0.35); cursor: pointer;
+              color: #a6e3a1; font-size: 10px; padding: 1px 7px; border-radius: 3px;
+            "
+          >{{ stream.loading ? '…' : 'Connect' }}</button>
+          <button
+            v-if="stream.connected"
+            @click="disconnectStream"
+            :disabled="stream.loading"
+            style="
+              background: rgba(243,139,168,0.12); border: 1px solid rgba(243,139,168,0.35); cursor: pointer;
+              color: #f38ba8; font-size: 10px; padding: 1px 7px; border-radius: 3px;
+            "
+          >{{ stream.loading ? '…' : 'Disconnect' }}</button>
         </div>
 
         <!-- Username + logout -->

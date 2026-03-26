@@ -8,7 +8,7 @@ export default createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
-    { path: '/', component: () => import('../views/StreamView.vue') },
+    { path: '/', redirect: '/map' },
     { path: '/map', component: () => import('../views/MapView.vue') },
     { path: '/tweets', component: () => import('../views/TweetsView.vue') },
     { path: '/search', component: () => import('../views/SearchView.vue') },
