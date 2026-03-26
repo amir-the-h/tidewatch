@@ -35,7 +35,7 @@ const menuOptions = computed(() => {
 async function checkSummarizer() {
   try {
     const models = await listModels()
-    hasSummarizer.value = models.some(m => m.active && (m.type === 'extraction' || m.type === 'summarizer'))
+    hasSummarizer.value = models.some(m => m.active && (m.type === 'digest' || m.type === 'extraction' || m.type === 'summarizer'))
   } catch { /* server unreachable */ }
 }
 

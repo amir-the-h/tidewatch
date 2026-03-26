@@ -10,6 +10,7 @@ const (
 	ModelTypeSentiment      ModelType = "sentiment"
 	ModelTypeSummarizer     ModelType = "summarizer"
 	ModelTypeExtraction     ModelType = "extraction"
+	ModelTypeDigest         ModelType = "digest"
 )
 
 type Model struct {

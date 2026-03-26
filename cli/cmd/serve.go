@@ -107,6 +107,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			}
 			p := inference.NewOllamaPipeline(m.Name, cfg.Ollama.BaseURL, prompt)
 			return p, p.Load(m.Path)
+		case model.ModelTypeDigest:
+			p := inference.NewOllamaPipeline(m.Name, cfg.Ollama.BaseURL, inference.OllamaDigestSystem)
+			return p, p.Load(m.Path)
 		default:
 			p := inference.NewONNXPipeline(m.Name)
 			return p, p.Load(m.Path)

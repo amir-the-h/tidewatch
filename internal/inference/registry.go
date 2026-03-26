@@ -12,8 +12,9 @@ import (
 // registryEntry pairs a loaded Pipeline with the rule IDs that gate it.
 // An empty ruleIDs slice means "run on all tweets" (global model).
 type registryEntry struct {
-	pipeline Pipeline
-	ruleIDs  []int64
+	pipeline  Pipeline
+	ruleIDs   []int64
+	modelType model.ModelType
 }
 
 // Registry manages the set of active Pipeline instances.
@@ -52,7 +53,7 @@ func (r *Registry) load(ctx context.Context, models []*model.Model, factory func
 				"model", m.Name, "error", err)
 			continue
 		}
-		entries = append(entries, registryEntry{pipeline: p, ruleIDs: m.RuleIDs})
+		entries = append(entries, registryEntry{pipeline: p, ruleIDs: m.RuleIDs, modelType: m.Type})
 	}
 	return entries, nil
 }
@@ -118,6 +119,10 @@ func (r *Registry) AllForRules(matchedRuleIDs []int64) []Pipeline {
 
 	out := make([]Pipeline, 0, len(r.entries))
 	for _, e := range r.entries {
+		// Digest models are invoked only by the digest endpoint, never by the worker.
+		if e.modelType == model.ModelTypeDigest {
+			continue
+		}
 		if len(e.ruleIDs) == 0 {
 			// Global model — always run.
 			out = append(out, e.pipeline)

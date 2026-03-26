@@ -136,6 +136,9 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 				}
 				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, prompt)
 				return p, p.Load(m.Path)
+			case model.ModelTypeDigest:
+				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, inference.OllamaDigestSystem)
+				return p, p.Load(m.Path)
 			default:
 				p := inference.NewONNXPipeline(m.Name)
 				if err := p.Load(m.Path); err != nil {
