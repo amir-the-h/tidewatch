@@ -70,13 +70,14 @@ func (s *Scheduler) RunWithParams(ctx context.Context, ruleIDs []int64, params S
 			if err != nil {
 				return 0, fmt.Errorf("search: scheduler: get rule %d: %w", id, err)
 			}
-			if r.Active && r.CompiledValue != "" {
+			if r.Active && r.CompiledValue != "" && !r.Local {
 				rules = append(rules, r)
 			}
 		}
 	} else {
 		active := true
-		all, err := s.store.ListRules(ctx, store.RuleFilter{Active: &active})
+		local := false
+		all, err := s.store.ListRules(ctx, store.RuleFilter{Active: &active, Local: &local})
 		if err != nil {
 			return 0, fmt.Errorf("search: scheduler: list rules: %w", err)
 		}
