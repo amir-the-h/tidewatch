@@ -11,7 +11,10 @@ services:
       # Required
       IRAN_WATCHER_X_BEARER_TOKEN: "${IRAN_WATCHER_X_BEARER_TOKEN}"
 
-      # Redis — point at the service name in your Redis stack's network
+      # Port
+      IRAN_WATCHER_API_BIND: "${IRAN_WATCHER_API_BIND:-0.0.0.0:1452}"
+
+      # Redis — point at the service name in your shared network
       IRAN_WATCHER_REDIS_ADDR: "${IRAN_WATCHER_REDIS_ADDR:-redis:6379}"
       IRAN_WATCHER_REDIS_PASSWORD: "${IRAN_WATCHER_REDIS_PASSWORD:-}"
       IRAN_WATCHER_REDIS_DB: "${IRAN_WATCHER_REDIS_DB:-0}"
@@ -20,35 +23,62 @@ services:
       IRAN_WATCHER_LOG_FORMAT: "${IRAN_WATCHER_LOG_FORMAT:-json}"
       IRAN_WATCHER_LOG_LEVEL: "${IRAN_WATCHER_LOG_LEVEL:-info}"
 
+      # Ollama
+      IRAN_WATCHER_OLLAMA_BASE_URL: "${IRAN_WATCHER_OLLAMA_BASE_URL:-http://ollama:11434}"
+
       # Optional Pushover notifications
       IRAN_WATCHER_PUSHOVER_APP_TOKEN: "${IRAN_WATCHER_PUSHOVER_APP_TOKEN:-}"
       IRAN_WATCHER_PUSHOVER_USER_KEY: "${IRAN_WATCHER_PUSHOVER_USER_KEY:-}"
 
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
     volumes:
       # Persistent SQLite database
       - iran-watcher-data:/data
-      # ONNX model files (populate via: docker run --rm -v iran-watcher-models:/models ...)
       - iran-watcher-models:/models
+      - iran-watcher-config:/configs
 
     ports:
       # Bind API only to localhost on the host — not exposed publicly
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:1452:1452"
 
     networks:
-      - default
-      # Shared network from your Redis stack — set REDIS_NETWORK name in .env
-      - redis
+      network:
+        ipv4_address: 172.79.0.2
+      shared: {}
+
+  iran-watcher-ui:
+    build:
+      context: ./web
+      args:
+        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://iran-watcher:1452}"
+    image: iran-watcher-ui:latest
+    container_name: iran-watcher-ui
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1453:80"
+    networks:
+      network:
+        ipv4_address: 172.79.0.3
+      shared: {}
 
 volumes:
   iran-watcher-data:
   iran-watcher-models:
+  iran-watcher-config:
 
 networks:
-  # The app's own bridge network (default)
-  default:
+  network:
     driver: bridge
-
-  # External network shared with the Redis stack
-  redis:
+    ipam:
+      config:
+        - subnet: 172.79.0.0/16
+          gateway: 172.79.0.1
+  shared:
     external: true
-    name: "${REDIS_NETWORK:-redis_default}"
