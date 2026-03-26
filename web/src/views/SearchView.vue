@@ -20,7 +20,6 @@ const totalLimit      = ref<number>(0)
 const sinceId         = ref<string>('')
 const untilId         = ref<string>('')
 const showAdvanced    = ref(false)
-const running         = ref(false)
 const errorIs503      = ref(false)
 
 const ruleOptions = computed(() =>
@@ -29,6 +28,7 @@ const ruleOptions = computed(() =>
 
 onMounted(() => {
   rulesStore.fetchRules(true)
+  store.fetchJobs()
 })
 
 function buildParams() {
@@ -44,7 +44,6 @@ function buildParams() {
 }
 
 async function onRun() {
-  running.value = true
   errorIs503.value = false
   try {
     await store.run(buildParams())
@@ -53,9 +52,6 @@ async function onRun() {
     if (e instanceof ApiError && e.status === 503) {
       errorIs503.value = true
     }
-    // store.error is already set; error display is handled in template
-  } finally {
-    running.value = false
   }
 }
 </script>
@@ -166,8 +162,8 @@ async function onRun() {
         <div style="margin-top: 20px">
           <n-button
             type="primary"
-            :loading="store.loading || running"
-            :disabled="store.loading || running"
+            :loading="store.loading"
+            :disabled="store.loading"
             @click="onRun"
           >
             Run Search
@@ -186,22 +182,63 @@ async function onRun() {
       </template>
     </n-alert>
 
-    <!-- Success result -->
-    <n-card v-if="store.result" title="Search Complete">
-      <n-space vertical size="small">
-        <n-statistic label="Tweets fetched" :value="store.result.tweets_fetched" />
-        <n-statistic
-          v-if="store.result.rules_queried != null"
-          label="Rules queried"
-          :value="store.result.rules_queried"
-        />
-        <div style="margin-top: 12px">
-          <n-button type="primary" @click="router.push('/tweets')">
-            View tweets →
-          </n-button>
-        </div>
-      </n-space>
-    </n-card>
+    <!-- Jobs list -->
+    <template v-if="store.jobs.length > 0">
+      <n-card
+        v-for="job in store.jobs"
+        :key="job.id"
+        size="small"
+      >
+        <template #header>
+          <n-space align="center" justify="space-between" style="width: 100%;">
+            <n-space align="center">
+              <span>Search job</span>
+              <n-tag
+                :type="job.status === 'done' ? 'success' : job.status === 'error' ? 'error' : 'warning'"
+                size="small"
+                round
+              >{{ job.status }}</n-tag>
+              <n-tag v-if="job.status === 'done'" type="info" size="small" round>
+                {{ job.tweets_fetched }} tweets
+              </n-tag>
+              <n-text depth="3" style="font-size: 12px;">{{ new Date(job.created_at).toLocaleString() }}</n-text>
+            </n-space>
+            <n-space>
+              <n-button
+                v-if="job.status === 'done' && job.tweets_fetched > 0"
+                size="tiny"
+                type="primary"
+                secondary
+                @click="router.push('/tweets')"
+              >View tweets</n-button>
+              <n-button
+                size="tiny"
+                type="error"
+                secondary
+                @click="store.removeJob(job.id).catch(() => msg.error('Failed to delete search job'))"
+              >Delete</n-button>
+            </n-space>
+          </n-space>
+        </template>
 
+        <!-- Running / pending -->
+        <n-space v-if="job.status === 'pending' || job.status === 'running'" align="center">
+          <n-spin size="small" />
+          <n-text depth="3">Fetching tweets…</n-text>
+        </n-space>
+
+        <!-- Error -->
+        <n-alert v-else-if="job.status === 'error'" type="error">{{ job.error }}</n-alert>
+
+        <!-- Done -->
+        <n-text v-else depth="3">Fetched {{ job.tweets_fetched }} tweet{{ job.tweets_fetched !== 1 ? 's' : '' }}.</n-text>
+      </n-card>
+    </template>
+
+    <n-empty
+      v-else-if="!store.loading"
+      description="Configure parameters and click Run Search"
+      style="padding: 64px 0;"
+    />
   </n-space>
 </template>

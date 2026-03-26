@@ -44,3 +44,11 @@ type DigestPipeline interface {
 	Pipeline
 	Digest(tweets []string) (string, error)
 }
+
+// ConcurrencyLimiter is optionally implemented by pipelines that want to cap
+// how many workers process them simultaneously. The manager skips a pipeline's
+// channel when activePipelines already equals MaxConcurrency(), preventing
+// idle workers from piling up behind a serialised backend (e.g. Ollama).
+type ConcurrencyLimiter interface {
+	MaxConcurrency() int
+}

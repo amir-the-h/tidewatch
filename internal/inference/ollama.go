@@ -219,6 +219,11 @@ func (p *OllamaPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
 // Close is a no-op; the HTTP client has no persistent state to release.
 func (p *OllamaPipeline) Close() error { return nil }
 
+// MaxConcurrency returns 1, satisfying ConcurrencyLimiter. Ollama serialises
+// requests internally anyway; allowing multiple workers to block on the
+// semaphore just wastes goroutines without improving throughput.
+func (p *OllamaPipeline) MaxConcurrency() int { return 1 }
+
 // ensureLoaded checks /api/ps to see if the model is currently loaded in Ollama.
 // If it is not, it calls warmUp to load it before returning.
 // Must be called with the semaphore held.

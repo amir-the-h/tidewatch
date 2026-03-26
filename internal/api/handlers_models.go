@@ -117,39 +117,7 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 
 	// Reload registry with current active models.
 	if s.registry != nil {
-		models, listErr := s.store.ListModels(r.Context())
-		if listErr != nil {
-			s.logger.Error("api: set model active: list models", "model_id", id, "error", listErr)
-			writeError(w, http.StatusInternalServerError, "failed to list models for registry reload")
-			return
-		}
-		activeModels := filterActive(models)
-		if reloadErr := s.registry.Reload(r.Context(), activeModels, func(m *model.Model) (inference.Pipeline, error) {
-			switch m.Type {
-			case model.ModelTypeSummarizer:
-				p := inference.NewSeq2SeqPipeline(m.Name)
-				return p, p.Load(m.Path)
-			case model.ModelTypeExtraction:
-				prompt := inference.OllamaGenericSystem
-				if m.Name == "geoconfirmed-extractor" {
-					prompt = inference.OllamaGeoConfirmedSystem
-				}
-				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, prompt)
-				return p, p.Load(m.Path)
-			case model.ModelTypeDigest:
-				p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, inference.OllamaDigestSystem)
-				return p, p.Load(m.Path)
-			default:
-				p := inference.NewONNXPipeline(m.Name)
-				if err := p.Load(m.Path); err != nil {
-					return nil, err
-				}
-				if labels, labelsErr := s.store.ListModelLabels(r.Context(), m.Name); labelsErr == nil && len(labels) > 0 {
-					p.SetLabels(labels)
-				}
-				return p, nil
-			}
-		}); reloadErr != nil {
+		if reloadErr := s.reloadRegistry(r.Context()); reloadErr != nil {
 			s.logger.Error("api: set model active: registry reload", "model_id", id, "error", reloadErr)
 			writeError(w, http.StatusInternalServerError, "failed to reload model registry")
 			return
@@ -162,6 +130,41 @@ func (s *Server) setModelActive(w http.ResponseWriter, r *http.Request, active b
 		return
 	}
 	writeJSON(w, http.StatusOK, m)
+}
+
+// reloadRegistry re-reads all active models from the store and reloads the registry.
+func (s *Server) reloadRegistry(ctx context.Context) error {
+	models, err := s.store.ListModels(ctx)
+	if err != nil {
+		return err
+	}
+	activeModels := filterActive(models)
+	return s.registry.Reload(ctx, activeModels, func(m *model.Model) (inference.Pipeline, error) {
+		switch m.Type {
+		case model.ModelTypeSummarizer:
+			p := inference.NewSeq2SeqPipeline(m.Name)
+			return p, p.Load(m.Path)
+		case model.ModelTypeExtraction:
+			prompt := inference.OllamaGenericSystem
+			if m.Name == "geoconfirmed-extractor" {
+				prompt = inference.OllamaGeoConfirmedSystem
+			}
+			p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, prompt)
+			return p, p.Load(m.Path)
+		case model.ModelTypeDigest:
+			p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURL, inference.OllamaDigestSystem)
+			return p, p.Load(m.Path)
+		default:
+			p := inference.NewONNXPipeline(m.Name)
+			if err := p.Load(m.Path); err != nil {
+				return nil, err
+			}
+			if labels, labelsErr := s.store.ListModelLabels(ctx, m.Name); labelsErr == nil && len(labels) > 0 {
+				p.SetLabels(labels)
+			}
+			return p, nil
+		}
+	})
 }
 
 // filterActive returns only models with Active == true.
@@ -299,6 +302,14 @@ func (s *Server) handleAddModelRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.registry != nil {
+		if reloadErr := s.reloadRegistry(r.Context()); reloadErr != nil {
+			s.logger.Error("api: add model rule: registry reload", "model_id", id, "error", reloadErr)
+			writeError(w, http.StatusInternalServerError, "failed to reload model registry")
+			return
+		}
+	}
+
 	m, err := s.store.GetModel(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve updated model")
@@ -326,6 +337,14 @@ func (s *Server) handleRemoveModelRule(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("api: remove model rule", "model_id", id, "rule_id", ruleID, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to remove rule association")
 		return
+	}
+
+	if s.registry != nil {
+		if reloadErr := s.reloadRegistry(r.Context()); reloadErr != nil {
+			s.logger.Error("api: remove model rule: registry reload", "model_id", id, "error", reloadErr)
+			writeError(w, http.StatusInternalServerError, "failed to reload model registry")
+			return
+		}
 	}
 
 	m, err := s.store.GetModel(r.Context(), id)

@@ -4,7 +4,7 @@ X (Twitter) Filtered Stream monitor for Iran-related news. Stores tweets in SQLi
 
 ## Architecture
 
-Single binary, worker pool pattern. Stream listener → Redis queue → worker pool (ONNX inference) → SQLite. REST API + CLI for management.
+Single binary, fair-share worker manager. Stream listener → Redis queue → Dispatcher → per-pipeline task channels → fair scheduler → N workers → SQLite. REST API + CLI for management.
 
 See [design spec](docs/superpowers/specs/2026-03-18-iran-watcher-design.md) for full architecture details.
 
@@ -18,7 +18,7 @@ internal/store/         → SQLite repository layer
 internal/queue/         → Redis list-based producer/consumer
 internal/inference/     → ONNX runtime wrapper, Pipeline interface
 internal/api/           → REST API (net/http or chi)
-internal/worker/        → Worker pool goroutines
+internal/worker/        → Fair-share worker manager (Manager), legacy pool, entity matcher
 internal/model/         → Domain types (Tweet, Source, Notification, DigestJob, etc.)
 internal/notifier/      → Async push notifications (Pushover + Telegram)
 internal/search/        → X search API backfill scheduler
@@ -89,6 +89,7 @@ go test -tags integration ./...      # unit + integration tests
 ## Key Design Decisions
 
 - **At-most-once delivery** for the Redis queue — acceptable because tweets are persisted to SQLite before queueing
+- **Fair-share worker manager** (`internal/worker.Manager`) — N workers are distributed fairly across active pipelines using a round-robin scheduler; each pipeline gets its own in-memory task channel (`pipelineChanBuf=512`); a Dispatcher goroutine fans each tweet out to per-pipeline channels, a Scheduler goroutine cycles through channels in round-robin order feeding a shared work channel; when a pipeline's channel drains, its capacity flows to remaining pipelines automatically; a `completionTracker` per tweet coordinates entity matching and dead-letter push after all pipelines finish
 - **tweet_sources junction table** — tweets can match multiple stream rules
 - **Dead-letter queue** (`iran-watcher:failed`) — annotates which models failed; partial successes still written
 - **Model hot-reload** — activate/deactivate via API without restart
@@ -96,6 +97,7 @@ go test -tags integration ./...      # unit + integration tests
 - **Reprocess endpoint** queries SQLite for missing categorizations, not the dead-letter queue
 - **Notifications** — runtime-configured push alerts via Pushover or Telegram; async buffered channel dispatch; `provider` field selects backend per notification
 - **Digest jobs** — background async jobs that generate LLM digests over a filtered tweet window; stored in `digest_jobs` table with status tracking
+- **Search jobs** — async background jobs for X search backfill; POST `/api/search/run` returns a job immediately (202), client polls GET `/api/search/{id}` until `done`/`error`; stored in `search_jobs` table
 - **Ollama integration** — LLM summarization and digest via local Ollama; `ollama.base_url` config
 - **Stream auto-connect** — `stream.auto_connect: true` connects to X on startup without a CLI call
 

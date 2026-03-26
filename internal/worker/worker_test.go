@@ -111,7 +111,65 @@ func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) er
 func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error                  { return nil }
 func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error               { return nil }
 func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
-func (m *mockStore) Close() error                                                       { return nil }
+func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error)   { return 0, nil }
+func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)         { return 0, nil }
+func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)                { return 0, nil }
+func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error             { return nil }
+func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
+	return nil, nil
+}
+func (m *mockStore) ListModelLabels(_ context.Context, _ string) ([]string, error) { return nil, nil }
+func (m *mockStore) AddModelLabel(_ context.Context, _, _ string) error            { return nil }
+func (m *mockStore) RemoveModelLabel(_ context.Context, _, _ string) error         { return nil }
+func (m *mockStore) SaveTrackedEntity(_ context.Context, _ *model.TrackedEntity) error {
+	return nil
+}
+func (m *mockStore) GetTrackedEntity(_ context.Context, _ int64) (*model.TrackedEntity, error) {
+	return nil, nil
+}
+func (m *mockStore) ListTrackedEntities(_ context.Context, _ store.TrackedEntityFilter) ([]*model.TrackedEntity, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateTrackedEntity(_ context.Context, _ *model.TrackedEntity) error {
+	return nil
+}
+func (m *mockStore) DeleteTrackedEntity(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) SetTrackedEntityActive(_ context.Context, _ int64, _ bool) error   { return nil }
+func (m *mockStore) ListActiveTrackedEntities(_ context.Context) ([]*model.TrackedEntity, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveEntityTrack(_ context.Context, _ *model.EntityTrack) error { return nil }
+func (m *mockStore) ListEntityTracks(_ context.Context, _ store.EntityTrackFilter) ([]*model.EntityTrack, error) {
+	return nil, nil
+}
+func (m *mockStore) CountEntityTracks(_ context.Context, _ store.EntityTrackFilter) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) ListSummaries(_ context.Context, _ store.SummaryFilter) ([]*model.SummaryItem, error) {
+	return nil, nil
+}
+func (m *mockStore) CountSummaries(_ context.Context, _ store.SummaryFilter) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) SaveDigestJob(_ context.Context, _ *model.DigestJob) error    { return nil }
+func (m *mockStore) GetDigestJob(_ context.Context, _ string) (*model.DigestJob, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateDigestJob(_ context.Context, _ *model.DigestJob) error  { return nil }
+func (m *mockStore) ListDigestJobs(_ context.Context, _ int) ([]*model.DigestJob, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteDigestJob(_ context.Context, _ string) error            { return nil }
+func (m *mockStore) SaveSearchJob(_ context.Context, _ *model.SearchJob) error    { return nil }
+func (m *mockStore) GetSearchJob(_ context.Context, _ string) (*model.SearchJob, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateSearchJob(_ context.Context, _ *model.SearchJob) error  { return nil }
+func (m *mockStore) ListSearchJobs(_ context.Context, _ int) ([]*model.SearchJob, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteSearchJob(_ context.Context, _ string) error            { return nil }
+func (m *mockStore) Close() error                                                  { return nil }
 
 // --- stubPipeline ---
 
@@ -367,5 +425,131 @@ func TestPool_Start_RespectsCtxCancel(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Pool.Start did not return within 1 second after immediate ctx cancel")
+	}
+}
+
+// --- Manager tests ---
+
+// runManagerUntilDrained drives a Manager with a mock consumer and waits until
+// all tweets have been popped and processed (or the timeout fires).
+func runManagerUntilDrained(t *testing.T, mgr *Manager, consumer *mockConsumer, expectCats int) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = mgr.Start(ctx)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		// Wait until consumer is drained and all active tasks complete.
+		if consumer.idx >= len(consumer.tweets) && int(mgr.active.Load()) == 0 {
+			break
+		}
+	}
+	// Give in-flight finalizations a moment to write categorizations.
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Manager.Start did not stop within timeout")
+	}
+}
+
+func TestManager_ProcessesTweet(t *testing.T) {
+	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-m1")}}
+	producer := &mockProducer{}
+	storeImpl := &mockStore{}
+	reg := setupRegistry(t, &stubPipeline{name: "pa"})
+
+	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	runManagerUntilDrained(t, mgr, consumer, 1)
+
+	if len(storeImpl.categorizations) != 1 {
+		t.Fatalf("expected 1 categorization, got %d", len(storeImpl.categorizations))
+	}
+	if storeImpl.categorizations[0].TweetID != "tweet-m1" {
+		t.Errorf("wrong tweet id: %s", storeImpl.categorizations[0].TweetID)
+	}
+	if storeImpl.categorizations[0].ModelName != "pa" {
+		t.Errorf("wrong model name: %s", storeImpl.categorizations[0].ModelName)
+	}
+	if producer.pushFailedCalled {
+		t.Error("expected PushFailed NOT called, but it was")
+	}
+}
+
+func TestManager_TwoPipelines_OneFails(t *testing.T) {
+	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-m2")}}
+	producer := &mockProducer{}
+	storeImpl := &mockStore{}
+	reg := setupRegistry(t,
+		&stubPipeline{name: "pa"},
+		&stubPipeline{name: "pb", failErr: errors.New("boom")},
+	)
+
+	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	runManagerUntilDrained(t, mgr, consumer, 1)
+
+	if len(storeImpl.categorizations) != 1 {
+		t.Fatalf("expected 1 categorization (success only), got %d", len(storeImpl.categorizations))
+	}
+	if storeImpl.categorizations[0].ModelName != "pa" {
+		t.Errorf("expected model pa, got %s", storeImpl.categorizations[0].ModelName)
+	}
+	if !producer.pushFailedCalled {
+		t.Fatal("expected PushFailed called, but it was not")
+	}
+	if len(producer.lastFailed.FailedModels) != 1 || producer.lastFailed.FailedModels[0].Name != "pb" {
+		t.Errorf("unexpected failed models: %+v", producer.lastFailed.FailedModels)
+	}
+}
+
+func TestManager_TwoPipelines_BothSucceed(t *testing.T) {
+	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-m3")}}
+	producer := &mockProducer{}
+	storeImpl := &mockStore{}
+	reg := setupRegistry(t,
+		&stubPipeline{name: "pa"},
+		&stubPipeline{name: "pb"},
+	)
+
+	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	runManagerUntilDrained(t, mgr, consumer, 2)
+
+	if len(storeImpl.categorizations) != 2 {
+		t.Fatalf("expected 2 categorizations, got %d", len(storeImpl.categorizations))
+	}
+	if producer.pushFailedCalled {
+		t.Error("expected PushFailed NOT called, but it was")
+	}
+}
+
+func TestManager_Start_RespectsCtxCancel(t *testing.T) {
+	consumer := &mockConsumer{}
+	producer := &mockProducer{}
+	storeImpl := &mockStore{}
+	reg := inference.NewRegistry()
+
+	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- mgr.Start(ctx)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Manager.Start did not return within 1 second after immediate ctx cancel")
 	}
 }

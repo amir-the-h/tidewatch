@@ -14,9 +14,12 @@ import (
 
 // PoolStats holds a snapshot of worker pool activity.
 type PoolStats struct {
-	Total  int `json:"total"`
-	Active int `json:"active"`
-	Idle   int `json:"idle"`
+	Total          int            `json:"total"`
+	Active         int            `json:"active"`
+	Idle           int            `json:"idle"`
+	Queued         int            `json:"queued,omitempty"`         // tasks buffered in in-memory pipeline channels
+	Pipelines      map[string]int `json:"pipelines,omitempty"`      // per-pipeline in-memory buffer depth
+	PipelineActive map[string]int `json:"pipeline_active,omitempty"` // workers currently executing each pipeline
 }
 
 // Pool manages N worker goroutines that process tweets from the queue.

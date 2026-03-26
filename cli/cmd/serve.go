@@ -171,8 +171,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	searchClient := search.NewClient(cfg.X.BearerToken, cfg.X.Tier, s, q, logger)
 	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
 
-	pool := worker.NewPool(workerCount, q, q, s, reg, emitter, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher, searchScheduler, pool, q, q)
+	mgr := worker.NewManager(workerCount, q, q, s, reg, emitter, logger)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher, searchScheduler, mgr, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -189,8 +189,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	go func() {
-		logger.Info("serve: starting worker pool", "component", "worker", "count", workerCount)
-		if err := pool.Start(ctx); err != nil {
+		logger.Info("serve: starting worker manager", "component", "worker", "count", workerCount)
+		if err := mgr.Start(ctx); err != nil {
 			errCh <- fmt.Errorf("worker: %w", err)
 		}
 	}()

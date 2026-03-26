@@ -3,8 +3,35 @@ package api
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 )
+
+func (s *Server) handleFlushWorkerBuffer(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := s.pool.(workerBufferFlusher)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "worker buffer flush not available")
+		return
+	}
+	n := flusher.Flush()
+	writeJSON(w, http.StatusOK, map[string]any{"flushed": n})
+}
+
+func (s *Server) handleFlushPipelineBuffer(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := s.pool.(workerBufferFlusher)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "worker buffer flush not available")
+		return
+	}
+	name := chi.URLParam(r, "pipeline")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "pipeline name required")
+		return
+	}
+	n := flusher.FlushPipeline(name)
+	writeJSON(w, http.StatusOK, map[string]any{"pipeline": name, "flushed": n})
+}
 
 func (s *Server) handleGetHealth(w http.ResponseWriter, r *http.Request) {
 	modelNames := []string{}

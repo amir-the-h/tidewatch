@@ -21,7 +21,7 @@ const baseMenuOptions = [
   { label: 'Categorizations',  key: '/categorizations' },
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
-  { label: 'Failures',         key: '/failures' },
+  { label: 'Queue',            key: '/failures' },
 ]
 
 const menuOptions = computed(() => {
@@ -50,7 +50,7 @@ function navigate(key: string) {
 // ── Stats polling ─────────────────────────────────────────────────────────────
 
 interface QueueStats  { pending: number; failed: number }
-interface WorkerStats { total: number; active: number; idle: number }
+interface WorkerStats { total: number; active: number; idle: number; queued: number; pipelines?: Record<string, number>; pipeline_active?: Record<string, number> }
 
 const queueStats  = ref<QueueStats | null>(null)
 const workerStats = ref<WorkerStats | null>(null)
@@ -61,6 +61,18 @@ async function fetchStats() {
     if (h.queue)   queueStats.value  = h.queue
     if (h.workers) workerStats.value = h.workers
   } catch { /* server unreachable */ }
+}
+
+const flushing = ref(false)
+async function flushWorkerBuffer() {
+  if (flushing.value) return
+  flushing.value = true
+  try {
+    await apiFetch('/api/workers/buffer', { method: 'DELETE' })
+    await fetchStats()
+  } catch { /* ignore */ } finally {
+    flushing.value = false
+  }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -110,6 +122,9 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             <span style="color: #585b70"> / </span>
             <span :style="{ color: queueStats.failed > 0 ? '#f38ba8' : '#a6adc8' }">{{ queueStats.failed }}</span>
           </span>
+          <span v-if="workerStats && workerStats.queued > 0" :style="{ color: '#f9e2af' }">
+            Buf: {{ workerStats.queued }}
+          </span>
           <span v-if="workerStats">
             W: {{ workerStats.active }}/{{ workerStats.total }}
           </span>
@@ -153,6 +168,40 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
                   background: workerStats.active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
                   transition: 'width 0.5s ease',
                 }" />
+              </div>
+            </div>
+            <div v-if="workerStats && workerStats.pipelines" style="margin-top: 8px;">
+              <div style="color: #89dceb; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                Pipelines
+                <span v-if="workerStats.queued > 0" style="color: #f9e2af; font-weight: 400;"> · {{ workerStats.queued }} buffered</span>
+                <button
+                  v-if="workerStats.queued > 0"
+                  @click="flushWorkerBuffer"
+                  :disabled="flushing"
+                  style="
+                    margin-left: auto;
+                    padding: 1px 6px;
+                    font-size: 10px;
+                    background: rgba(243,139,168,0.15);
+                    border: 1px solid rgba(243,139,168,0.4);
+                    border-radius: 3px;
+                    color: #f38ba8;
+                    cursor: pointer;
+                    line-height: 1.4;
+                  "
+                >{{ flushing ? '…' : 'Flush' }}</button>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0 8px; align-items: center;">
+                <span style="color: #585b70; font-size: 10px;">name</span>
+                <span style="color: #585b70; font-size: 10px; text-align: right;">W</span>
+                <span style="color: #585b70; font-size: 10px; text-align: right;">Q</span>
+                <template v-for="(buffered, name) in workerStats.pipelines" :key="name">
+                  <span style="color: #6c7086; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ name }}</span>
+                  <span :style="{ color: (workerStats.pipeline_active?.[name] ?? 0) > 0 ? '#a6e3a1' : '#585b70', textAlign: 'right' }">
+                    {{ workerStats.pipeline_active?.[name] ?? 0 }}
+                  </span>
+                  <span :style="{ color: buffered > 0 ? '#f9e2af' : '#585b70', textAlign: 'right' }">{{ buffered }}</span>
+                </template>
               </div>
             </div>
           </div>

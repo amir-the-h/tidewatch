@@ -285,6 +285,26 @@ func (m *mockStore) CountSummaries(_ context.Context, _ store.SummaryFilter) (in
 	return 0, nil
 }
 
+func (m *mockStore) SaveDigestJob(_ context.Context, _ *model.DigestJob) error  { return nil }
+func (m *mockStore) GetDigestJob(_ context.Context, _ string) (*model.DigestJob, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) UpdateDigestJob(_ context.Context, _ *model.DigestJob) error { return nil }
+func (m *mockStore) ListDigestJobs(_ context.Context, _ int) ([]*model.DigestJob, error) {
+	return []*model.DigestJob{}, nil
+}
+func (m *mockStore) DeleteDigestJob(_ context.Context, _ string) error { return nil }
+
+func (m *mockStore) SaveSearchJob(_ context.Context, _ *model.SearchJob) error  { return nil }
+func (m *mockStore) GetSearchJob(_ context.Context, _ string) (*model.SearchJob, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) UpdateSearchJob(_ context.Context, _ *model.SearchJob) error { return nil }
+func (m *mockStore) ListSearchJobs(_ context.Context, _ int) ([]*model.SearchJob, error) {
+	return []*model.SearchJob{}, nil
+}
+func (m *mockStore) DeleteSearchJob(_ context.Context, _ string) error { return nil }
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------

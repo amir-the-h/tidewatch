@@ -162,5 +162,12 @@ type Store interface {
 	ListDigestJobs(ctx context.Context, limit int) ([]*model.DigestJob, error)
 	DeleteDigestJob(ctx context.Context, id string) error
 
+	// SearchJobs
+	SaveSearchJob(ctx context.Context, job *model.SearchJob) error
+	GetSearchJob(ctx context.Context, id string) (*model.SearchJob, error)
+	UpdateSearchJob(ctx context.Context, job *model.SearchJob) error
+	ListSearchJobs(ctx context.Context, limit int) ([]*model.SearchJob, error)
+	DeleteSearchJob(ctx context.Context, id string) error
+
 	Close() error
 }

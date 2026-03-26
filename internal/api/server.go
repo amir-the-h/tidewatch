@@ -25,9 +25,17 @@ type queueSizer interface {
 	Len(ctx context.Context, queue string) (int64, error)
 }
 
-// workerPoolStatsProvider is satisfied by *worker.Pool.
+// workerPoolStatsProvider is satisfied by *worker.Pool and *worker.Manager.
 type workerPoolStatsProvider interface {
 	Stats() worker.PoolStats
+}
+
+// workerBufferFlusher is optionally implemented by the worker pool; satisfied
+// by *worker.Manager. A type assertion is used so the interface does not need
+// to be added to the existing workerPoolStatsProvider.
+type workerBufferFlusher interface {
+	Flush() int
+	FlushPipeline(name string) int
 }
 
 // searchScheduler is satisfied by *search.Scheduler.
@@ -184,9 +192,14 @@ func NewServer(
 
 		// Queue management
 		r.Delete("/queue", srv.handleFlushQueue)
+		r.Delete("/workers/buffer", srv.handleFlushWorkerBuffer)
+		r.Delete("/workers/buffer/{pipeline}", srv.handleFlushPipelineBuffer)
 
-		// Search
+		// Search jobs
+		r.Get("/search", srv.handleListSearchJobs)
 		r.Post("/search/run", srv.handleSearchRun)
+		r.Get("/search/{id}", srv.handleGetSearchJob)
+		r.Delete("/search/{id}", srv.handleDeleteSearchJob)
 
 		// Notifications — static routes before parameterized
 		r.Get("/notifications", srv.handleListNotifications)

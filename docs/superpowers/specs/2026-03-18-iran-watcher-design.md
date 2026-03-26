@@ -134,6 +134,12 @@ Package: `internal/api` — configurable port, JSON throughout.
 | `POST /api/models/download` | Download model via `hf` CLI. Body: `{"repo_id": "org/model-name"}` |
 | `GET /api/categorizations` | Query results (filters: `?model_name=`, `?tweet_id=`, `?from=&to=`) |
 | `GET /api/health` | Status of stream, Redis, SQLite, loaded models |
+| `GET /api/search` | List recent search jobs (`?limit=N`) |
+| `POST /api/search/run` | Start async background search job; returns `202 Accepted` with job object immediately |
+| `GET /api/search/{id}` | Poll search job status and result (`status`: `pending`\|`running`\|`done`\|`error`) |
+| `DELETE /api/search/{id}` | Delete a search job record |
+| `DELETE /api/workers/buffer` | Flush all in-memory pipeline task buffers (discard queued tasks) |
+| `DELETE /api/workers/buffer/{pipeline}` | Flush in-memory buffer for a single named pipeline |
 
 **Security:** API binds to `127.0.0.1` by default (localhost only). No authentication — intended for local/trusted network use. Bind address configurable if the user wants to expose it behind a reverse proxy with auth.
 
@@ -149,18 +155,21 @@ Package: `cli` — thin client using `cobra`, calls REST API over HTTP.
 
 Base URL configurable, defaults to `localhost`.
 
-## Section 6: Worker Pool & Lifecycle
+## Section 6: Worker Manager & Lifecycle
 
-### Worker Pool
+### Fair-Share Worker Manager
 
-Package: `internal/worker`
+Package: `internal/worker` — `Manager` type
 
 - Configurable goroutine count (default: number of active models, tunable via config).
-- Each worker loops on `BRPOP` from `iran-watcher:raw`.
-- On receiving a tweet: runs through **all active models** sequentially, writes a `categorizations` row per model.
-- Model failure: log error, continue with next model — one bad model doesn't block others. If any models failed, push tweet to `:failed` after all models have been attempted, annotating which models failed (see Section 3 dead-letter semantics).
+- **Dispatcher goroutine** pops `StreamTweet`s from Redis (`BRPOP`) and fans each tweet out to per-pipeline in-memory task channels (buffer size 512).
+- **N worker goroutines** independently round-robin over pipeline channels (staggered by worker ID), so a fast pipeline cannot starve slower ones regardless of per-pipeline processing speed.
+- After each task, a worker advances its round-robin offset so it must cycle through all other pipeline slots before returning to the same pipeline — enforcing true fairness.
+- **Per-pipeline concurrency caps:** Pipelines implementing `ConcurrencyLimiter.MaxConcurrency()` (e.g. Ollama at 1) are skipped when at capacity; the worker tries other pipelines instead.
+- **`completionTracker`** per tweet: coordinates entity matching and dead-letter push after all assigned pipelines finish. The last pipeline to complete calls `finalizeTweet` inline.
+- **Model hot-reload:** Registry notifies the dispatcher via a channel; `syncPipelineChans` reconciles pipeline channels and schedOrder without a restart.
 - Workers respect `context.Context` for graceful shutdown.
-- **Model hot-reload:** When a model is activated/deactivated via the API, the worker pool is notified via an internal channel. Workers reload the active model set between tweet processing iterations — no restart required.
+- `Flush()` / `FlushPipeline(name)` drain in-memory buffers on demand (exposed via API).
 
 ### Lifecycle Coordinator
 

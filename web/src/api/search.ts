@@ -11,10 +11,26 @@ export interface SearchRunRequest {
   limit?: number
 }
 
-export interface SearchRunResponse {
+export type SearchJobStatus = 'pending' | 'running' | 'done' | 'error'
+
+export interface SearchJob {
+  id: string
+  status: SearchJobStatus
+  params: SearchRunRequest
   tweets_fetched: number
-  rules_queried?: number
+  error?: string
+  created_at: string
+  completed_at?: string
 }
 
 export const runSearch = (body: SearchRunRequest) =>
-  apiFetch<SearchRunResponse>('/api/search/run', { method: 'POST', body: JSON.stringify(body) })
+  apiFetch<SearchJob>('/api/search/run', { method: 'POST', body: JSON.stringify(body) })
+
+export const getSearchJob = (id: string) =>
+  apiFetch<SearchJob>(`/api/search/${id}`)
+
+export const listSearchJobs = (limit = 20) =>
+  apiFetch<{ jobs: SearchJob[] }>(`/api/search?limit=${limit}`)
+
+export const deleteSearchJob = (id: string) =>
+  apiFetch<void>(`/api/search/${id}`, { method: 'DELETE' })
