@@ -104,3 +104,14 @@ go test -tags integration ./...      # unit + integration tests
 - Unit tests: mock interfaces, in-memory SQLite (`:memory:`)
 - Integration tests: `testcontainers-go` for Redis, gated behind `//go:build integration`
 - ONNX tests: small test model in `testdata/`
+
+## Documentation Requirements
+
+After every fix or feature, update all affected docs before considering the task done:
+
+- **CLAUDE.md** — update Project Structure, Key Design Decisions, Tech Stack, or Code Conventions if any changed
+- **`docs/superpowers/specs/`** — update the relevant design spec if architecture, data flow, or API contracts changed
+- **`configs/`** — update example/default config files if new config keys were added
+- **CLI help strings** — keep `Use`, `Short`, and `Long` fields on Cobra commands in sync with actual behavior
+
+If a new component, table, queue key, or API route is introduced, it must appear in CLAUDE.md's Project Structure or Key Design Decisions (whichever fits) before the task is committed.
