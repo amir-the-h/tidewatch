@@ -56,11 +56,14 @@ services:
   iran-watcher-ui:
     build:
       context: ./web
-      args:
-        VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://iran-watcher:1452}"
     image: iran-watcher-ui:latest
     container_name: iran-watcher-ui
     restart: unless-stopped
+    environment:
+      # Empty = same-origin; nginx proxies /api/ to API_UPSTREAM internally.
+      API_BASE_URL: "${API_BASE_URL:-}"
+      # Backend container reachable via Docker network — never leaves the server.
+      API_UPSTREAM: "${API_UPSTREAM:-http://iran-watcher:1452}"
     ports:
       - "127.0.0.1:1453:80"
     networks:
