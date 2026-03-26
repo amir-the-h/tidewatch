@@ -147,11 +147,17 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prefer a pipeline explicitly named "digest"; fall back to first available.
 	var digestPipeline inference.DigestPipeline
 	for _, p := range s.registry.All() {
 		if dp, ok := p.(inference.DigestPipeline); ok {
-			digestPipeline = dp
-			break
+			if digestPipeline == nil {
+				digestPipeline = dp
+			}
+			if p.Name() == "digest" {
+				digestPipeline = dp
+				break
+			}
 		}
 	}
 	if digestPipeline == nil {
