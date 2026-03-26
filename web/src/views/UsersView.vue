@@ -4,6 +4,7 @@ import { useMessage } from 'naive-ui'
 import { listUsers, createUser, updateUser, deleteUser } from '../api/users'
 import { useAuthStore } from '../stores/auth'
 import type { AuthUser } from '../api/auth'
+import { PersonAddOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
 
 const message = useMessage()
 const auth    = useAuthStore()
@@ -91,7 +92,14 @@ async function remove(u: AuthUser) {
   <div>
     <n-flex justify="space-between" align="center" style="margin-bottom: 16px">
       <n-h2 style="margin: 0">Users</n-h2>
-      <n-button type="primary" @click="openAdd">+ Add User</n-button>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button type="primary" @click="openAdd">
+            <template #icon><n-icon><PersonAddOutline /></n-icon></template>
+          </n-button>
+        </template>
+        Add User
+      </n-tooltip>
     </n-flex>
 
     <n-spin :show="loading">
@@ -120,16 +128,25 @@ async function remove(u: AuthUser) {
               >{{ u.role }}</n-tag>
             </td>
             <td>
-              <n-space>
-                <n-button size="small" @click="openEdit(u)">Edit</n-button>
+              <n-space size="small">
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button size="small" @click="openEdit(u)">
+                      <template #icon><n-icon><CreateOutline /></n-icon></template>
+                    </n-button>
+                  </template>
+                  Edit
+                </n-tooltip>
                 <n-popconfirm @positive-click="remove(u)">
                   <template #trigger>
-                    <n-button
-                      size="small"
-                      type="error"
-                      ghost
-                      :disabled="u.id === auth.user?.id"
-                    >Delete</n-button>
+                    <n-tooltip trigger="hover">
+                      <template #trigger>
+                        <n-button size="small" type="error" ghost :disabled="u.id === auth.user?.id">
+                          <template #icon><n-icon><TrashOutline /></n-icon></template>
+                        </n-button>
+                      </template>
+                      Delete
+                    </n-tooltip>
                   </template>
                   Delete user "{{ u.username }}"?
                 </n-popconfirm>

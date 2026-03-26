@@ -6,6 +6,8 @@ import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Source } from '../api/sources'
 import { ApiError } from '../api/client'
+import { CreateOutline, PauseCircleOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
+import { iconBtn } from '../utils/renderActions'
 
 // SourceType → operator mapping (mirrors Go model)
 const SOURCE_TYPES = [
@@ -105,11 +107,11 @@ const columns: DataTableColumns<Source> = [
   },
   {
     title: 'Actions', key: 'actions',
-    render: (row) => h(NSpace, {}, {
+    render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
-        h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
-        h(NButton, { size: 'small', disabled: !row.active, onClick: () => onDeactivate(row.id) }, { default: () => 'Deactivate' }),
-        h(NButton, { size: 'small', type: 'error', onClick: () => onDelete(row.id) }, { default: () => 'Delete' }),
+        iconBtn(CreateOutline,       'Edit',       () => openEdit(row)),
+        iconBtn(PauseCircleOutline,  'Deactivate', () => onDeactivate(row.id), { disabled: !row.active }),
+        iconBtn(TrashOutline,        'Delete',     () => onDelete(row.id),     { type: 'error' }),
       ]
     })
   },
@@ -120,7 +122,14 @@ const columns: DataTableColumns<Source> = [
   <n-space vertical size="large">
     <n-space justify="space-between">
       <n-h2>Sources</n-h2>
-      <n-button type="primary" @click="showCreate = true">+ New Source</n-button>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button type="primary" @click="showCreate = true">
+            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
+          </n-button>
+        </template>
+        New Source
+      </n-tooltip>
     </n-space>
 
     <n-data-table

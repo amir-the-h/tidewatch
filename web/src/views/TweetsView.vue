@@ -8,6 +8,8 @@ import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns, DataTableRowKey } from 'naive-ui'
 import type { Tweet, TweetDetail } from '../api/tweets'
 import { formatDateTime } from '../utils/format'
+import { EyeOutline, TrashOutline, TrashBinOutline, FunnelOutline, CloseCircleOutline, RefreshOutline, OpenOutline } from '@vicons/ionicons5'
+import { iconBtn } from '../utils/renderActions'
 
 const route  = useRoute()
 const router = useRouter()
@@ -188,10 +190,10 @@ const columns: DataTableColumns<Tweet> = [
   { title: 'Created', key: 'created_at', width: 200, render: (row) => formatDateTime(row.created_at) },
   {
     title: '', key: 'actions', width: 120,
-    render: (row) => h(NSpace, { size: 'small' }, {
+    render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
-        h(NButton, { size: 'small', onClick: () => openDetail(row.id) }, { default: () => 'Detail' }),
-        h(NButton, { size: 'small', type: 'error', onClick: () => deleteOne(row.id) }, { default: () => 'Delete' }),
+        iconBtn(EyeOutline,   'View detail', () => openDetail(row.id)),
+        iconBtn(TrashOutline, 'Delete',      () => deleteOne(row.id), { type: 'error' }),
       ]
     })
   },
@@ -219,11 +221,32 @@ const columns: DataTableColumns<Tweet> = [
         style="width: 90px"
         @update:value="onFilter"
       />
-      <n-button @click="onFilter">Apply</n-button>
-      <n-button secondary @click="filterRuleId = null; filterFrom = null; filterTo = null; perPageOption = 20; store.fetchTweets({ per_page: 20 }); checkedRowKeys = []; router.replace({ query: {} })">Reset</n-button>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button @click="onFilter">
+            <template #icon><n-icon><FunnelOutline /></n-icon></template>
+          </n-button>
+        </template>
+        Apply filters
+      </n-tooltip>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button secondary @click="filterRuleId = null; filterFrom = null; filterTo = null; perPageOption = 20; store.fetchTweets({ per_page: 20 }); checkedRowKeys = []; router.replace({ query: {} })">
+            <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
+          </n-button>
+        </template>
+        Reset filters
+      </n-tooltip>
       <n-popconfirm @positive-click="deleteNoise">
         <template #trigger>
-          <n-button type="warning" :loading="deletingNoise">Delete noise</n-button>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button type="warning" :loading="deletingNoise">
+                <template #icon><n-icon><TrashBinOutline /></n-icon></template>
+              </n-button>
+            </template>
+            Delete noise tweets
+          </n-tooltip>
         </template>
         Delete all tweets with no rules or only local rules?
       </n-popconfirm>
@@ -232,12 +255,22 @@ const columns: DataTableColumns<Tweet> = [
     <!-- Bulk action toolbar -->
     <n-space v-if="hasSelection" align="center">
       <span>{{ checkedRowKeys.length }} selected</span>
-      <n-button type="primary" size="small" :loading="reprocessing" @click="reprocessSelected">
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button type="primary" size="small" :loading="reprocessing" @click="reprocessSelected">
+            <template #icon><n-icon><RefreshOutline /></n-icon></template>
+          </n-button>
+        </template>
         Reprocess selected
-      </n-button>
-      <n-button type="error" size="small" :loading="deleting" @click="deleteSelected">
+      </n-tooltip>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button type="error" size="small" :loading="deleting" @click="deleteSelected">
+            <template #icon><n-icon><TrashOutline /></n-icon></template>
+          </n-button>
+        </template>
         Delete selected
-      </n-button>
+      </n-tooltip>
     </n-space>
 
     <n-data-table
@@ -353,22 +386,37 @@ const columns: DataTableColumns<Tweet> = [
           </n-list>
 
           <div style="margin-top: 16px">
-            <n-space>
-              <n-button
-                tag="a"
-                :href="`https://x.com/i/web/status/${detail.tweet.id}`"
-                target="_blank"
-                rel="noopener noreferrer"
-                size="small"
-              >
+            <n-space size="small">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button
+                    tag="a"
+                    :href="`https://x.com/i/web/status/${detail.tweet.id}`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="small"
+                  >
+                    <template #icon><n-icon><OpenOutline /></n-icon></template>
+                  </n-button>
+                </template>
                 Open on X
-              </n-button>
-              <n-button type="primary" size="small" :loading="reprocessing" @click="reprocessOne(detail.tweet.id)">
-                Reprocess
-              </n-button>
-              <n-button type="error" size="small" :loading="deleting" @click="deleteOne(detail.tweet.id)">
+              </n-tooltip>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button type="primary" size="small" :loading="reprocessing" @click="reprocessOne(detail.tweet.id)">
+                    <template #icon><n-icon><RefreshOutline /></n-icon></template>
+                  </n-button>
+                </template>
+                Reprocess tweet
+              </n-tooltip>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button type="error" size="small" :loading="deleting" @click="deleteOne(detail.tweet.id)">
+                    <template #icon><n-icon><TrashOutline /></n-icon></template>
+                  </n-button>
+                </template>
                 Delete tweet
-              </n-button>
+              </n-tooltip>
             </n-space>
           </div>
         </div>

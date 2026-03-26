@@ -8,6 +8,8 @@ import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Notification } from '../api/notifications'
 import { VALID_EVENT_TYPES } from '../api/notifications'
+import { FlashOutline, CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
+import { iconBtn } from '../utils/renderActions'
 
 const store       = useNotificationsStore()
 const rulesStore  = useRulesStore()
@@ -212,14 +214,14 @@ const columns: DataTableColumns<Notification> = [
   },
   {
     title: 'Actions', key: 'actions',
-    render: (row) => h(NSpace, {}, {
+    render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
-        h(NButton, { size: 'small', onClick: () => onTest(row.id) }, { default: () => 'Test' }),
-        h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
+        iconBtn(FlashOutline,  'Send test', () => onTest(row.id)),
+        iconBtn(CreateOutline, 'Edit',      () => openEdit(row)),
         row.active
-          ? h(NButton, { size: 'small', onClick: () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Deactivate' })
-          : h(NButton, { size: 'small', type: 'primary', onClick: () => store.activate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Activate' }),
-        h(NButton, { size: 'small', type: 'error', onClick: () => store.remove(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Delete' }),
+          ? iconBtn(PauseCircleOutline,     'Deactivate', () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)))
+          : iconBtn(CheckmarkCircleOutline, 'Activate',   () => store.activate(row.id).catch((e: any) => msg.error(e.message)), { type: 'primary' }),
+        iconBtn(TrashOutline, 'Delete', () => store.remove(row.id).catch((e: any) => msg.error(e.message)), { type: 'error' }),
       ]
     })
   },
@@ -230,7 +232,14 @@ const columns: DataTableColumns<Notification> = [
   <n-space vertical size="large">
     <n-space justify="space-between">
       <n-h2>Notifications</n-h2>
-      <n-button type="primary" @click="openCreate">+ New Notification</n-button>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button type="primary" @click="openCreate">
+            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
+          </n-button>
+        </template>
+        New Notification
+      </n-tooltip>
     </n-space>
 
     <n-data-table :columns="columns" :data="store.notifications" :loading="store.loading" :scroll-x="660" />

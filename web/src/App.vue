@@ -6,6 +6,7 @@ import { apiFetch } from './api/client'
 import { listModels } from './api/models'
 import { useAuthStore } from './stores/auth'
 import { useStreamStore } from './stores/stream'
+import { WifiOutline, LogOutOutline, TrashBinOutline } from '@vicons/ionicons5'
 
 const route  = useRoute()
 const router = useRouter()
@@ -166,26 +167,36 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
         <!-- Stream controls (admin only) -->
         <div v-if="auth.isAdmin" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
           <span :style="{ color: stream.connected ? '#a6e3a1' : '#f38ba8' }">
-            {{ stream.connected ? '● Stream' : '○ Stream' }}
+            {{ stream.connected ? '●' : '○' }}
           </span>
-          <button
-            v-if="!stream.connected"
-            @click="connectStream"
-            :disabled="stream.loading"
-            style="
-              background: rgba(166,227,161,0.12); border: 1px solid rgba(166,227,161,0.35); cursor: pointer;
-              color: #a6e3a1; font-size: 10px; padding: 1px 7px; border-radius: 3px;
-            "
-          >{{ stream.loading ? '…' : 'Connect' }}</button>
-          <button
-            v-if="stream.connected"
-            @click="disconnectStream"
-            :disabled="stream.loading"
-            style="
-              background: rgba(243,139,168,0.12); border: 1px solid rgba(243,139,168,0.35); cursor: pointer;
-              color: #f38ba8; font-size: 10px; padding: 1px 7px; border-radius: 3px;
-            "
-          >{{ stream.loading ? '…' : 'Disconnect' }}</button>
+          <n-tooltip v-if="!stream.connected" trigger="hover">
+            <template #trigger>
+              <n-button
+                size="tiny"
+                :loading="stream.loading"
+                :disabled="stream.loading"
+                style="background: rgba(166,227,161,0.12); border-color: rgba(166,227,161,0.35); color: #a6e3a1;"
+                @click="connectStream"
+              >
+                <template #icon><n-icon><WifiOutline /></n-icon></template>
+              </n-button>
+            </template>
+            Connect stream
+          </n-tooltip>
+          <n-tooltip v-if="stream.connected" trigger="hover">
+            <template #trigger>
+              <n-button
+                size="tiny"
+                :loading="stream.loading"
+                :disabled="stream.loading"
+                style="background: rgba(243,139,168,0.12); border-color: rgba(243,139,168,0.35); color: #f38ba8;"
+                @click="disconnectStream"
+              >
+                <template #icon><n-icon><WifiOutline /></n-icon></template>
+              </n-button>
+            </template>
+            Disconnect stream
+          </n-tooltip>
         </div>
 
         <!-- Username + logout -->
@@ -193,13 +204,14 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
           <n-tag size="small" :type="auth.isAdmin ? 'warning' : 'default'" :bordered="false" style="font-size: 11px;">
             {{ auth.user.username }}
           </n-tag>
-          <button
-            @click="logout"
-            style="
-              background: none; border: 1px solid rgba(255,255,255,0.15); cursor: pointer;
-              color: #a6adc8; font-size: 11px; padding: 2px 8px; border-radius: 4px;
-            "
-          >Sign out</button>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button size="tiny" @click="logout" style="border-color: rgba(255,255,255,0.15); color: #a6adc8;">
+                <template #icon><n-icon><LogOutOutline /></n-icon></template>
+              </n-button>
+            </template>
+            Sign out
+          </n-tooltip>
         </div>
       </div>
 
@@ -246,22 +258,20 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
               <div style="color: #89dceb; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
                 Pipelines
                 <span v-if="workerStats.queued > 0" style="color: #f9e2af; font-weight: 400;"> · {{ workerStats.queued }} buffered</span>
-                <button
-                  v-if="workerStats.queued > 0"
-                  @click="flushWorkerBuffer"
-                  :disabled="flushing"
-                  style="
-                    margin-left: auto;
-                    padding: 1px 6px;
-                    font-size: 10px;
-                    background: rgba(243,139,168,0.15);
-                    border: 1px solid rgba(243,139,168,0.4);
-                    border-radius: 3px;
-                    color: #f38ba8;
-                    cursor: pointer;
-                    line-height: 1.4;
-                  "
-                >{{ flushing ? '…' : 'Flush' }}</button>
+                <n-tooltip v-if="workerStats.queued > 0" trigger="hover">
+                  <template #trigger>
+                    <n-button
+                      size="tiny"
+                      :loading="flushing"
+                      :disabled="flushing"
+                      style="margin-left: auto; background: rgba(243,139,168,0.15); border-color: rgba(243,139,168,0.4); color: #f38ba8;"
+                      @click="flushWorkerBuffer"
+                    >
+                      <template #icon><n-icon><TrashBinOutline /></n-icon></template>
+                    </n-button>
+                  </template>
+                  Flush worker buffer
+                </n-tooltip>
               </div>
               <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0 8px; align-items: center;">
                 <span style="color: #585b70; font-size: 10px;">name</span>
@@ -283,7 +293,15 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">
               Signed in as <strong style="color: #cdd6f4">{{ auth.user?.username }}</strong>
             </n-text>
-            <n-button size="small" block @click="logout">Sign out</n-button>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button size="small" block @click="logout">
+                  <template #icon><n-icon><LogOutOutline /></n-icon></template>
+                  Sign out
+                </n-button>
+              </template>
+              Sign out of Iran Watcher
+            </n-tooltip>
           </div>
         </n-drawer-content>
       </n-drawer>

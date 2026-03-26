@@ -6,6 +6,7 @@ import { useMessage } from 'naive-ui'
 import { useSearchStore } from '../stores/search'
 import { useRulesStore } from '../stores/rules'
 import { ApiError } from '../api/client'
+import { SearchOutline, EyeOutline, TrashOutline } from '@vicons/ionicons5'
 
 const router     = useRouter()
 const msg        = useMessage()
@@ -160,12 +161,8 @@ async function onRun() {
 
         <!-- Run button -->
         <div style="margin-top: 20px">
-          <n-button
-            type="primary"
-            :loading="store.loading"
-            :disabled="store.loading"
-            @click="onRun"
-          >
+          <n-button type="primary" :loading="store.loading" :disabled="store.loading" @click="onRun">
+            <template #icon><n-icon><SearchOutline /></n-icon></template>
             Run Search
           </n-button>
         </div>
@@ -203,20 +200,23 @@ async function onRun() {
               </n-tag>
               <n-text depth="3" style="font-size: 12px;">{{ new Date(job.created_at).toLocaleString() }}</n-text>
             </n-space>
-            <n-space>
-              <n-button
-                v-if="job.status === 'done' && job.tweets_fetched > 0"
-                size="tiny"
-                type="primary"
-                secondary
-                @click="router.push('/tweets')"
-              >View tweets</n-button>
-              <n-button
-                size="tiny"
-                type="error"
-                secondary
-                @click="store.removeJob(job.id).catch(() => msg.error('Failed to delete search job'))"
-              >Delete</n-button>
+            <n-space size="small">
+              <n-tooltip v-if="job.status === 'done' && job.tweets_fetched > 0" trigger="hover">
+                <template #trigger>
+                  <n-button size="tiny" type="primary" secondary @click="router.push('/tweets')">
+                    <template #icon><n-icon><EyeOutline /></n-icon></template>
+                  </n-button>
+                </template>
+                View tweets
+              </n-tooltip>
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-button size="tiny" type="error" secondary @click="store.removeJob(job.id).catch(() => msg.error('Failed to delete search job'))">
+                    <template #icon><n-icon><TrashOutline /></n-icon></template>
+                  </n-button>
+                </template>
+                Delete job
+              </n-tooltip>
             </n-space>
           </n-space>
         </template>

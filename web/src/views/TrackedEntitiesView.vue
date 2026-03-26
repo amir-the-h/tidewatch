@@ -7,6 +7,7 @@ import { useAuthStore } from '../stores/auth'
 import type { TrackedEntity } from '../api/entities'
 import { getEntityAliasSuggestions, searchAliasSuggestions } from '../api/entities'
 import { formatDateTime } from '../utils/format'
+import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
 
 const store   = useEntitiesStore()
 const message = useMessage()
@@ -194,7 +195,14 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
   <div>
     <n-flex justify="space-between" align="center" style="margin-bottom: 16px">
       <n-h2 style="margin: 0">Tracked Entities</n-h2>
-      <n-button v-if="auth.isAdmin" type="primary" @click="openAdd">+ Add Entity</n-button>
+      <n-tooltip v-if="auth.isAdmin" trigger="hover">
+        <template #trigger>
+          <n-button type="primary" @click="openAdd">
+            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
+          </n-button>
+        </template>
+        Add Entity
+      </n-tooltip>
     </n-flex>
 
     <n-spin :show="store.loading">
@@ -248,13 +256,34 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
               />
             </td>
             <td>
-              <n-space>
-                <n-button size="small" @click="openDrawer(e)">Tracks</n-button>
+              <n-space size="small">
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button size="small" @click="openDrawer(e)">
+                      <template #icon><n-icon><TimeOutline /></n-icon></template>
+                    </n-button>
+                  </template>
+                  View tracks
+                </n-tooltip>
                 <template v-if="auth.isAdmin">
-                  <n-button size="small" @click="openEdit(e)">Edit</n-button>
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button size="small" @click="openEdit(e)">
+                        <template #icon><n-icon><CreateOutline /></n-icon></template>
+                      </n-button>
+                    </template>
+                    Edit
+                  </n-tooltip>
                   <n-popconfirm @positive-click="remove(e)">
                     <template #trigger>
-                      <n-button size="small" type="error" ghost>Delete</n-button>
+                      <n-tooltip trigger="hover">
+                        <template #trigger>
+                          <n-button size="small" type="error" ghost>
+                            <template #icon><n-icon><TrashOutline /></n-icon></template>
+                          </n-button>
+                        </template>
+                        Delete
+                      </n-tooltip>
                     </template>
                     Delete "{{ e.name }}"?
                   </n-popconfirm>

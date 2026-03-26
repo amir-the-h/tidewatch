@@ -8,6 +8,8 @@ import type { FailedTweet } from '../api/failures'
 import { flushQueue } from '../api/failures'
 import { apiFetch } from '../api/client'
 import { formatDateTime } from '../utils/format'
+import { InformationCircleOutline, TrashBinOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
+import { iconBtn } from '../utils/renderActions'
 
 const flushingPipeline = ref<string | null>(null)
 
@@ -146,9 +148,8 @@ const columns: DataTableColumns<FailedTweet> = [
   {
     title: '',
     key: 'actions',
-    width: 80,
-    render: (row) =>
-      h(NButton, { size: 'small', onClick: () => openDetail(row) }, { default: () => 'Details' }),
+    width: 50,
+    render: (row) => iconBtn(InformationCircleOutline, 'Details', () => openDetail(row)),
   },
 ]
 
@@ -176,19 +177,38 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
     <!-- Header -->
     <n-space align="center" justify="space-between" style="flex-wrap: wrap; gap: 8px;">
       <n-h2 style="margin: 0;">Queue</n-h2>
-      <n-space>
-        <n-button @click="() => { store.fetch(); fetchStats() }" :loading="store.loading">Refresh</n-button>
+      <n-space size="small">
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button @click="() => { store.fetch(); fetchStats() }" :loading="store.loading">
+              <template #icon><n-icon><RefreshOutline /></n-icon></template>
+            </n-button>
+          </template>
+          Refresh
+        </n-tooltip>
         <n-popconfirm @positive-click="onFlush">
           <template #trigger>
-            <n-button type="warning" :loading="flushing">Flush Pending</n-button>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button type="warning" :loading="flushing">
+                  <template #icon><n-icon><BanOutline /></n-icon></template>
+                </n-button>
+              </template>
+              Flush Pending
+            </n-tooltip>
           </template>
           Drop all pending (unprocessed) tweets from the raw queue?
         </n-popconfirm>
         <n-popconfirm @positive-click="onClear">
           <template #trigger>
-            <n-button type="error" :loading="clearing" :disabled="store.total === 0">
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button type="error" :loading="clearing" :disabled="store.total === 0">
+                  <template #icon><n-icon><TrashOutline /></n-icon></template>
+                </n-button>
+              </template>
               Clear Failures ({{ store.total }})
-            </n-button>
+            </n-tooltip>
           </template>
           Remove all {{ store.total }} entries from the dead-letter queue?
         </n-popconfirm>
@@ -276,16 +296,14 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
           {
             title: '',
             key: 'flush',
-            width: 90,
+            width: 50,
             render: (row: PipelineRow) => row.buffered > 0
-              ? h(NButton, {
-                  size: 'small',
+              ? iconBtn(TrashBinOutline, 'Flush pipeline buffer', () => onFlushPipeline(row.name), {
                   type: 'error',
                   ghost: true,
                   loading: flushingPipeline === row.name,
                   disabled: flushingPipeline !== null,
-                  onClick: () => onFlushPipeline(row.name),
-                }, { default: () => 'Flush' })
+                })
               : null,
           },
         ]"

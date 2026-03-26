@@ -8,6 +8,8 @@ import type { DataTableColumns } from 'naive-ui'
 import type { Rule, ExprNode } from '../api/rules'
 import { ApiError } from '../api/client'
 import RuleExprBuilder from '../components/RuleExprBuilder.vue'
+import { CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
+import { iconBtn } from '../utils/renderActions'
 
 const store        = useRulesStore()
 const sourcesStore = useSourcesStore()
@@ -94,13 +96,13 @@ const columns: DataTableColumns<Rule> = [
   },
   {
     title: 'Actions', key: 'actions',
-    render: (row) => h(NSpace, {}, {
+    render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
-        h(NButton, { size: 'small', onClick: () => openEdit(row) }, { default: () => 'Edit' }),
+        iconBtn(CreateOutline, 'Edit', () => openEdit(row)),
         row.active
-          ? h(NButton, { size: 'small', onClick: () => onDeactivate(row.id) }, { default: () => 'Deactivate' })
-          : h(NButton, { size: 'small', type: 'primary', onClick: () => onActivate(row.id) }, { default: () => 'Activate' }),
-        h(NButton, { size: 'small', type: 'error', onClick: () => onDelete(row.id) }, { default: () => 'Delete' }),
+          ? iconBtn(PauseCircleOutline,       'Deactivate', () => onDeactivate(row.id))
+          : iconBtn(CheckmarkCircleOutline,   'Activate',   () => onActivate(row.id), { type: 'primary' }),
+        iconBtn(TrashOutline, 'Delete', () => onDelete(row.id), { type: 'error' }),
       ]
     })
   },
@@ -111,7 +113,14 @@ const columns: DataTableColumns<Rule> = [
   <n-space vertical size="large">
     <n-space justify="space-between">
       <n-h2>Rules</n-h2>
-      <n-button type="primary" @click="openCreate">+ New Rule</n-button>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button type="primary" @click="openCreate">
+            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
+          </n-button>
+        </template>
+        New Rule
+      </n-tooltip>
     </n-space>
 
     <n-data-table :columns="columns" :data="store.rules" :loading="store.loading" :scroll-x="680" />

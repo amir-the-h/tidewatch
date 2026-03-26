@@ -6,6 +6,12 @@ import { useRulesStore } from '../stores/rules'
 import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
 import type { DataTableColumns, TagProps } from 'naive-ui'
 import type { Model, ModelType } from '../api/models'
+import {
+  PricetagsOutline, ListOutline, PlayOutline,
+  CheckmarkCircleOutline, PauseCircleOutline, TrashOutline,
+  DownloadOutline, AddCircleOutline,
+} from '@vicons/ionicons5'
+import { iconBtn } from '../utils/renderActions'
 
 const store = useModelsStore()
 const rulesStore = useRulesStore()
@@ -189,24 +195,19 @@ const columns: DataTableColumns<Model> = [
   },
   {
     title: 'Actions', key: 'actions',
-    render: (row) => h(NSpace, {}, {
+    render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
-        // Labels only relevant for ONNX models, not Ollama extraction pipelines
-        row.type !== 'extraction'
-          ? h(NButton, { size: 'small', onClick: () => openLabels(row) }, { default: () => 'Labels' })
+        row.type !== 'extraction' && row.type !== 'digest'
+          ? iconBtn(PricetagsOutline, 'Labels', () => openLabels(row))
           : null,
-        h(NButton, { size: 'small', onClick: () => openRules(row) }, { default: () => 'Rules' }),
+        iconBtn(ListOutline, 'Rule filters', () => openRules(row)),
         row.active
-          ? h(NButton, {
-              size: 'small', type: 'primary',
-              loading: runningIds.value.has(row.id),
-              onClick: () => onRun(row),
-            }, { default: () => 'Run' })
+          ? iconBtn(PlayOutline, 'Run on all tweets', () => onRun(row), { type: 'primary', loading: runningIds.value.has(row.id) })
           : null,
         row.active
-          ? h(NButton, { size: 'small', onClick: () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Deactivate' })
-          : h(NButton, { size: 'small', type: 'primary', onClick: () => store.activate(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Activate' }),
-        h(NButton, { size: 'small', type: 'error', onClick: () => store.remove(row.id).catch((e: any) => msg.error(e.message)) }, { default: () => 'Delete' }),
+          ? iconBtn(PauseCircleOutline,     'Deactivate', () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)))
+          : iconBtn(CheckmarkCircleOutline, 'Activate',   () => store.activate(row.id).catch((e: any) => msg.error(e.message)), { type: 'primary' }),
+        iconBtn(TrashOutline, 'Delete', () => store.remove(row.id).catch((e: any) => msg.error(e.message)), { type: 'error' }),
       ].filter(Boolean),
     }),
   },
@@ -218,8 +219,22 @@ const columns: DataTableColumns<Model> = [
     <n-space justify="space-between">
       <n-h2>Models</n-h2>
       <n-space>
-        <n-button @click="showDownload = true">↓ HuggingFace</n-button>
-        <n-button type="primary" @click="showManual = true">+ Register</n-button>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button @click="showDownload = true">
+              <template #icon><n-icon><DownloadOutline /></n-icon></template>
+            </n-button>
+          </template>
+          Download from HuggingFace
+        </n-tooltip>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button type="primary" @click="showManual = true">
+              <template #icon><n-icon><AddCircleOutline /></n-icon></template>
+            </n-button>
+          </template>
+          Register Model
+        </n-tooltip>
       </n-space>
     </n-space>
 

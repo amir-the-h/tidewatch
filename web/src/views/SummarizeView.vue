@@ -6,6 +6,7 @@ import { useMessage } from 'naive-ui'
 import { listRules } from '../api/rules'
 import { listSources } from '../api/sources'
 import { listTrackedEntities } from '../api/entities'
+import { SparklesOutline, TrashOutline } from '@vicons/ionicons5'
 
 const store = useDigestStore()
 const msg   = useMessage()
@@ -89,6 +90,7 @@ onMounted(async () => {
 
       <template #footer>
         <n-button type="primary" :loading="store.loading" @click="onGenerate" style="width: 100%;">
+          <template #icon><n-icon><SparklesOutline /></n-icon></template>
           {{ store.loading ? 'Generating digest…' : 'Generate Digest' }}
         </n-button>
       </template>
@@ -115,13 +117,20 @@ onMounted(async () => {
               <n-tag v-if="job.tweet_count > 0" type="info" size="small" round>{{ job.tweet_count }} tweets</n-tag>
               <n-text depth="3" style="font-size: 12px;">{{ new Date(job.created_at).toLocaleString() }}</n-text>
             </n-space>
-            <n-button
-              size="tiny"
-              type="error"
-              secondary
-              :disabled="job.status === 'pending' || job.status === 'running'"
-              @click="store.deleteJob(job.id).catch(() => msg.error('Failed to delete digest'))"
-            >Delete</n-button>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button
+                  size="tiny"
+                  type="error"
+                  secondary
+                  :disabled="job.status === 'pending' || job.status === 'running'"
+                  @click="store.deleteJob(job.id).catch(() => msg.error('Failed to delete digest'))"
+                >
+                  <template #icon><n-icon><TrashOutline /></n-icon></template>
+                </n-button>
+              </template>
+              Delete digest
+            </n-tooltip>
           </n-space>
         </template>
 

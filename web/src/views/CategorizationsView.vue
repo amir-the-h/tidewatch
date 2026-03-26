@@ -7,6 +7,7 @@ import { NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Categorization } from '../api/categorizations'
 import { formatDateTime } from '../utils/format'
+import { FunnelOutline, CloseCircleOutline } from '@vicons/ionicons5'
 
 const store  = useCategorizationsStore()
 const router = useRouter()
@@ -68,8 +69,22 @@ const columns: DataTableColumns<Categorization> = [
     <n-space>
       <n-input v-model:value="filterTweetId"   placeholder="Tweet ID"   clearable style="width: 200px" />
       <n-input v-model:value="filterModelName" placeholder="Model name" clearable style="width: 200px" />
-      <n-button @click="onFilter">Apply</n-button>
-      <n-button secondary @click="store.fetchCategorizations()">Reset</n-button>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button @click="onFilter">
+            <template #icon><n-icon><FunnelOutline /></n-icon></template>
+          </n-button>
+        </template>
+        Apply filters
+      </n-tooltip>
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <n-button secondary @click="store.fetchCategorizations()">
+            <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
+          </n-button>
+        </template>
+        Reset filters
+      </n-tooltip>
     </n-space>
     <n-data-table
       :columns="columns"
