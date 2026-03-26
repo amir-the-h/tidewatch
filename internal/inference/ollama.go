@@ -491,58 +491,62 @@ Write in plain text with clear section headings. Be concise and factual. Synthes
 // OllamaGeoConfirmedSystem is the extraction prompt for structured GeoConfirmed posts.
 const OllamaGeoConfirmedSystem = `You extract structured data from GeoConfirmed geo-confirmation posts on X (Twitter).
 
-REPORT FORMAT — posts follow this exact layout:
+REPORT FORMAT — posts follow this general layout (some sections may be absent or reordered):
   GeoConfirmed Iran.
 
   <description paragraph(s)>
 
   [Optional label - ]<lat>, <lon>
-  <PlusCode> <City, Country>
+  [<PlusCode> <City, Country>]
 
   GeoLocated by
   @<handle>
 
   Geolocation:
-  [Geo]
   https://...
 
   [Proof:
   https://...]
 
   Location:
-  https://geoconfirmed.org/...
-
-  Sources:
   https://...
 
-  Visit our map: https://geoconfirmed.org/...
+  [Sources:
+  https://...]
 
 EXTRACTION RULES:
 
 description:
-  All narrative paragraph(s) describing the event. Stop at the first coordinate line or metadata line. Do NOT include the "GeoConfirmed Iran." header.
+  All narrative paragraph(s) describing the event. Stop at the first coordinate line or metadata line.
+  Do NOT include the "GeoConfirmed Iran." header.
+  Do NOT include video timestamp markers such as "Vid1", "Vid2", "0:09-0:12", etc.
 
 locations (array):
-  Each location block contains a coordinate line and a plus-code line.
-  - "label": text before " - " on the coordinate line (e.g. "Left building"). Empty string if no label.
-  - "coordinates": [latitude, longitude] parsed as numbers from the "<lat>, <lon>" line. Coordinates are two decimal numbers separated by ", ". ONLY extract explicit coordinates from the text — do not guess.
-  - "place": the human-readable part after the plus code on the next line (e.g. "Mosul, Iraq").
-  If no coordinate lines are present, return [].
+  Scan the entire text for explicit decimal coordinate pairs (<lat>, <lon>).
+  Coordinates appear as two numbers separated by ", " — e.g. "28.941203, 50.8128".
+  The label (if any) may appear on the same line before " - ", OR on the immediately preceding line.
+  For each coordinate pair found:
+  - "label": any descriptive text associated with the coordinates. Empty string if none.
+  - "coordinates": [latitude, longitude] as numbers exactly as written. ONLY extract explicit numeric coordinates — never guess from place names.
+  - "place": the human-readable location on the line after the coordinates (after the PlusCode, if present). Empty string if absent.
+  If no numeric coordinates appear in the text, return [].
 
 geolocated_by:
-  @handles listed after "GeoLocated by". Include the @ prefix. Do NOT include @GeoConfirmed itself — only the person(s) who performed the geolocation.
+  @handles listed after "GeoLocated by". Include the @ prefix.
+  Do NOT include @GeoConfirmed itself.
+  IMPORTANT: "Vid1", "Vid2", "Vid3" etc. are video clip labels — they are NOT @handles. Never add "@" to them.
 
 geolocation_urls:
-  All https:// URLs under the "Geolocation:" section. Ignore bare words like "Geo".
+  All URLs under the "Geolocation:" section.
 
 proof_urls:
-  All https:// URLs under the "Proof:" section. [] if section is absent.
+  All URLs under the "Proof:" section. [] if section is absent.
 
 location_url:
-  The single https://geoconfirmed.org/... URL under the "Location:" section. "" if absent.
+  The single URL under the "Location:" section. "" if absent.
 
 source_urls:
-  All https:// URLs under the "Sources:" section.
+  All URLs under the "Sources:" section.
 
 OUTPUT: Return only a valid JSON object with these exact keys. No markdown, no explanation.
 Use [] for missing arrays and "" for missing strings.`
