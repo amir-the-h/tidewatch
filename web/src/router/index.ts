@@ -10,6 +10,7 @@ import NotificationsView from '../views/NotificationsView.vue'
 import TrackedEntitiesView from '../views/TrackedEntitiesView.vue'
 import MapView from '../views/MapView.vue'
 import FailuresView from '../views/FailuresView.vue'
+import SummarizeView from '../views/SummarizeView.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -25,5 +26,6 @@ export default createRouter({
     { path: '/notifications', component: NotificationsView },
     { path: '/tracked-entities', component: TrackedEntitiesView },
     { path: '/failures', component: FailuresView },
+    { path: '/summarize', component: SummarizeView },
   ],
 })

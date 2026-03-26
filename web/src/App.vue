@@ -3,11 +3,14 @@ import { darkTheme } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { apiFetch } from './api/client'
+import { listModels } from './api/models'
 
 const route  = useRoute()
 const router = useRouter()
 
-const menuOptions = [
+const hasSummarizer = ref(false)
+
+const baseMenuOptions = [
   { label: 'Stream',           key: '/' },
   { label: 'Map',              key: '/map' },
   { label: 'Tweets',           key: '/tweets' },
@@ -20,6 +23,21 @@ const menuOptions = [
   { label: 'Tracked Entities', key: '/tracked-entities' },
   { label: 'Failures',         key: '/failures' },
 ]
+
+const menuOptions = computed(() => {
+  const opts = [...baseMenuOptions]
+  if (hasSummarizer.value) {
+    opts.push({ label: 'Summarize', key: '/summarize' })
+  }
+  return opts
+})
+
+async function checkSummarizer() {
+  try {
+    const models = await listModels()
+    hasSummarizer.value = models.some(m => m.type === 'summarizer')
+  } catch { /* server unreachable */ }
+}
 
 const activeKey  = computed(() => route.path)
 const drawerOpen = ref(false)
@@ -46,7 +64,7 @@ async function fetchStats() {
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { fetchStats(); pollTimer = setInterval(fetchStats, 3000) })
+onMounted(() => { fetchStats(); checkSummarizer(); pollTimer = setInterval(fetchStats, 3000) })
 onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 </script>
 
