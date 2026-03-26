@@ -169,6 +169,45 @@ func (s *Server) handleDeactivateTrackedEntity(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleListEntityAliasSuggestions GET /api/tracked-entities/{id}/alias-suggestions
+func (s *Server) handleListEntityAliasSuggestions(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	suggestions, err := s.store.ListNERSuggestionsForEntity(r.Context(), id)
+	if err != nil {
+		s.logger.Error("api: list entity alias suggestions", "id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list alias suggestions")
+		return
+	}
+	if suggestions == nil {
+		suggestions = []string{}
+	}
+	writeJSON(w, http.StatusOK, suggestions)
+}
+
+// handleSearchAliasSuggestions GET /api/alias-suggestions?name={name}&type={type}
+func (s *Server) handleSearchAliasSuggestions(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeJSON(w, http.StatusOK, []string{})
+		return
+	}
+	entityType := r.URL.Query().Get("type")
+	suggestions, err := s.store.SearchNERSuggestions(r.Context(), name, entityType)
+	if err != nil {
+		s.logger.Error("api: search alias suggestions", "name", name, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to search alias suggestions")
+		return
+	}
+	if suggestions == nil {
+		suggestions = []string{}
+	}
+	writeJSON(w, http.StatusOK, suggestions)
+}
+
 // handleListEntityTracks GET /api/tracked-entities/{id}/tracks
 func (s *Server) handleListEntityTracks(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)

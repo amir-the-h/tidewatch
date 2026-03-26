@@ -1522,6 +1522,59 @@ func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackF
 	return count, nil
 }
 
+// ListNERSuggestionsForEntity returns distinct NER context strings from the entity's own tracks.
+func (s *sqliteStore) ListNERSuggestionsForEntity(ctx context.Context, entityID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT context FROM entity_tracks
+		 WHERE entity_id = ? AND match_source = 'ner' AND context != ''
+		 ORDER BY context`,
+		entityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list ner suggestions for entity: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("store: list ner suggestions for entity: scan: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// SearchNERSuggestions returns distinct NER context strings across all entities whose
+// type matches entityType (ignored when empty) and whose context contains name.
+func (s *sqliteStore) SearchNERSuggestions(ctx context.Context, name string, entityType string) ([]string, error) {
+	query := `SELECT DISTINCT et.context
+	          FROM entity_tracks et
+	          JOIN tracked_entities te ON te.id = et.entity_id
+	          WHERE et.match_source = 'ner' AND et.context != '' AND et.context LIKE ?`
+	args := []any{"%" + name + "%"}
+	if entityType != "" {
+		query += " AND te.type = ?"
+		args = append(args, entityType)
+	}
+	query += " ORDER BY et.context"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: search ner suggestions: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("store: search ner suggestions: scan: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 // ── Summaries ─────────────────────────────────────────────────────────────────
 
 func (s *sqliteStore) summaryFilterQuery(filter SummaryFilter) (string, []any) {

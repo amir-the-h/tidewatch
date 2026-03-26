@@ -150,6 +150,8 @@ type Store interface {
 	SaveEntityTrack(ctx context.Context, t *model.EntityTrack) error
 	ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error)
 	CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error)
+	ListNERSuggestionsForEntity(ctx context.Context, entityID int64) ([]string, error)
+	SearchNERSuggestions(ctx context.Context, name string, entityType string) ([]string, error)
 
 	// Summaries
 	ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error)

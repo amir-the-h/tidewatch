@@ -175,6 +175,8 @@ func NewServer(
 		r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
 		r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
 		r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
+		r.Get("/tracked-entities/{id}/alias-suggestions", srv.handleListEntityAliasSuggestions)
+		r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
 
 		// Summaries
 		r.Get("/summaries", srv.handleListSummaries)

@@ -75,3 +75,12 @@ export const listEntityTracks = (id: number, page = 1, perPage = 50) => {
   const params = new URLSearchParams({ page: String(page), per_page: String(perPage) })
   return apiFetch<EntityTracksResponse>(`/api/tracked-entities/${id}/tracks?${params}`)
 }
+
+export const getEntityAliasSuggestions = (id: number) =>
+  apiFetch<string[]>(`/api/tracked-entities/${id}/alias-suggestions`)
+
+export const searchAliasSuggestions = (name: string, entityType: string) => {
+  const params = new URLSearchParams({ name })
+  if (entityType) params.set('type', entityType)
+  return apiFetch<string[]>(`/api/alias-suggestions?${params}`)
+}

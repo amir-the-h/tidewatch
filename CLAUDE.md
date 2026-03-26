@@ -99,6 +99,7 @@ go test -tags integration ./...      # unit + integration tests
 - **Notifications** — runtime-configured push alerts via Pushover or Telegram; async buffered channel dispatch; `provider` field selects backend per notification
 - **Digest jobs** — background async jobs that generate LLM digests over a filtered tweet window; stored in `digest_jobs` table with status tracking
 - **Search jobs** — async background jobs for X search backfill; POST `/api/search/run` returns a job immediately (202), client polls GET `/api/search/{id}` until `done`/`error`; stored in `search_jobs` table
+- **NER alias suggestions** — when creating/editing a tracked entity the UI surfaces NER-derived alias candidates; edit mode calls `GET /api/tracked-entities/{id}/alias-suggestions` (contexts from the entity's own NER tracks); create mode debounces on name input and calls `GET /api/alias-suggestions?name={name}&type={type}` (searches across all same-type entity NER tracks); suggestions are filtered by entity type and exclude already-added aliases
 - **Ollama integration** — LLM summarization and digest via local Ollama; `ollama.base_url` config
 - **Stream auto-connect** — `stream.auto_connect: true` connects to X on startup without a CLI call
 - **UI runtime config** — `API_BASE_URL` is injected at container startup by `web/docker-entrypoint.sh`, which writes `env-config.js` into the nginx html root; the SPA reads `window.__ENV__.API_BASE_URL` at runtime so the image is not baked with a specific URL and anyone can run it with `-e API_BASE_URL=...`

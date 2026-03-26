@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useEntitiesStore } from '../stores/entities'
 import type { TrackedEntity } from '../api/entities'
+import { getEntityAliasSuggestions, searchAliasSuggestions } from '../api/entities'
 import { formatDateTime } from '../utils/format'
 
 const store   = useEntitiesStore()
@@ -32,6 +33,7 @@ const entityTypeOptions = [
 function openAdd() {
   editTarget.value = null
   form.value = { name: '', type: 'LOC', aliases: '', notes: '' }
+  suggestions.value = []
   showModal.value = true
 }
 
@@ -43,7 +45,58 @@ function openEdit(e: TrackedEntity) {
     aliases: e.aliases.join(', '),
     notes:   e.notes,
   }
+  suggestions.value = []
   showModal.value = true
+  loadSuggestions()
+}
+
+// ── alias suggestions ─────────────────────────────────────────────────────────
+
+const suggestions         = ref<string[]>([])
+const suggestionsLoading  = ref(false)
+let   nameDebounceTimer   = 0
+
+async function loadSuggestions() {
+  if (editTarget.value) {
+    suggestionsLoading.value = true
+    try {
+      suggestions.value = await getEntityAliasSuggestions(editTarget.value.id)
+    } catch { /* ignore */ } finally {
+      suggestionsLoading.value = false
+    }
+  } else if (form.value.name.trim()) {
+    suggestionsLoading.value = true
+    try {
+      suggestions.value = await searchAliasSuggestions(form.value.name.trim(), form.value.type)
+    } catch { /* ignore */ } finally {
+      suggestionsLoading.value = false
+    }
+  } else {
+    suggestions.value = []
+  }
+}
+
+// For create mode: debounce on name change
+watch(() => form.value.name, () => {
+  if (editTarget.value) return
+  clearTimeout(nameDebounceTimer)
+  nameDebounceTimer = window.setTimeout(loadSuggestions, 400)
+})
+
+function visibleSuggestions() {
+  const current = new Set(
+    form.value.aliases.split(',').map(s => s.trim()).filter(Boolean)
+  )
+  current.add(form.value.name.trim())
+  return suggestions.value.filter(s => !current.has(s))
+}
+
+function addSuggestion(s: string) {
+  const parts = form.value.aliases.split(',').map(s => s.trim()).filter(Boolean)
+  if (!parts.includes(s)) {
+    parts.push(s)
+    form.value.aliases = parts.join(', ')
+  }
 }
 
 const modalSaving = ref(false)
@@ -214,10 +267,28 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
           <n-select v-model:value="form.type" :options="entityTypeOptions" placeholder="Select type" clearable />
         </n-form-item>
         <n-form-item label="Aliases">
-          <n-input
-            v-model:value="form.aliases"
-            placeholder="Comma-separated: Esfahan, اصفهان"
-          />
+          <n-flex vertical style="width: 100%" :wrap="false">
+            <n-input
+              v-model:value="form.aliases"
+              placeholder="Comma-separated: Esfahan, اصفهان"
+            />
+            <n-spin :show="suggestionsLoading" :size="'small'">
+              <n-flex v-if="visibleSuggestions().length" wrap style="margin-top: 6px" :size="[6, 6]">
+                <n-text depth="3" style="font-size: 12px; align-self: center">NER suggestions:</n-text>
+                <n-tag
+                  v-for="s in visibleSuggestions()"
+                  :key="s"
+                  size="small"
+                  type="success"
+                  :bordered="false"
+                  style="cursor: pointer"
+                  @click="addSuggestion(s)"
+                >
+                  + {{ s }}
+                </n-tag>
+              </n-flex>
+            </n-spin>
+          </n-flex>
         </n-form-item>
         <n-form-item label="Notes">
           <n-input v-model:value="form.notes" type="textarea" :rows="2" placeholder="Optional notes" />
