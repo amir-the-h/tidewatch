@@ -208,6 +208,10 @@ func NewServer(
 				r.Get("/digest/{id}", srv.handleGetDigest)
 				r.Delete("/digest/{id}", srv.handleDeleteDigest)
 
+				// Chat
+				r.Post("/chat/estimate", srv.handleChatEstimate)
+				r.Post("/chat/stream", srv.handleChatStream)
+
 				// Failures (dead-letter queue)
 				r.Get("/failures", srv.handleListFailures)
 				r.Delete("/failures", srv.handleClearFailures)

@@ -20,6 +20,7 @@ export default createRouter({
     { path: '/tracked-entities', component: () => import('../views/TrackedEntitiesView.vue') },
     { path: '/failures', component: () => import('../views/FailuresView.vue') },
     { path: '/summarize', component: () => import('../views/SummarizeView.vue') },
+    { path: '/chat',      component: () => import('../views/ChatView.vue') },
     { path: '/users', component: () => import('../views/UsersView.vue') },
   ],
 })

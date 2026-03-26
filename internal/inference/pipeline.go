@@ -1,6 +1,10 @@
 package inference
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+	"io"
+)
 
 // Pipeline is the interface every ONNX model integration must implement.
 // Each Pipeline handles its own tokenization and pre/post-processing internally.
@@ -51,4 +55,24 @@ type DigestPipeline interface {
 // idle workers from piling up behind a serialised backend (e.g. Ollama).
 type ConcurrencyLimiter interface {
 	MaxConcurrency() int
+}
+
+// ChatMessage is a single turn in a multi-turn conversation.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatPipeline is implemented by pipelines that support streaming interactive
+// chat over a fixed tweet context window. OllamaPipeline satisfies this interface.
+type ChatPipeline interface {
+	Pipeline
+	// ChatStream sends a multi-turn conversation with tweet context to the model
+	// and writes SSE-formatted chunks ("data: <json>\n\n") to w as they arrive,
+	// ending with "data: [DONE]\n\n". The caller must set SSE response headers
+	// before invoking this method.
+	ChatStream(ctx context.Context, tweetContext []string, messages []ChatMessage, w io.Writer) error
+	// EstimateTokens returns the approximate token count for the given texts and
+	// the model's context-window limit.
+	EstimateTokens(ctx context.Context, texts []string) (estimated int, contextLimit int, err error)
 }

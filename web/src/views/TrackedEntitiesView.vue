@@ -4,16 +4,46 @@ import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useEntitiesStore } from '../stores/entities'
 import { useAuthStore } from '../stores/auth'
+import { useChatStore } from '../stores/chat'
 import type { TrackedEntity } from '../api/entities'
-import { getEntityAliasSuggestions, searchAliasSuggestions } from '../api/entities'
+import { getEntityAliasSuggestions, searchAliasSuggestions, listEntityTracks } from '../api/entities'
+import { estimateTokens } from '../api/chat'
 import { formatDateTime } from '../utils/format'
-import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
+import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline, ChatbubblesOutline } from '@vicons/ionicons5'
 import IconButton from '../components/IconButton.vue'
 
-const store   = useEntitiesStore()
-const message = useMessage()
-const router  = useRouter()
-const auth    = useAuthStore()
+const store     = useEntitiesStore()
+const message   = useMessage()
+const router    = useRouter()
+const auth      = useAuthStore()
+const chatStore = useChatStore()
+
+const chatLoadingId = ref<number | null>(null)
+
+async function chatWithEntity(e: TrackedEntity) {
+  chatLoadingId.value = e.id
+  try {
+    // Fetch up to 200 tracks to collect tweet IDs (deduplicated)
+    const resp = await listEntityTracks(e.id, 1, 200)
+    const ids = [...new Set(resp.tracks.map(t => t.tweet_id))]
+    if (ids.length === 0) {
+      message.warning('No tweets found for this entity.')
+      return
+    }
+    const est = await estimateTokens(ids)
+    if (!est.ok) {
+      message.error(`Too many tokens: ${est.tokens.toLocaleString()} / ${est.limit.toLocaleString()} — entity has too many tweets.`)
+      return
+    }
+    chatStore.initSession(ids)
+    chatStore.estimate = est
+    router.push('/chat')
+  } catch (err: any) {
+    message.error('Failed to prepare chat: ' + err.message)
+  } finally {
+    chatLoadingId.value = null
+  }
+}
 
 // ── entity list ───────────────────────────────────────────────────────────────
 
@@ -284,6 +314,20 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
             <td>
               <n-space size="small">
                 <IconButton :icon="TimeOutline" label="View tracks" @click="openDrawer(e)" />
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-button
+                      size="small"
+                      quaternary
+                      :loading="chatLoadingId === e.id"
+                      :disabled="(e.track_count ?? 0) === 0"
+                      @click="chatWithEntity(e)"
+                    >
+                      <template #icon><n-icon><ChatbubblesOutline /></n-icon></template>
+                    </n-button>
+                  </template>
+                  Chat with entity tweets
+                </n-tooltip>
                 <template v-if="auth.isAdmin">
                   <IconButton :icon="CreateOutline" label="Edit" @click="openEdit(e)" />
                   <n-popconfirm @positive-click="remove(e)">

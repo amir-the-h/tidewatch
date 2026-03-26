@@ -39,8 +39,9 @@ const menuOptions = computed(() => {
   if (!auth.isAdmin) return viewerMenuOptions
   const opts = [...adminMenuOptions]
   if (hasSummarizer.value) {
-    // Insert Digest before Users
+    // Insert Digest and Chat before Users
     opts.splice(opts.length - 1, 0, { label: 'Digest', key: '/summarize' })
+    opts.splice(opts.length - 1, 0, { label: 'Chat',   key: '/chat'      })
   }
   return opts
 })

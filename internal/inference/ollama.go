@@ -1,6 +1,7 @@
 package inference
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -555,6 +556,196 @@ source_urls:
 
 OUTPUT: Return only a valid JSON object with these exact keys. No markdown, no explanation.
 Use [] for missing arrays and "" for missing strings.`
+
+// ChatStream sends a streaming multi-turn chat to Ollama with tweet context
+// prepended to the system message. It writes SSE lines to w as chunks arrive:
+//
+//	data: "chunk text"\n\n
+//	data: [DONE]\n\n
+//
+// The caller must set Content-Type: text/event-stream and flush headers before
+// calling this method. w is type-asserted to http.Flusher; if the assertion
+// succeeds each chunk is flushed immediately for real-time streaming.
+func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, messages []ChatMessage, w io.Writer) error {
+	var sb strings.Builder
+	sb.WriteString(OllamaChatSystem)
+	if len(tweetContext) > 0 {
+		sb.WriteString("\n\nCONTEXT TWEETS:\n")
+		for i, t := range tweetContext {
+			fmt.Fprintf(&sb, "[%d] %s\n\n", i+1, t)
+		}
+	}
+
+	type ollamaMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type chatReq struct {
+		Model    string      `json:"model"`
+		Messages []ollamaMsg `json:"messages"`
+		Stream   bool        `json:"stream"`
+	}
+
+	msgs := make([]ollamaMsg, 0, len(messages)+1)
+	msgs = append(msgs, ollamaMsg{Role: "system", Content: sb.String()})
+	for _, m := range messages {
+		msgs = append(msgs, ollamaMsg{Role: m.Role, Content: m.Content})
+	}
+
+	body, err := json.Marshal(chatReq{Model: p.model, Messages: msgs, Stream: true})
+	if err != nil {
+		return fmt.Errorf("inference: ollama: chat stream: marshal: %w", err)
+	}
+
+	p.sem <- struct{}{}
+	defer func() { <-p.sem }()
+
+	if err := p.ensureLoaded(); err != nil {
+		return fmt.Errorf("inference: ollama: chat stream: ensure loaded: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("inference: ollama: chat stream: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("inference: ollama: chat stream: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("inference: ollama: chat stream: returned %d: %s", resp.StatusCode, raw)
+	}
+
+	type streamChunk struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+		Done bool `json:"done"`
+	}
+
+	flusher, canFlush := w.(interface{ Flush() })
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var chunk streamChunk
+		if err := json.Unmarshal(line, &chunk); err != nil {
+			continue
+		}
+		if chunk.Done {
+			fmt.Fprintf(w, "data: [DONE]\n\n")
+			if canFlush {
+				flusher.Flush()
+			}
+			return nil
+		}
+		if chunk.Message.Content != "" {
+			encoded, _ := json.Marshal(chunk.Message.Content)
+			fmt.Fprintf(w, "data: %s\n\n", encoded)
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+	}
+	return scanner.Err()
+}
+
+// EstimateTokens returns the approximate token count for the given texts and
+// the model's context-window limit. It calls Ollama's /api/tokenize endpoint
+// for an accurate count; if that fails it falls back to len(text)/4.
+func (p *OllamaPipeline) EstimateTokens(ctx context.Context, texts []string) (int, int, error) {
+	limit := p.getContextLimit(ctx)
+	combined := strings.Join(texts, "\n\n")
+	tokens, err := p.tokenize(ctx, combined)
+	if err != nil {
+		// Rough fallback: ~4 chars per token
+		return len(combined) / 4, limit, nil
+	}
+	return tokens, limit, nil
+}
+
+// getContextLimit queries Ollama's /api/show for the model's context window size.
+// Falls back to 8192 if the endpoint is unavailable or the field is missing.
+func (p *OllamaPipeline) getContextLimit(ctx context.Context) int {
+	const defaultLimit = 8192
+
+	body, _ := json.Marshal(map[string]string{"model": p.model})
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, p.baseURL+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return defaultLimit
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return defaultLimit
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		ModelInfo map[string]json.RawMessage `json:"model_info"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return defaultLimit
+	}
+	for k, v := range result.ModelInfo {
+		if strings.Contains(k, "context_length") {
+			var n int
+			if err := json.Unmarshal(v, &n); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return defaultLimit
+}
+
+// tokenize calls Ollama's /api/tokenize endpoint and returns the token count.
+func (p *OllamaPipeline) tokenize(ctx context.Context, text string) (int, error) {
+	body, _ := json.Marshal(map[string]string{"model": p.model, "prompt": text})
+
+	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, p.baseURL+"/api/tokenize", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("tokenize returned %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Tokens []int `json:"tokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+	return len(result.Tokens), nil
+}
+
+// OllamaChatSystem is the system prompt for interactive chat sessions over tweets.
+const OllamaChatSystem = `You are an intelligence analyst specialising in Iran. You have been provided with a set of tweets from open-source monitoring as context.
+
+Answer questions about these tweets accurately and concisely. If a question cannot be answered from the provided tweets, say so clearly. Do not fabricate information not present in the tweets.`
 
 // OllamaGenericSystem is the extraction prompt for any tweet that may contain
 // geographic information, with no assumptions about post format.
