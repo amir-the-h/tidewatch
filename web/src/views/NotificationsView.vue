@@ -4,17 +4,32 @@ import { h, onMounted, ref, computed } from 'vue'
 import { useNotificationsStore } from '../stores/notifications'
 import { useRulesStore } from '../stores/rules'
 import { useModelsStore } from '../stores/models'
-import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
+import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Notification } from '../api/notifications'
 import { VALID_EVENT_TYPES } from '../api/notifications'
-import { FlashOutline, CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
-import { iconBtn } from '../utils/renderActions'
+import { FlashOutline, CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline } from '@vicons/ionicons5'
+import { iconBtn, activeTag } from '../utils/renderActions'
 
 const store       = useNotificationsStore()
 const rulesStore  = useRulesStore()
 const modelsStore = useModelsStore()
 const msg         = useMessage()
+
+const filterText       = ref('')
+const filterEventType  = ref<string | null>(null)
+const filterProvider   = ref<string | null>(null)
+const filterActiveOnly = ref(false)
+
+const filteredNotifications = computed(() => {
+  let list = store.notifications
+  const q = filterText.value.trim().toLowerCase()
+  if (q) list = list.filter(n => n.name.toLowerCase().includes(q))
+  if (filterEventType.value) list = list.filter(n => n.event_type === filterEventType.value)
+  if (filterProvider.value) list = list.filter(n => n.provider === filterProvider.value)
+  if (filterActiveOnly.value) list = list.filter(n => n.active)
+  return list
+})
 
 const showDrawer  = ref(false)
 const editingN    = ref<Notification | null>(null)
@@ -203,15 +218,11 @@ const isTelegram         = computed(() => form.value.provider === 'telegram')
 const showEmergencyFields = computed(() => isPushover.value && form.value.pushover_priority === 2)
 
 const columns: DataTableColumns<Notification> = [
-  { title: 'ID',         key: 'id',         width: 60 },
-  { title: 'Name',       key: 'name' },
-  { title: 'Event Type', key: 'event_type' },
-  { title: 'Provider',   key: 'provider',   width: 100 },
-  {
-    title: 'Active', key: 'active', width: 80,
-    render: (row) => h(NTag, { type: row.active ? 'success' : 'default', size: 'small' },
-      { default: () => row.active ? 'Yes' : 'No' })
-  },
+  { title: 'ID',         key: 'id',         width: 60,  sorter: 'default' },
+  { title: 'Name',       key: 'name',                   sorter: 'default' },
+  { title: 'Event Type', key: 'event_type',             sorter: 'default' },
+  { title: 'Provider',   key: 'provider',   width: 100, sorter: 'default' },
+  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: (row) => activeTag(row.active) },
   {
     title: 'Actions', key: 'actions',
     render: (row) => h(NSpace, { size: 4 }, {
@@ -230,23 +241,24 @@ const columns: DataTableColumns<Notification> = [
 
 <template>
   <n-space vertical size="large">
-    <n-space justify="space-between">
-      <n-h2>Notifications</n-h2>
-      <n-tooltip trigger="hover">
-        <template #trigger>
-          <n-button type="primary" @click="openCreate">
-            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
-          </n-button>
-        </template>
-        New Notification
-      </n-tooltip>
-    </n-space>
+    <PageHeader title="Notifications" add-label="New Notification" @add="openCreate" />
 
-    <n-data-table :columns="columns" :data="store.notifications" :loading="store.loading" :scroll-x="660" />
+    <n-flex align="center" :size="8" wrap>
+      <n-input v-model:value="filterText" placeholder="Search by name…" clearable style="width: 220px" />
+      <n-select v-model:value="filterEventType" :options="[{ label: 'All events', value: null }, ...eventTypeOptions]" clearable placeholder="All events" style="width: 200px" />
+      <n-select v-model:value="filterProvider" :options="[{ label: 'All providers', value: null }, ...providerOptions]" clearable placeholder="All providers" style="width: 160px" />
+      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+    </n-flex>
 
-    <n-drawer v-model:show="showDrawer" :width="'min(560px, calc(100vw - 16px))'">
-      <n-drawer-content :title="editingN ? 'Edit Notification' : 'New Notification'" closable>
-        <n-form label-placement="top">
+    <n-data-table :columns="columns" :data="filteredNotifications" :loading="store.loading" :scroll-x="660" />
+
+    <FormDrawer
+      v-model:show="showDrawer"
+      :title="editingN ? 'Edit Notification' : 'New Notification'"
+      width="min(560px, calc(100vw - 16px))"
+      :loading="saving"
+      @save="onSave"
+    >
           <n-form-item label="Name">
             <n-input v-model:value="form.name" />
           </n-form-item>
@@ -327,11 +339,6 @@ const columns: DataTableColumns<Notification> = [
           <n-form-item label="Message Template (optional)">
             <n-input v-model:value="form.message_template" type="textarea" :rows="3" clearable />
           </n-form-item>
-        </n-form>
-        <template #footer>
-          <n-button type="primary" :loading="saving" @click="onSave">Save</n-button>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    </FormDrawer>
   </n-space>
 </template>

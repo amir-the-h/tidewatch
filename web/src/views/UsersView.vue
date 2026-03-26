@@ -1,16 +1,28 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { listUsers, createUser, updateUser, deleteUser } from '../api/users'
 import { useAuthStore } from '../stores/auth'
 import type { AuthUser } from '../api/auth'
 import { PersonAddOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
+import IconButton from '../components/IconButton.vue'
 
 const message = useMessage()
 const auth    = useAuthStore()
 
 const users   = ref<AuthUser[]>([])
 const loading = ref(false)
+
+const filterText = ref('')
+const filterRole = ref<string | null>(null)
+
+const filteredUsers = computed(() => {
+  let list = users.value
+  const q = filterText.value.trim().toLowerCase()
+  if (q) list = list.filter(u => u.username.toLowerCase().includes(q))
+  if (filterRole.value) list = list.filter(u => u.role === filterRole.value)
+  return list
+})
 
 async function fetchUsers() {
   loading.value = true
@@ -90,8 +102,7 @@ async function remove(u: AuthUser) {
 
 <template>
   <div>
-    <n-flex justify="space-between" align="center" style="margin-bottom: 16px">
-      <n-h2 style="margin: 0">Users</n-h2>
+    <PageHeader title="Users" style="margin-bottom: 16px">
       <n-tooltip trigger="hover">
         <template #trigger>
           <n-button type="primary" @click="openAdd">
@@ -100,6 +111,15 @@ async function remove(u: AuthUser) {
         </template>
         Add User
       </n-tooltip>
+    </PageHeader>
+
+    <n-flex align="center" :size="8" wrap style="margin-bottom: 12px">
+      <n-input v-model:value="filterText" placeholder="Search by username…" clearable style="width: 220px" />
+      <n-select
+        v-model:value="filterRole"
+        :options="[{ label: 'All roles', value: null }, ...roleOptions]"
+        clearable placeholder="All roles" style="width: 160px"
+      />
     </n-flex>
 
     <n-spin :show="loading">
@@ -112,10 +132,10 @@ async function remove(u: AuthUser) {
           </tr>
         </thead>
         <tbody>
-          <tr v-if="users.length === 0">
+          <tr v-if="filteredUsers.length === 0">
             <td colspan="3" style="text-align: center; color: #888; padding: 32px">No users.</td>
           </tr>
-          <tr v-for="u in users" :key="u.id">
+          <tr v-for="u in filteredUsers" :key="u.id">
             <td>
               <n-text strong>{{ u.username }}</n-text>
               <n-tag v-if="u.id === auth.user?.id" size="small" style="margin-left: 8px" :bordered="false">you</n-tag>
@@ -129,24 +149,10 @@ async function remove(u: AuthUser) {
             </td>
             <td>
               <n-space size="small">
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    <n-button size="small" @click="openEdit(u)">
-                      <template #icon><n-icon><CreateOutline /></n-icon></template>
-                    </n-button>
-                  </template>
-                  Edit
-                </n-tooltip>
+                <IconButton :icon="CreateOutline" label="Edit" @click="openEdit(u)" />
                 <n-popconfirm @positive-click="remove(u)">
                   <template #trigger>
-                    <n-tooltip trigger="hover">
-                      <template #trigger>
-                        <n-button size="small" type="error" ghost :disabled="u.id === auth.user?.id">
-                          <template #icon><n-icon><TrashOutline /></n-icon></template>
-                        </n-button>
-                      </template>
-                      Delete
-                    </n-tooltip>
+                    <IconButton :icon="TrashOutline" label="Delete" type="error" ghost :disabled="u.id === auth.user?.id" />
                   </template>
                   Delete user "{{ u.username }}"?
                 </n-popconfirm>

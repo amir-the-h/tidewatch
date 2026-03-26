@@ -8,6 +8,7 @@ import type { TrackedEntity } from '../api/entities'
 import { getEntityAliasSuggestions, searchAliasSuggestions } from '../api/entities'
 import { formatDateTime } from '../utils/format'
 import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
+import IconButton from '../components/IconButton.vue'
 
 const store   = useEntitiesStore()
 const message = useMessage()
@@ -17,6 +18,22 @@ const auth    = useAuthStore()
 // ── entity list ───────────────────────────────────────────────────────────────
 
 onMounted(() => store.fetchEntities())
+
+const filterText       = ref('')
+const filterEntityType = ref<string | null>(null)
+const filterActiveOnly = ref(false)
+
+const filteredEntities = computed(() => {
+  let list = store.items
+  const q = filterText.value.trim().toLowerCase()
+  if (q) list = list.filter(e =>
+    e.name.toLowerCase().includes(q) ||
+    e.aliases.some(a => a.toLowerCase().includes(q))
+  )
+  if (filterEntityType.value) list = list.filter(e => e.type === filterEntityType.value)
+  if (filterActiveOnly.value) list = list.filter(e => e.active)
+  return list
+})
 
 // ── add / edit modal ──────────────────────────────────────────────────────────
 
@@ -193,8 +210,7 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
 
 <template>
   <div>
-    <n-flex justify="space-between" align="center" style="margin-bottom: 16px">
-      <n-h2 style="margin: 0">Tracked Entities</n-h2>
+    <PageHeader title="Tracked Entities" style="margin-bottom: 16px">
       <n-tooltip v-if="auth.isAdmin" trigger="hover">
         <template #trigger>
           <n-button type="primary" @click="openAdd">
@@ -203,6 +219,16 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
         </template>
         Add Entity
       </n-tooltip>
+    </PageHeader>
+
+    <n-flex align="center" :size="8" wrap style="margin-bottom: 12px">
+      <n-input v-model:value="filterText" placeholder="Search by name or alias…" clearable style="width: 240px" />
+      <n-select
+        v-model:value="filterEntityType"
+        :options="[{ label: 'All types', value: null }, ...entityTypeOptions.filter(o => o.value)]"
+        clearable placeholder="All types" style="width: 180px"
+      />
+      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
     </n-flex>
 
     <n-spin :show="store.loading">
@@ -218,12 +244,12 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
           </tr>
         </thead>
         <tbody>
-          <tr v-if="store.items.length === 0">
+          <tr v-if="filteredEntities.length === 0">
             <td colspan="6" style="text-align: center; color: #888; padding: 32px">
               No tracked entities. Add one to start watching.
             </td>
           </tr>
-          <tr v-for="e in store.items" :key="e.id">
+          <tr v-for="e in filteredEntities" :key="e.id">
             <td>
               <n-text strong>{{ e.name }}</n-text>
               <div v-if="e.notes" style="font-size: 12px; color: #888">{{ e.notes }}</div>
@@ -257,33 +283,12 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
             </td>
             <td>
               <n-space size="small">
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    <n-button size="small" @click="openDrawer(e)">
-                      <template #icon><n-icon><TimeOutline /></n-icon></template>
-                    </n-button>
-                  </template>
-                  View tracks
-                </n-tooltip>
+                <IconButton :icon="TimeOutline" label="View tracks" @click="openDrawer(e)" />
                 <template v-if="auth.isAdmin">
-                  <n-tooltip trigger="hover">
-                    <template #trigger>
-                      <n-button size="small" @click="openEdit(e)">
-                        <template #icon><n-icon><CreateOutline /></n-icon></template>
-                      </n-button>
-                    </template>
-                    Edit
-                  </n-tooltip>
+                  <IconButton :icon="CreateOutline" label="Edit" @click="openEdit(e)" />
                   <n-popconfirm @positive-click="remove(e)">
                     <template #trigger>
-                      <n-tooltip trigger="hover">
-                        <template #trigger>
-                          <n-button size="small" type="error" ghost>
-                            <template #icon><n-icon><TrashOutline /></n-icon></template>
-                          </n-button>
-                        </template>
-                        Delete
-                      </n-tooltip>
+                      <IconButton :icon="TrashOutline" label="Delete" type="error" ghost />
                     </template>
                     Delete "{{ e.name }}"?
                   </n-popconfirm>

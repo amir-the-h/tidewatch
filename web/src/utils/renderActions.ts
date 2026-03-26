@@ -1,6 +1,6 @@
 // Helpers for rendering icon-only action buttons with tooltips in h() render functions
 import { h } from 'vue'
-import { NButton, NIcon, NTooltip, NPopconfirm } from 'naive-ui'
+import { NButton, NIcon, NTooltip, NPopconfirm, NTag } from 'naive-ui'
 import type { Component } from 'vue'
 
 interface BtnOpts {
@@ -8,6 +8,12 @@ interface BtnOpts {
   ghost?: boolean
   disabled?: boolean
   loading?: boolean
+}
+
+/** Active/inactive status tag */
+export function activeTag(value: boolean) {
+  return h(NTag, { type: value ? 'success' : 'default', size: 'small' },
+    { default: () => value ? 'Yes' : 'No' })
 }
 
 /** Icon-only button with hover tooltip */

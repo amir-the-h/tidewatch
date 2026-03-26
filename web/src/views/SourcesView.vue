@@ -1,13 +1,13 @@
 <!-- web/src/views/SourcesView.vue -->
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useSourcesStore } from '../stores/sources'
-import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
+import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Source } from '../api/sources'
 import { ApiError } from '../api/client'
-import { CreateOutline, PauseCircleOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
-import { iconBtn } from '../utils/renderActions'
+import { CreateOutline, PauseCircleOutline, TrashOutline } from '@vicons/ionicons5'
+import { iconBtn, activeTag } from '../utils/renderActions'
 
 // SourceType → operator mapping (mirrors Go model)
 const SOURCE_TYPES = [
@@ -28,6 +28,19 @@ const SOURCE_TYPES = [
 
 const store = useSourcesStore()
 const msg   = useMessage()
+
+const filterText       = ref('')
+const filterType       = ref<string | null>(null)
+const filterActiveOnly = ref(false)
+
+const filteredSources = computed(() => {
+  let list = store.sources
+  const q = filterText.value.trim().toLowerCase()
+  if (q) list = list.filter(s => s.name.toLowerCase().includes(q) || s.value.toLowerCase().includes(q))
+  if (filterType.value) list = list.filter(s => s.type === filterType.value)
+  if (filterActiveOnly.value) list = list.filter(s => s.active)
+  return list
+})
 
 const showCreate = ref(false)
 const form = ref({ name: '', type: 'keyword', value: '' })
@@ -95,16 +108,12 @@ async function onDelete(id: number) {
 }
 
 const columns: DataTableColumns<Source> = [
-  { title: 'ID',       key: 'id',       width: 60 },
-  { title: 'Name',     key: 'name' },
-  { title: 'Type',     key: 'type' },
+  { title: 'ID',       key: 'id',       width: 60, sorter: 'default' },
+  { title: 'Name',     key: 'name',                sorter: 'default' },
+  { title: 'Type',     key: 'type',                sorter: 'default' },
   { title: 'Operator', key: 'operator' },
-  { title: 'Value',    key: 'value' },
-  {
-    title: 'Active', key: 'active', width: 80,
-    render: (row) => h(NTag, { type: row.active ? 'success' : 'default', size: 'small' },
-      { default: () => row.active ? 'Yes' : 'No' })
-  },
+  { title: 'Value',    key: 'value',               sorter: 'default' },
+  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: (row) => activeTag(row.active) },
   {
     title: 'Actions', key: 'actions',
     render: (row) => h(NSpace, { size: 4 }, {
@@ -120,70 +129,56 @@ const columns: DataTableColumns<Source> = [
 
 <template>
   <n-space vertical size="large">
-    <n-space justify="space-between">
-      <n-h2>Sources</n-h2>
-      <n-tooltip trigger="hover">
-        <template #trigger>
-          <n-button type="primary" @click="showCreate = true">
-            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
-          </n-button>
-        </template>
-        New Source
-      </n-tooltip>
-    </n-space>
+    <PageHeader title="Sources" add-label="New Source" @add="showCreate = true" />
+
+    <n-flex align="center" :size="8" wrap>
+      <n-input v-model:value="filterText" placeholder="Search by name or value…" clearable style="width: 240px" />
+      <n-select
+        v-model:value="filterType"
+        :options="[{ label: 'All types', value: null }, ...SOURCE_TYPES.map(t => ({ label: t.label, value: t.value }))]"
+        clearable placeholder="All types" style="width: 180px"
+      />
+      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+    </n-flex>
 
     <n-data-table
       :columns="columns"
-      :data="store.sources"
+      :data="filteredSources"
       :loading="store.loading"
       :scroll-x="680"
       :pagination="{ pageSize: 20 }"
     />
 
     <!-- Create drawer -->
-    <n-drawer v-model:show="showCreate" :width="'min(400px, calc(100vw - 16px))'" title="New Source">
-      <n-drawer-content title="New Source" closable>
-        <n-form label-placement="top">
-          <n-form-item label="Name">
-            <n-input v-model:value="form.name" placeholder="e.g. Iran keyword" />
-          </n-form-item>
-          <n-form-item label="Type">
-            <n-select v-model:value="form.type" :options="SOURCE_TYPES" />
-          </n-form-item>
-          <n-form-item label="Operator (auto)">
-            <n-input :value="operatorFor(form.type)" disabled />
-          </n-form-item>
-          <n-form-item label="Value">
-            <n-input v-model:value="form.value" placeholder="e.g. iran" />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <n-button type="primary" :loading="saving" @click="onCreate">Create</n-button>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <FormDrawer v-model:show="showCreate" title="New Source" save-label="Create" :loading="saving" @save="onCreate">
+      <n-form-item label="Name">
+        <n-input v-model:value="form.name" placeholder="e.g. Iran keyword" />
+      </n-form-item>
+      <n-form-item label="Type">
+        <n-select v-model:value="form.type" :options="SOURCE_TYPES" />
+      </n-form-item>
+      <n-form-item label="Operator (auto)">
+        <n-input :value="operatorFor(form.type)" disabled />
+      </n-form-item>
+      <n-form-item label="Value">
+        <n-input v-model:value="form.value" placeholder="e.g. iran" />
+      </n-form-item>
+    </FormDrawer>
 
     <!-- Edit drawer -->
-    <n-drawer v-model:show="showEdit" :width="'min(400px, calc(100vw - 16px))'">
-      <n-drawer-content title="Edit Source" closable>
-        <n-form label-placement="top">
-          <n-form-item label="Name">
-            <n-input v-model:value="editForm.name" placeholder="e.g. Iran keyword" />
-          </n-form-item>
-          <n-form-item label="Type">
-            <n-select v-model:value="editForm.type" :options="SOURCE_TYPES" />
-          </n-form-item>
-          <n-form-item label="Operator (auto)">
-            <n-input :value="operatorFor(editForm.type)" disabled />
-          </n-form-item>
-          <n-form-item label="Value">
-            <n-input v-model:value="editForm.value" />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <n-button type="primary" :loading="updating" @click="onUpdate">Save</n-button>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <FormDrawer v-model:show="showEdit" title="Edit Source" :loading="updating" @save="onUpdate">
+      <n-form-item label="Name">
+        <n-input v-model:value="editForm.name" placeholder="e.g. Iran keyword" />
+      </n-form-item>
+      <n-form-item label="Type">
+        <n-select v-model:value="editForm.type" :options="SOURCE_TYPES" />
+      </n-form-item>
+      <n-form-item label="Operator (auto)">
+        <n-input :value="operatorFor(editForm.type)" disabled />
+      </n-form-item>
+      <n-form-item label="Value">
+        <n-input v-model:value="editForm.value" />
+      </n-form-item>
+    </FormDrawer>
   </n-space>
 </template>

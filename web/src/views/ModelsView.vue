@@ -11,11 +11,24 @@ import {
   CheckmarkCircleOutline, PauseCircleOutline, TrashOutline,
   DownloadOutline, AddCircleOutline,
 } from '@vicons/ionicons5'
-import { iconBtn } from '../utils/renderActions'
+import { iconBtn, activeTag } from '../utils/renderActions'
 
 const store = useModelsStore()
 const rulesStore = useRulesStore()
 const msg   = useMessage()
+
+const filterText       = ref('')
+const filterType       = ref<ModelType | null>(null)
+const filterActiveOnly = ref(false)
+
+const filteredModels = computed(() => {
+  let list = store.models
+  const q = filterText.value.trim().toLowerCase()
+  if (q) list = list.filter(m => m.name.toLowerCase().includes(q))
+  if (filterType.value) list = list.filter(m => m.type === filterType.value)
+  if (filterActiveOnly.value) list = list.filter(m => m.active)
+  return list
+})
 
 const showManual   = ref(false)
 const showDownload = ref(false)
@@ -177,22 +190,18 @@ async function onRun(row: Model) {
 // ── table ──────────────────────────────────────────────────────────────────
 
 const columns: DataTableColumns<Model> = [
-  { title: 'ID',      key: 'id',      width: 60 },
-  { title: 'Name',    key: 'name' },
-  { title: 'Version', key: 'version', width: 90 },
+  { title: 'ID',      key: 'id',      width: 60,  sorter: 'default' },
+  { title: 'Name',    key: 'name',                sorter: 'default' },
+  { title: 'Version', key: 'version', width: 90,  sorter: 'default' },
   {
-    title: 'Type', key: 'type', width: 140,
+    title: 'Type', key: 'type', width: 140, sorter: 'default',
     render: (row) => h(NTag, {
       type: typeTagType[row.type] ?? 'default',
       size: 'small',
     }, { default: () => row.type }),
   },
   { title: 'Path / Model', key: 'path', ellipsis: true },
-  {
-    title: 'Active', key: 'active', width: 80,
-    render: (row) => h(NTag, { type: row.active ? 'success' : 'default', size: 'small' },
-      { default: () => row.active ? 'Yes' : 'No' }),
-  },
+  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: (row) => activeTag(row.active) },
   {
     title: 'Actions', key: 'actions',
     render: (row) => h(NSpace, { size: 4 }, {
@@ -216,8 +225,7 @@ const columns: DataTableColumns<Model> = [
 
 <template>
   <n-space vertical size="large">
-    <n-space justify="space-between">
-      <n-h2>Models</n-h2>
+    <PageHeader title="Models">
       <n-space>
         <n-tooltip trigger="hover">
           <template #trigger>
@@ -236,9 +244,15 @@ const columns: DataTableColumns<Model> = [
           Register Model
         </n-tooltip>
       </n-space>
-    </n-space>
+    </PageHeader>
 
-    <n-data-table :columns="columns" :data="store.models" :loading="store.loading" :scroll-x="760" />
+    <n-flex align="center" :size="8" wrap>
+      <n-input v-model:value="filterText" placeholder="Search by name…" clearable style="width: 220px" />
+      <n-select v-model:value="filterType" :options="[{ label: 'All types', value: null }, ...typeOptions]" clearable placeholder="All types" style="width: 180px" />
+      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+    </n-flex>
+
+    <n-data-table :columns="columns" :data="filteredModels" :loading="store.loading" :scroll-x="760" />
 
     <!-- HuggingFace download modal -->
     <n-modal v-model:show="showDownload" preset="dialog" title="Download from HuggingFace">
@@ -251,30 +265,23 @@ const columns: DataTableColumns<Model> = [
     </n-modal>
 
     <!-- Manual register drawer -->
-    <n-drawer v-model:show="showManual" :width="'min(420px, calc(100vw - 16px))'">
-      <n-drawer-content title="Register Model" closable>
-        <n-form label-placement="top">
-          <n-form-item label="Name">
-            <n-input v-model:value="manualForm.name" />
-          </n-form-item>
-          <n-form-item label="Version">
-            <n-input v-model:value="manualForm.version" />
-          </n-form-item>
-          <n-form-item label="Type">
-            <n-select v-model:value="manualForm.type" :options="typeOptions" />
-          </n-form-item>
-          <n-form-item :label="pathLabel">
-            <n-input v-model:value="manualForm.path" :placeholder="pathPlaceholder" />
-          </n-form-item>
-          <n-alert v-if="manualForm.type === 'extraction'" type="info" style="margin-top: 8px">
-            Extraction models run via Ollama. The model must already be pulled in Ollama before activating.
-          </n-alert>
-        </n-form>
-        <template #footer>
-          <n-button type="primary" :loading="saving" @click="onCreateManual">Register</n-button>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <FormDrawer v-model:show="showManual" title="Register Model" save-label="Register" :loading="saving" @save="onCreateManual">
+      <n-form-item label="Name">
+        <n-input v-model:value="manualForm.name" />
+      </n-form-item>
+      <n-form-item label="Version">
+        <n-input v-model:value="manualForm.version" />
+      </n-form-item>
+      <n-form-item label="Type">
+        <n-select v-model:value="manualForm.type" :options="typeOptions" />
+      </n-form-item>
+      <n-form-item :label="pathLabel">
+        <n-input v-model:value="manualForm.path" :placeholder="pathPlaceholder" />
+      </n-form-item>
+      <n-alert v-if="manualForm.type === 'extraction'" type="info" style="margin-top: 8px">
+        Extraction models run via Ollama. The model must already be pulled in Ollama before activating.
+      </n-alert>
+    </FormDrawer>
 
     <!-- Labels drawer (ONNX models only) -->
     <n-drawer v-model:show="showLabels" :width="'min(420px, calc(100vw - 16px))'">

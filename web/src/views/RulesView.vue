@@ -1,6 +1,6 @@
 <!-- web/src/views/RulesView.vue -->
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRulesStore } from '../stores/rules'
 import { useSourcesStore } from '../stores/sources'
 import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
@@ -8,12 +8,25 @@ import type { DataTableColumns } from 'naive-ui'
 import type { Rule, ExprNode } from '../api/rules'
 import { ApiError } from '../api/client'
 import RuleExprBuilder from '../components/RuleExprBuilder.vue'
-import { CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline, AddCircleOutline } from '@vicons/ionicons5'
-import { iconBtn } from '../utils/renderActions'
+import { CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline } from '@vicons/ionicons5'
+import { iconBtn, activeTag } from '../utils/renderActions'
 
 const store        = useRulesStore()
 const sourcesStore = useSourcesStore()
 const msg          = useMessage()
+
+const filterText       = ref('')
+const filterLocalOnly  = ref(false)
+const filterActiveOnly = ref(false)
+
+const filteredRules = computed(() => {
+  let list = store.rules
+  const q = filterText.value.trim().toLowerCase()
+  if (q) list = list.filter(r => r.name.toLowerCase().includes(q) || r.compiled_value.toLowerCase().includes(q))
+  if (filterLocalOnly.value) list = list.filter(r => r.local)
+  if (filterActiveOnly.value) list = list.filter(r => r.active)
+  return list
+})
 
 const showDrawer  = ref(false)
 const editingRule = ref<Rule | null>(null)
@@ -81,19 +94,15 @@ async function onDelete(id: number) {
 }
 
 const columns: DataTableColumns<Rule> = [
-  { title: 'ID',       key: 'id', width: 60 },
-  { title: 'Name',     key: 'name' },
-  { title: 'Compiled', key: 'compiled_value', ellipsis: true },
+  { title: 'ID',       key: 'id', width: 60, sorter: 'default' },
+  { title: 'Name',     key: 'name',           sorter: 'default' },
+  { title: 'Compiled', key: 'compiled_value', sorter: 'default', ellipsis: true },
   {
-    title: 'Local', key: 'local', width: 70,
+    title: 'Local', key: 'local', width: 70, sorter: (a, b) => Number(a.local) - Number(b.local),
     render: (row) => h(NTag, { type: row.local ? 'warning' : 'default', size: 'small' },
       { default: () => row.local ? 'Yes' : 'No' })
   },
-  {
-    title: 'Active', key: 'active', width: 80,
-    render: (row) => h(NTag, { type: row.active ? 'success' : 'default', size: 'small' },
-      { default: () => row.active ? 'Yes' : 'No' })
-  },
+  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: (row) => activeTag(row.active) },
   {
     title: 'Actions', key: 'actions',
     render: (row) => h(NSpace, { size: 4 }, {
@@ -111,46 +120,41 @@ const columns: DataTableColumns<Rule> = [
 
 <template>
   <n-space vertical size="large">
-    <n-space justify="space-between">
-      <n-h2>Rules</n-h2>
-      <n-tooltip trigger="hover">
-        <template #trigger>
-          <n-button type="primary" @click="openCreate">
-            <template #icon><n-icon><AddCircleOutline /></n-icon></template>
-          </n-button>
-        </template>
-        New Rule
-      </n-tooltip>
-    </n-space>
+    <PageHeader title="Rules" add-label="New Rule" @add="openCreate" />
 
-    <n-data-table :columns="columns" :data="store.rules" :loading="store.loading" :scroll-x="680" />
+    <n-flex align="center" :size="8" wrap>
+      <n-input v-model:value="filterText" placeholder="Search by name or compiled…" clearable style="width: 260px" />
+      <n-checkbox v-model:checked="filterLocalOnly">Local only</n-checkbox>
+      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+    </n-flex>
 
-    <n-drawer v-model:show="showDrawer" :width="'min(520px, calc(100vw - 16px))'">
-      <n-drawer-content :title="editingRule ? 'Edit Rule' : 'New Rule'" closable>
-        <n-form label-placement="top">
-          <n-form-item label="Name">
-            <n-input v-model:value="form.name" />
-          </n-form-item>
-          <n-form-item label="Local rule (building block, not pushed to X)">
-            <n-switch v-model:value="form.local" />
-          </n-form-item>
-          <n-form-item label="Expression">
-            <div style="width: 100%">
-              <RuleExprBuilder
-                :model-value="form.expression"
-                :is-root="true"
-                @update:model-value="form.expression = $event"
-              />
-            </div>
-          </n-form-item>
-          <n-form-item v-if="compiledPreview" label="Compiled (from API after save)">
-            <n-input :value="compiledPreview" type="textarea" readonly :rows="3" />
-          </n-form-item>
-        </n-form>
-        <template #footer>
-          <n-button type="primary" :loading="saving" @click="onSave">Save</n-button>
-        </template>
-      </n-drawer-content>
-    </n-drawer>
+    <n-data-table :columns="columns" :data="filteredRules" :loading="store.loading" :scroll-x="680" />
+
+    <FormDrawer
+      v-model:show="showDrawer"
+      :title="editingRule ? 'Edit Rule' : 'New Rule'"
+      width="min(520px, calc(100vw - 16px))"
+      :loading="saving"
+      @save="onSave"
+    >
+      <n-form-item label="Name">
+        <n-input v-model:value="form.name" />
+      </n-form-item>
+      <n-form-item label="Local rule (building block, not pushed to X)">
+        <n-switch v-model:value="form.local" />
+      </n-form-item>
+      <n-form-item label="Expression">
+        <div style="width: 100%">
+          <RuleExprBuilder
+            :model-value="form.expression"
+            :is-root="true"
+            @update:model-value="form.expression = $event"
+          />
+        </div>
+      </n-form-item>
+      <n-form-item v-if="compiledPreview" label="Compiled (from API after save)">
+        <n-input :value="compiledPreview" type="textarea" readonly :rows="3" />
+      </n-form-item>
+    </FormDrawer>
   </n-space>
 </template>
