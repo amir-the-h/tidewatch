@@ -1985,3 +1985,109 @@ func scanSearchJob(s searchJobScanner) (*model.SearchJob, error) {
 	}
 	return &job, nil
 }
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) SaveUser(ctx context.Context, u *model.User) error {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO users (username, password_hash, role, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		u.Username, u.PasswordHash, u.Role,
+		u.CreatedAt.UTC().Format(time.RFC3339),
+		u.UpdatedAt.UTC().Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save user: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("store: save user last insert id: %w", err)
+	}
+	u.ID = id
+	return nil
+}
+
+func (s *sqliteStore) GetUser(ctx context.Context, id int64) (*model.User, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE id = ?`, id)
+	return scanUser(row)
+}
+
+func (s *sqliteStore) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, username, password_hash, role, created_at, updated_at FROM users WHERE username = ?`, username)
+	return scanUser(row)
+}
+
+func (s *sqliteStore) ListUsers(ctx context.Context) ([]*model.User, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, username, password_hash, role, created_at, updated_at FROM users ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list users: %w", err)
+	}
+	defer rows.Close()
+	var out []*model.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: scan user: %w", err)
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) UpdateUser(ctx context.Context, u *model.User) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET username = ?, password_hash = ?, role = ?, updated_at = ? WHERE id = ?`,
+		u.Username, u.PasswordHash, u.Role,
+		time.Now().UTC().Format(time.RFC3339),
+		u.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update user: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) DeleteUser(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete user: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) CountAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("store: count admins: %w", err)
+	}
+	return count, nil
+}
+
+type userScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanUser(s userScanner) (*model.User, error) {
+	var u model.User
+	var createdAt, updatedAt string
+	if err := s.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &createdAt, &updatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var err error
+	u.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse user created_at: %w", err)
+	}
+	u.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse user updated_at: %w", err)
+	}
+	return &u, nil
+}

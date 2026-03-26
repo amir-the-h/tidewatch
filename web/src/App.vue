@@ -4,13 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { apiFetch } from './api/client'
 import { listModels } from './api/models'
+import { useAuthStore } from './stores/auth'
 
 const route  = useRoute()
 const router = useRouter()
+const auth   = useAuthStore()
 
 const hasSummarizer = ref(false)
 
-const baseMenuOptions = [
+const adminMenuOptions = [
   { label: 'Stream',           key: '/' },
   { label: 'Map',              key: '/map' },
   { label: 'Tweets',           key: '/tweets' },
@@ -22,17 +24,27 @@ const baseMenuOptions = [
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
   { label: 'Queue',            key: '/failures' },
+  { label: 'Users',            key: '/users' },
+]
+
+const viewerMenuOptions = [
+  { label: 'Map',              key: '/map' },
+  { label: 'Tweets',           key: '/tweets' },
+  { label: 'Tracked Entities', key: '/tracked-entities' },
 ]
 
 const menuOptions = computed(() => {
-  const opts = [...baseMenuOptions]
+  if (!auth.isAdmin) return viewerMenuOptions
+  const opts = [...adminMenuOptions]
   if (hasSummarizer.value) {
-    opts.push({ label: 'Digest', key: '/summarize' })
+    // Insert Digest before Users
+    opts.splice(opts.length - 1, 0, { label: 'Digest', key: '/summarize' })
   }
   return opts
 })
 
 async function checkSummarizer() {
+  if (!auth.isAdmin) return
   try {
     const models = await listModels()
     hasSummarizer.value = models.some(m => m.active && (m.type === 'digest' || m.type === 'extraction' || m.type === 'summarizer'))
@@ -47,7 +59,13 @@ function navigate(key: string) {
   drawerOpen.value = false
 }
 
-// ── Stats polling ─────────────────────────────────────────────────────────────
+function logout() {
+  auth.logout()
+  router.push('/login')
+  drawerOpen.value = false
+}
+
+// ── Stats polling (admin only) ────────────────────────────────────────────────
 
 interface QueueStats  { pending: number; failed: number }
 interface WorkerStats { total: number; active: number; idle: number; queued: number; pipelines?: Record<string, number>; pipeline_active?: Record<string, number> }
@@ -56,6 +74,7 @@ const queueStats  = ref<QueueStats | null>(null)
 const workerStats = ref<WorkerStats | null>(null)
 
 async function fetchStats() {
+  if (!auth.isAuthenticated) return
   try {
     const h = await apiFetch<any>('/api/health')
     if (h.queue)   queueStats.value  = h.queue
@@ -65,7 +84,7 @@ async function fetchStats() {
 
 const flushing = ref(false)
 async function flushWorkerBuffer() {
-  if (flushing.value) return
+  if (flushing.value || !auth.isAdmin) return
   flushing.value = true
   try {
     await apiFetch('/api/workers/buffer', { method: 'DELETE' })
@@ -84,15 +103,18 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
   <n-config-provider :theme="darkTheme">
     <n-message-provider>
 
-      <!-- Top bar -->
-      <div style="
-        position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-        height: 48px;
-        display: flex; align-items: center; gap: 12px;
-        padding: 0 16px;
-        background: #1e1e2e;
-        border-bottom: 1px solid rgba(255,255,255,0.08);
-      ">
+      <!-- Top bar (hidden on login page) -->
+      <div
+        v-if="route.path !== '/login'"
+        style="
+          position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+          height: 48px;
+          display: flex; align-items: center; gap: 12px;
+          padding: 0 16px;
+          background: #1e1e2e;
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+        "
+      >
         <!-- Hamburger -->
         <button
           @click="drawerOpen = true"
@@ -110,9 +132,8 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 
         <span style="font-weight: 700; font-size: 14px; color: #cdd6f4;">Iran Watcher</span>
 
-        <!-- Inline stats badges (always visible) -->
-        <div v-if="queueStats || workerStats" style="
-          margin-left: auto;
+        <!-- Inline stats badges (admin only) -->
+        <div v-if="auth.isAdmin && (queueStats || workerStats)" style="
           display: flex; align-items: center; gap: 12px;
           font-size: 11px; color: #a6adc8;
         ">
@@ -129,6 +150,20 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             W: {{ workerStats.active }}/{{ workerStats.total }}
           </span>
         </div>
+
+        <!-- Username + logout -->
+        <div v-if="auth.user" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+          <n-tag size="small" :type="auth.isAdmin ? 'warning' : 'default'" :bordered="false" style="font-size: 11px;">
+            {{ auth.user.username }}
+          </n-tag>
+          <button
+            @click="logout"
+            style="
+              background: none; border: 1px solid rgba(255,255,255,0.15); cursor: pointer;
+              color: #a6adc8; font-size: 11px; padding: 2px 8px; border-radius: 4px;
+            "
+          >Sign out</button>
+        </div>
       </div>
 
       <!-- Drawer overlay -->
@@ -144,8 +179,8 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             @update:value="navigate"
           />
 
-          <!-- Stats panel pinned to drawer bottom -->
-          <div v-if="queueStats || workerStats" style="
+          <!-- Stats panel (admin only) pinned to drawer bottom -->
+          <div v-if="auth.isAdmin && (queueStats || workerStats)" style="
             margin-top: auto;
             padding: 12px 14px;
             border-top: 1px solid rgba(255,255,255,0.08);
@@ -205,12 +240,26 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
               </div>
             </div>
           </div>
+
+          <!-- Sign out at drawer bottom -->
+          <div style="padding: 12px 14px; border-top: 1px solid rgba(255,255,255,0.08); margin-top: auto;">
+            <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">
+              Signed in as <strong style="color: #cdd6f4">{{ auth.user?.username }}</strong>
+            </n-text>
+            <n-button size="small" block @click="logout">Sign out</n-button>
+          </div>
         </n-drawer-content>
       </n-drawer>
 
       <!-- Page content pushed below the top bar -->
-      <div style="padding-top: 48px; min-height: 100vh; background: #181825;">
-        <div class="page-content">
+      <div
+        :style="{
+          paddingTop: route.path === '/login' ? '0' : '48px',
+          minHeight: '100vh',
+          background: '#181825',
+        }"
+      >
+        <div :class="route.path !== '/login' ? 'page-content' : ''">
           <router-view />
         </div>
       </div>

@@ -22,6 +22,7 @@ internal/worker/        → Fair-share worker manager (Manager), legacy pool, en
 internal/model/         → Domain types (Tweet, Source, Notification, DigestJob, etc.)
 internal/notifier/      → Async push notifications (Pushover + Telegram)
 internal/search/        → X search API backfill scheduler
+internal/auth/          → JWT (HS256 via stdlib) + bcrypt password helpers + HTTP middleware
 cli/                    → Cobra CLI (thin client over REST API)
 migrations/             → Embedded SQL migration files
 models/                 → ONNX model files (gitignored)
@@ -99,6 +100,7 @@ go test -tags integration ./...      # unit + integration tests
 - **Notifications** — runtime-configured push alerts via Pushover or Telegram; async buffered channel dispatch; `provider` field selects backend per notification
 - **Digest jobs** — background async jobs that generate LLM digests over a filtered tweet window; stored in `digest_jobs` table with status tracking
 - **Search jobs** — async background jobs for X search backfill; POST `/api/search/run` returns a job immediately (202), client polls GET `/api/search/{id}` until `done`/`error`; stored in `search_jobs` table
+- **Authentication** — JWT-based (HS256 via stdlib); tokens issued at `POST /api/auth/login`, carried as `Authorization: Bearer <token>`; two roles: `admin` (full access) and `viewer` (read-only: map, tweets with filtering, tracked entities); users stored in `users` SQLite table; admin account seeded on first startup from config (`auth.admin_username` / `auth.admin_password`, env: `IRAN_WATCHER_AUTH_JWT_SECRET`/`ADMIN_USERNAME`/`ADMIN_PASSWORD`); user management at `GET|POST /api/users`, `PUT|DELETE /api/users/{id}` (admin only); `internal/auth` package handles token signing/verification and role-enforcement middleware; frontend route guard redirects unauthenticated users to `/login` and viewers to `/tweets` for admin-only routes
 - **NER alias suggestions** — when creating/editing a tracked entity the UI surfaces NER-derived alias candidates; edit mode calls `GET /api/tracked-entities/{id}/alias-suggestions` (contexts from the entity's own NER tracks); create mode debounces on name input and calls `GET /api/alias-suggestions?name={name}&type={type}` (searches across all same-type entity NER tracks); suggestions are filtered by entity type and exclude already-added aliases
 - **Ollama integration** — LLM summarization and digest via local Ollama; `ollama.base_url` config
 - **Stream auto-connect** — `stream.auto_connect: true` connects to X on startup without a CLI call

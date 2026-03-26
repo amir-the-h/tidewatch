@@ -11,11 +11,25 @@ export class ApiError extends Error {
   }
 }
 
+function getToken(): string | null {
+  return localStorage.getItem('iran_watcher_token')
+}
+
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  })
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  Object.assign(headers, options?.headers)
+
+  const res = await fetch(`${base}${path}`, { ...options, headers })
+
+  if (res.status === 401) {
+    // Token expired or invalid — redirect to login.
+    localStorage.removeItem('iran_watcher_token')
+    window.location.href = '/login'
+    throw new ApiError(401, 'unauthorized')
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
     throw new ApiError(res.status, (body as any).error ?? res.statusText)

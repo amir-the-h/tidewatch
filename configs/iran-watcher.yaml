@@ -26,6 +26,11 @@ pushover:
   app_token: ""
   user_key: ""
 
+auth:
+  # jwt_secret: change-me-in-production  # or set IRAN_WATCHER_AUTH_JWT_SECRET env var
+  admin_username: admin   # initial admin username (used only on first startup)
+  admin_password: changeme  # CHANGE THIS — or set IRAN_WATCHER_AUTH_ADMIN_PASSWORD
+
 search:
   enabled: false
   interval: 15m

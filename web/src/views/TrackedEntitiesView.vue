@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useEntitiesStore } from '../stores/entities'
+import { useAuthStore } from '../stores/auth'
 import type { TrackedEntity } from '../api/entities'
 import { getEntityAliasSuggestions, searchAliasSuggestions } from '../api/entities'
 import { formatDateTime } from '../utils/format'
@@ -10,6 +11,7 @@ import { formatDateTime } from '../utils/format'
 const store   = useEntitiesStore()
 const message = useMessage()
 const router  = useRouter()
+const auth    = useAuthStore()
 
 // ── entity list ───────────────────────────────────────────────────────────────
 
@@ -192,7 +194,7 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
   <div>
     <n-flex justify="space-between" align="center" style="margin-bottom: 16px">
       <n-h2 style="margin: 0">Tracked Entities</n-h2>
-      <n-button type="primary" @click="openAdd">+ Add Entity</n-button>
+      <n-button v-if="auth.isAdmin" type="primary" @click="openAdd">+ Add Entity</n-button>
     </n-flex>
 
     <n-spin :show="store.loading">
@@ -204,7 +206,7 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
             <th>Aliases</th>
             <th style="width: 80px; text-align: center">Tracks</th>
             <th style="width: 80px; text-align: center">Active</th>
-            <th style="width: 220px">Actions</th>
+            <th :style="{ width: auth.isAdmin ? '220px' : '100px' }">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -238,18 +240,25 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
               />
             </td>
             <td style="text-align: center">
-              <n-switch :value="e.active" @update:value="() => toggleActive(e)" size="small" />
+              <n-switch
+                :value="e.active"
+                @update:value="() => toggleActive(e)"
+                size="small"
+                :disabled="!auth.isAdmin"
+              />
             </td>
             <td>
               <n-space>
                 <n-button size="small" @click="openDrawer(e)">Tracks</n-button>
-                <n-button size="small" @click="openEdit(e)">Edit</n-button>
-                <n-popconfirm @positive-click="remove(e)">
-                  <template #trigger>
-                    <n-button size="small" type="error" ghost>Delete</n-button>
-                  </template>
-                  Delete "{{ e.name }}"?
-                </n-popconfirm>
+                <template v-if="auth.isAdmin">
+                  <n-button size="small" @click="openEdit(e)">Edit</n-button>
+                  <n-popconfirm @positive-click="remove(e)">
+                    <template #trigger>
+                      <n-button size="small" type="error" ghost>Delete</n-button>
+                    </template>
+                    Delete "{{ e.name }}"?
+                  </n-popconfirm>
+                </template>
               </n-space>
             </td>
           </tr>

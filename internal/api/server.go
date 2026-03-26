@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
@@ -68,6 +69,7 @@ type Server struct {
 	stream           streamClientInterface
 	tier             string
 	ollamaBaseURL    string
+	jwtSecret        string
 	dispatcher       *notifier.Dispatcher
 	searchScheduler  searchScheduler // nil if search not configured
 	pool             workerPoolStatsProvider
@@ -89,6 +91,7 @@ func NewServer(
 	sc streamClientInterface,
 	tier string,
 	ollamaBaseURL string,
+	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
 	ss searchScheduler,
@@ -104,6 +107,7 @@ func NewServer(
 		stream:          sc,
 		tier:            tier,
 		ollamaBaseURL:   ollamaBaseURL,
+		jwtSecret:       jwtSecret,
 		dispatcher:      dispatcher,
 		searchScheduler: ss,
 		pool:            pool,
@@ -112,106 +116,130 @@ func NewServer(
 		logger:          logger,
 	}
 
+	authMw := auth.Middleware(jwtSecret)
+	adminMw := auth.AdminOnly
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 
 	r.Route("/api", func(r chi.Router) {
-		// Health
-		r.Get("/health", srv.handleGetHealth)
+		// Public — no auth required.
+		r.Post("/auth/login", srv.handleLogin)
 
-		// Sources
-		r.Get("/sources", srv.handleListSources)
-		r.Post("/sources", srv.handleCreateSource)
-		r.Put("/sources/{id}", srv.handleUpdateSource)
-		r.Delete("/sources/{id}", srv.handleDeleteSource)
-		r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
+		// All routes below require a valid JWT.
+		r.Group(func(r chi.Router) {
+			r.Use(authMw)
 
-		// Rules
-		r.Get("/rules", srv.handleListRules)
-		r.Post("/rules", srv.handleCreateRule)
-		r.Get("/rules/{id}", srv.handleGetRule)
-		r.Put("/rules/{id}", srv.handleUpdateRule)
-		r.Delete("/rules/{id}", srv.handleDeleteRule)
-		r.Post("/rules/{id}/activate", srv.handleActivateRule)
-		r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
+			r.Get("/auth/me", srv.handleMe)
 
-		// Tweets — static routes MUST be registered before /{id}
-		r.Get("/tweets", srv.handleListTweets)
-		r.Delete("/tweets", srv.handleDeleteTweets)
-		r.Post("/tweets/reprocess", srv.handleReprocessTweets)
-		r.Delete("/tweets/noise", srv.handleDeleteNoiseTweets)
-		r.Get("/tweets/{id}", srv.handleGetTweet)
+			// Health + stream status — viewers can see these for the status bar.
+			r.Get("/health", srv.handleGetHealth)
+			r.Get("/stream/status", srv.handleStreamStatus)
 
-		// Models — static routes before parameterized
-		r.Get("/models", srv.handleListModels)
-		r.Post("/models/download", srv.handleDownloadModel)
-		r.Post("/models", srv.handleCreateModel)
-		r.Delete("/models/{id}", srv.handleDeleteModel)
-		r.Post("/models/{id}/activate", srv.handleActivateModel)
-		r.Post("/models/{id}/deactivate", srv.handleDeactivateModel)
-		r.Post("/models/{id}/run", srv.handleRunModelPipeline)
-		r.Get("/models/{id}/labels", srv.handleListModelLabels)
-		r.Post("/models/{id}/labels", srv.handleAddModelLabel)
-		r.Delete("/models/{id}/labels/{label}", srv.handleRemoveModelLabel)
-		r.Post("/models/{id}/rules", srv.handleAddModelRule)
-		r.Delete("/models/{id}/rules/{rule_id}", srv.handleRemoveModelRule)
+			// Read-only endpoints accessible to all authenticated users.
+			r.Get("/rules", srv.handleListRules)
+			r.Get("/rules/{id}", srv.handleGetRule)
+			r.Get("/sources", srv.handleListSources)
+			r.Get("/tweets", srv.handleListTweets)
+			r.Get("/tweets/{id}", srv.handleGetTweet)
+			r.Get("/categorizations", srv.handleListCategorizations)
+			r.Get("/tracked-entities", srv.handleListTrackedEntities)
+			r.Get("/tracked-entities/{id}", srv.handleGetTrackedEntity)
+			r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
+			r.Get("/tracked-entities/{id}/alias-suggestions", srv.handleListEntityAliasSuggestions)
+			r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
 
-		// Stream
-		r.Get("/stream/status", srv.handleStreamStatus)
-		r.Post("/stream/connect", srv.handleStreamConnect)
-		r.Post("/stream/disconnect", srv.handleStreamDisconnect)
+			// Admin-only routes.
+			r.Group(func(r chi.Router) {
+				r.Use(adminMw)
 
-		// Categorizations
-		r.Get("/categorizations", srv.handleListCategorizations)
+				// Sources
+				r.Post("/sources", srv.handleCreateSource)
+				r.Put("/sources/{id}", srv.handleUpdateSource)
+				r.Delete("/sources/{id}", srv.handleDeleteSource)
+				r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
 
-		// Tracked Entities — static routes before parameterized
-		r.Get("/tracked-entities", srv.handleListTrackedEntities)
-		r.Post("/tracked-entities", srv.handleCreateTrackedEntity)
-		r.Get("/tracked-entities/{id}", srv.handleGetTrackedEntity)
-		r.Put("/tracked-entities/{id}", srv.handleUpdateTrackedEntity)
-		r.Delete("/tracked-entities/{id}", srv.handleDeleteTrackedEntity)
-		r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
-		r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
-		r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
-		r.Get("/tracked-entities/{id}/alias-suggestions", srv.handleListEntityAliasSuggestions)
-		r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
+				// Rules
+				r.Post("/rules", srv.handleCreateRule)
+				r.Put("/rules/{id}", srv.handleUpdateRule)
+				r.Delete("/rules/{id}", srv.handleDeleteRule)
+				r.Post("/rules/{id}/activate", srv.handleActivateRule)
+				r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
 
-		// Summaries
-		r.Get("/summaries", srv.handleListSummaries)
-		r.Post("/summaries/run", srv.handleRunSummaries)
+				// Tweets mutations
+				r.Delete("/tweets", srv.handleDeleteTweets)
+				r.Post("/tweets/reprocess", srv.handleReprocessTweets)
+				r.Delete("/tweets/noise", srv.handleDeleteNoiseTweets)
 
-		// Digest jobs
-		r.Get("/digest", srv.handleListDigests)
-		r.Post("/digest", srv.handleDigest)
-		r.Get("/digest/{id}", srv.handleGetDigest)
-		r.Delete("/digest/{id}", srv.handleDeleteDigest)
+				// Models — static routes before parameterized
+				r.Get("/models", srv.handleListModels)
+				r.Post("/models/download", srv.handleDownloadModel)
+				r.Post("/models", srv.handleCreateModel)
+				r.Delete("/models/{id}", srv.handleDeleteModel)
+				r.Post("/models/{id}/activate", srv.handleActivateModel)
+				r.Post("/models/{id}/deactivate", srv.handleDeactivateModel)
+				r.Post("/models/{id}/run", srv.handleRunModelPipeline)
+				r.Get("/models/{id}/labels", srv.handleListModelLabels)
+				r.Post("/models/{id}/labels", srv.handleAddModelLabel)
+				r.Delete("/models/{id}/labels/{label}", srv.handleRemoveModelLabel)
+				r.Post("/models/{id}/rules", srv.handleAddModelRule)
+				r.Delete("/models/{id}/rules/{rule_id}", srv.handleRemoveModelRule)
 
-		// Failures (dead-letter queue)
-		r.Get("/failures", srv.handleListFailures)
-		r.Delete("/failures", srv.handleClearFailures)
+				// Stream control
+				r.Post("/stream/connect", srv.handleStreamConnect)
+				r.Post("/stream/disconnect", srv.handleStreamDisconnect)
 
-		// Queue management
-		r.Delete("/queue", srv.handleFlushQueue)
-		r.Delete("/workers/buffer", srv.handleFlushWorkerBuffer)
-		r.Delete("/workers/buffer/{pipeline}", srv.handleFlushPipelineBuffer)
+				// Tracked Entities mutations
+				r.Post("/tracked-entities", srv.handleCreateTrackedEntity)
+				r.Put("/tracked-entities/{id}", srv.handleUpdateTrackedEntity)
+				r.Delete("/tracked-entities/{id}", srv.handleDeleteTrackedEntity)
+				r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
+				r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
 
-		// Search jobs
-		r.Get("/search", srv.handleListSearchJobs)
-		r.Post("/search/run", srv.handleSearchRun)
-		r.Get("/search/{id}", srv.handleGetSearchJob)
-		r.Delete("/search/{id}", srv.handleDeleteSearchJob)
+				// Summaries
+				r.Get("/summaries", srv.handleListSummaries)
+				r.Post("/summaries/run", srv.handleRunSummaries)
 
-		// Notifications — static routes before parameterized
-		r.Get("/notifications", srv.handleListNotifications)
-		r.Post("/notifications", srv.handleCreateNotification)
-		r.Post("/notifications/test", srv.handleTestNotification)
-		r.Get("/notifications/{id}", srv.handleGetNotification)
-		r.Put("/notifications/{id}", srv.handleUpdateNotification)
-		r.Delete("/notifications/{id}", srv.handleDeleteNotification)
-		r.Post("/notifications/{id}/activate", srv.handleActivateNotification)
-		r.Post("/notifications/{id}/deactivate", srv.handleDeactivateNotification)
+				// Digest jobs
+				r.Get("/digest", srv.handleListDigests)
+				r.Post("/digest", srv.handleDigest)
+				r.Get("/digest/{id}", srv.handleGetDigest)
+				r.Delete("/digest/{id}", srv.handleDeleteDigest)
+
+				// Failures (dead-letter queue)
+				r.Get("/failures", srv.handleListFailures)
+				r.Delete("/failures", srv.handleClearFailures)
+
+				// Queue management
+				r.Delete("/queue", srv.handleFlushQueue)
+				r.Delete("/workers/buffer", srv.handleFlushWorkerBuffer)
+				r.Delete("/workers/buffer/{pipeline}", srv.handleFlushPipelineBuffer)
+
+				// Search jobs
+				r.Get("/search", srv.handleListSearchJobs)
+				r.Post("/search/run", srv.handleSearchRun)
+				r.Get("/search/{id}", srv.handleGetSearchJob)
+				r.Delete("/search/{id}", srv.handleDeleteSearchJob)
+
+				// Notifications — static routes before parameterized
+				r.Get("/notifications", srv.handleListNotifications)
+				r.Post("/notifications", srv.handleCreateNotification)
+				r.Post("/notifications/test", srv.handleTestNotification)
+				r.Get("/notifications/{id}", srv.handleGetNotification)
+				r.Put("/notifications/{id}", srv.handleUpdateNotification)
+				r.Delete("/notifications/{id}", srv.handleDeleteNotification)
+				r.Post("/notifications/{id}/activate", srv.handleActivateNotification)
+				r.Post("/notifications/{id}/deactivate", srv.handleDeactivateNotification)
+
+				// User management
+				r.Get("/users", srv.handleListUsers)
+				r.Post("/users", srv.handleCreateUser)
+				r.Put("/users/{id}", srv.handleUpdateUser)
+				r.Delete("/users/{id}", srv.handleDeleteUser)
+			})
+		})
 	})
 
 	srv.router = r
@@ -254,7 +282,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -398,6 +426,7 @@ func NewServerWithConcreteRules(
 	sc *stream.Client,
 	tier string,
 	ollamaBaseURL string,
+	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
 	ss searchScheduler,
@@ -405,5 +434,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }

@@ -60,6 +60,11 @@ type Config struct {
 		Expansions  []string      `yaml:"expansions"`
 		StartTime   string        `yaml:"start_time"`
 	} `yaml:"search"`
+	Auth struct {
+		JWTSecret     string `yaml:"jwt_secret"`
+		AdminUsername string `yaml:"admin_username"`
+		AdminPassword string `yaml:"admin_password"`
+	} `yaml:"auth"`
 }
 
 // defaults returns a Config populated with sensible default values.
@@ -81,6 +86,8 @@ func defaults() *Config {
 	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text"}
 	cfg.Search.UserFields = []string{"username"}
 	cfg.Search.Expansions = []string{"author_id", "referenced_tweets.id"}
+	cfg.Auth.AdminUsername = "admin"
+	cfg.Auth.AdminPassword = "changeme"
 	return cfg
 }
 
@@ -172,6 +179,15 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_STREAM_AUTO_CONNECT"); v != "" {
 		cfg.Stream.AutoConnect = v == "true" || v == "1"
+	}
+	if v := os.Getenv("IRAN_WATCHER_AUTH_JWT_SECRET"); v != "" {
+		cfg.Auth.JWTSecret = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_AUTH_ADMIN_USERNAME"); v != "" {
+		cfg.Auth.AdminUsername = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_AUTH_ADMIN_PASSWORD"); v != "" {
+		cfg.Auth.AdminPassword = v
 	}
 	return nil
 }

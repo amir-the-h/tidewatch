@@ -171,5 +171,14 @@ type Store interface {
 	ListSearchJobs(ctx context.Context, limit int) ([]*model.SearchJob, error)
 	DeleteSearchJob(ctx context.Context, id string) error
 
+	// Users
+	SaveUser(ctx context.Context, u *model.User) error
+	GetUser(ctx context.Context, id int64) (*model.User, error)
+	GetUserByUsername(ctx context.Context, username string) (*model.User, error)
+	ListUsers(ctx context.Context) ([]*model.User, error)
+	UpdateUser(ctx context.Context, u *model.User) error
+	DeleteUser(ctx context.Context, id int64) error
+	CountAdmins(ctx context.Context) (int, error)
+
 	Close() error
 }

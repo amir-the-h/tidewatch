@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/api"
+	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/config"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -172,7 +173,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
 
 	mgr := worker.NewManager(workerCount, q, q, s, reg, emitter, logger)
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, logger, dispatcher, searchScheduler, mgr, q, q)
+
+	jwtSecret := cfg.Auth.JWTSecret
+	if jwtSecret == "" {
+		// Warn loudly — an empty secret makes all tokens trivially forgeable.
+		logger.Warn("serve: auth.jwt_secret is not set; using an insecure default — set IRAN_WATCHER_AUTH_JWT_SECRET in production", "component", "auth")
+		jwtSecret = "iran-watcher-insecure-default-secret"
+	}
+
+	if err := seedAdminUser(ctx, s, cfg.Auth.AdminUsername, cfg.Auth.AdminPassword, logger); err != nil {
+		return fmt.Errorf("serve: seed admin: %w", err)
+	}
+
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.Ollama.BaseURL, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -251,4 +264,35 @@ func parseLogLevel(level string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+// seedAdminUser ensures an admin account exists. If no admin is present in the
+// database, one is created from the config values. Subsequent starts are no-ops.
+func seedAdminUser(ctx context.Context, s store.Store, username, password string, logger *slog.Logger) error {
+	count, err := s.CountAdmins(ctx)
+	if err != nil {
+		return fmt.Errorf("count admins: %w", err)
+	}
+	if count > 0 {
+		return nil // admin already exists
+	}
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	now := time.Now()
+	u := &model.User{
+		Username:     username,
+		PasswordHash: hash,
+		Role:         model.RoleAdmin,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := s.SaveUser(ctx, u); err != nil {
+		return fmt.Errorf("save admin user: %w", err)
+	}
+	logger.Info("serve: created initial admin user", "username", username, "component", "auth")
+	return nil
 }
