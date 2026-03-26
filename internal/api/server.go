@@ -168,6 +168,10 @@ func NewServer(
 		r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
 		r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
 
+		// Summaries
+		r.Get("/summaries", srv.handleListSummaries)
+		r.Post("/summaries/run", srv.handleRunSummaries)
+
 		// Failures (dead-letter queue)
 		r.Get("/failures", srv.handleListFailures)
 		r.Delete("/failures", srv.handleClearFailures)

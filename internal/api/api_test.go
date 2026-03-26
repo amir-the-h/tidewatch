@@ -243,6 +243,48 @@ func (m *mockStore) SetNotificationActive(_ context.Context, id int64, active bo
 	return nil
 }
 
+func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error) {
+	return len(m.tweets), nil
+}
+func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)    { return 0, nil }
+func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)            { return 0, nil }
+func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error         { return nil }
+func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
+	return nil, nil
+}
+func (m *mockStore) ListModelLabels(_ context.Context, _ string) ([]string, error) { return nil, nil }
+func (m *mockStore) AddModelLabel(_ context.Context, _, _ string) error             { return nil }
+func (m *mockStore) RemoveModelLabel(_ context.Context, _, _ string) error          { return nil }
+func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error               { return nil }
+func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error            { return nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)  { return nil, nil }
+func (m *mockStore) SaveTrackedEntity(_ context.Context, _ *model.TrackedEntity) error { return nil }
+func (m *mockStore) GetTrackedEntity(_ context.Context, _ int64) (*model.TrackedEntity, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListTrackedEntities(_ context.Context, _ store.TrackedEntityFilter) ([]*model.TrackedEntity, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateTrackedEntity(_ context.Context, _ *model.TrackedEntity) error { return nil }
+func (m *mockStore) DeleteTrackedEntity(_ context.Context, _ int64) error                 { return nil }
+func (m *mockStore) SetTrackedEntityActive(_ context.Context, _ int64, _ bool) error      { return nil }
+func (m *mockStore) ListActiveTrackedEntities(_ context.Context) ([]*model.TrackedEntity, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveEntityTrack(_ context.Context, _ *model.EntityTrack) error { return nil }
+func (m *mockStore) ListEntityTracks(_ context.Context, _ store.EntityTrackFilter) ([]*model.EntityTrack, error) {
+	return nil, nil
+}
+func (m *mockStore) CountEntityTracks(_ context.Context, _ store.EntityTrackFilter) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) ListSummaries(_ context.Context, _ store.SummaryFilter) ([]*model.SummaryItem, error) {
+	return []*model.SummaryItem{}, nil
+}
+func (m *mockStore) CountSummaries(_ context.Context, _ store.SummaryFilter) (int, error) {
+	return 0, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------
@@ -288,7 +330,7 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	mp := &mockProducer{}
 	mr := &mockRuleManager{}
 	logger := slog.Default()
-	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", "", logger, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", "", logger, nil, nil, nil, nil, nil)
 	return srv, ms, mp, mr
 }
 
