@@ -19,7 +19,9 @@ internal/queue/         → Redis list-based producer/consumer
 internal/inference/     → ONNX runtime wrapper, Pipeline interface
 internal/api/           → REST API (net/http or chi)
 internal/worker/        → Worker pool goroutines
-internal/model/         → Domain types (Tweet, Source, etc.)
+internal/model/         → Domain types (Tweet, Source, Notification, DigestJob, etc.)
+internal/notifier/      → Async push notifications (Pushover + Telegram)
+internal/search/        → X search API backfill scheduler
 cli/                    → Cobra CLI (thin client over REST API)
 migrations/             → Embedded SQL migration files
 models/                 → ONNX model files (gitignored)
@@ -92,6 +94,10 @@ go test -tags integration ./...      # unit + integration tests
 - **Model hot-reload** — activate/deactivate via API without restart
 - **API is localhost-only** by default, no auth
 - **Reprocess endpoint** queries SQLite for missing categorizations, not the dead-letter queue
+- **Notifications** — runtime-configured push alerts via Pushover or Telegram; async buffered channel dispatch; `provider` field selects backend per notification
+- **Digest jobs** — background async jobs that generate LLM digests over a filtered tweet window; stored in `digest_jobs` table with status tracking
+- **Ollama integration** — LLM summarization and digest via local Ollama; `ollama.base_url` config
+- **Stream auto-connect** — `stream.auto_connect: true` connects to X on startup without a CLI call
 
 ## Testing
 
