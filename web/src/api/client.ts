@@ -1,5 +1,8 @@
 // web/src/api/client.ts
-const base = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
+const base: string =
+  (window as Window & { __ENV__?: { API_BASE_URL?: string } }).__ENV__?.API_BASE_URL ||
+  (import.meta.env.VITE_API_BASE_URL as string) ||
+  ''
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {

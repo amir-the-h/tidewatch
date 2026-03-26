@@ -26,6 +26,7 @@ cli/                    → Cobra CLI (thin client over REST API)
 migrations/             → Embedded SQL migration files
 models/                 → ONNX model files (gitignored)
 configs/                → Default config files
+.github/workflows/      → GitHub Actions CI/CD (Docker build + push to Docker Hub)
 ```
 
 ## Tech Stack
@@ -100,6 +101,7 @@ go test -tags integration ./...      # unit + integration tests
 - **Search jobs** — async background jobs for X search backfill; POST `/api/search/run` returns a job immediately (202), client polls GET `/api/search/{id}` until `done`/`error`; stored in `search_jobs` table
 - **Ollama integration** — LLM summarization and digest via local Ollama; `ollama.base_url` config
 - **Stream auto-connect** — `stream.auto_connect: true` connects to X on startup without a CLI call
+- **UI runtime config** — `API_BASE_URL` is injected at container startup by `web/docker-entrypoint.sh`, which writes `env-config.js` into the nginx html root; the SPA reads `window.__ENV__.API_BASE_URL` at runtime so the image is not baked with a specific URL and anyone can run it with `-e API_BASE_URL=...`
 
 ## Testing
 
