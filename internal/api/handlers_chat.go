@@ -97,8 +97,35 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
 	w.WriteHeader(http.StatusOK)
 
+	// Send an immediate keep-alive so any upstream proxy resets its read
+	// timeout before we block on the semaphore or Ollama cold-load.
+	flusher, canFlush := w.(http.Flusher)
+	fmt.Fprint(w, ": keep-alive\n\n")
+	if canFlush {
+		flusher.Flush()
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
+
+	// Periodic keep-alive pings prevent intermediate proxies (whose
+	// proxy_read_timeout we cannot control) from issuing a 504 while
+	// Ollama is thinking between tokens.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				fmt.Fprint(w, ": keep-alive\n\n")
+				if canFlush {
+					flusher.Flush()
+				}
+			}
+		}
+	}()
 
 	if err := cp.ChatStream(ctx, formatted, req.Messages, w); err != nil {
 		if !errors.Is(err, context.Canceled) {
