@@ -305,7 +305,7 @@ const columns: DataTableColumns<Model> = [
               <n-select
                 style="width: 280px"
                 placeholder="Add a rule filter..."
-                :options="rulesStore.rules.filter(r => !rulesModel?.rule_ids?.includes(r.id)).map(r => ({ label: r.name || r.compiled_value, value: r.id }))"
+                :options="rulesStore.rules.filter(r => !r.local && !rulesModel?.rule_ids?.includes(r.id)).map(r => ({ label: r.name || r.compiled_value, value: r.id }))"
                 @update:value="onAddRule"
               />
             </n-space>

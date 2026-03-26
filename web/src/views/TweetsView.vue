@@ -206,7 +206,7 @@ const columns: DataTableColumns<Tweet> = [
     <n-space wrap>
       <n-select
         v-model:value="filterRuleId"
-        :options="rulesStore.rules.map(r => ({ label: r.name, value: r.id }))"
+        :options="rulesStore.rules.filter(r => !r.local).map(r => ({ label: r.name, value: r.id }))"
         placeholder="Filter by rule"
         clearable
         style="width: 200px"

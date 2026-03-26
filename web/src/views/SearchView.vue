@@ -24,7 +24,7 @@ const running         = ref(false)
 const errorIs503      = ref(false)
 
 const ruleOptions = computed(() =>
-  rulesStore.rules.map(r => ({ label: r.name, value: r.id }))
+  rulesStore.rules.filter(r => !r.local).map(r => ({ label: r.name, value: r.id }))
 )
 
 onMounted(() => {
