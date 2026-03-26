@@ -45,11 +45,34 @@ configs/                → Default config files
 
 ## Commands
 
+### Docker (preferred)
+
 ```bash
-go build ./cmd/iran-watcher         # build
+# Build and start all services (API + UI)
+docker compose build
+docker compose up -d
+
+# Rebuild a single service after code changes
+docker compose build iran-watcher
+docker compose up -d --no-deps iran-watcher
+
+# View logs
+docker compose logs -f iran-watcher
+
+# Stop
+docker compose down
+```
+
+Production compose lives at `/mnt/storage/docker/compose/iran-watcher/` with bind-mounted volumes and absolute build paths. The repo's `docker-compose.yml` uses named volumes and relative paths — keep them in sync when adding new env vars or services.
+
+### Native (tests only)
+
+```bash
 go test ./...                        # unit tests
 go test -tags integration ./...      # unit + integration tests
 ```
+
+> Native `go build` / `go run` is not recommended — the binary requires CGO, Rust toolchain, and ONNX Runtime shared libraries. Use Docker instead.
 
 ## Code Conventions
 
