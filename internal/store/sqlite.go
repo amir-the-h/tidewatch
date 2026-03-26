@@ -136,6 +136,16 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 		where = append(where, "tr.rule_id = ?")
 		args = append(args, *filter.RuleID)
 	}
+	if filter.SourceID != nil {
+		query += ` JOIN tweet_sources ts ON ts.tweet_id = t.id`
+		where = append(where, "ts.source_id = ?")
+		args = append(args, *filter.SourceID)
+	}
+	if filter.EntityID != nil {
+		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
+		where = append(where, "et.entity_id = ?")
+		args = append(args, *filter.EntityID)
+	}
 	if filter.From != nil {
 		where = append(where, "t.created_at >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
@@ -176,6 +186,16 @@ func (s *sqliteStore) CountTweets(ctx context.Context, filter TweetFilter) (int,
 		query += ` JOIN tweet_rules tr ON tr.tweet_id = t.id`
 		where = append(where, "tr.rule_id = ?")
 		args = append(args, *filter.RuleID)
+	}
+	if filter.SourceID != nil {
+		query += ` JOIN tweet_sources ts ON ts.tweet_id = t.id`
+		where = append(where, "ts.source_id = ?")
+		args = append(args, *filter.SourceID)
+	}
+	if filter.EntityID != nil {
+		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
+		where = append(where, "et.entity_id = ?")
+		args = append(args, *filter.EntityID)
 	}
 	if filter.From != nil {
 		where = append(where, "t.created_at >= ?")
@@ -1463,6 +1483,116 @@ func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackF
 	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("store: count entity tracks: %w", err)
+	}
+	return count, nil
+}
+
+// ── Summaries ─────────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) summaryFilterQuery(filter SummaryFilter) (string, []any) {
+	var args []any
+	var joins, where []string
+
+	if filter.RuleID != nil {
+		joins = append(joins, `JOIN tweet_rules tr ON tr.tweet_id = t.id`)
+		where = append(where, "tr.rule_id = ?")
+		args = append(args, *filter.RuleID)
+	}
+	if filter.SourceID != nil {
+		joins = append(joins, `JOIN tweet_sources ts ON ts.tweet_id = t.id`)
+		where = append(where, "ts.source_id = ?")
+		args = append(args, *filter.SourceID)
+	}
+	if filter.EntityID != nil {
+		joins = append(joins, `JOIN entity_tracks et ON et.tweet_id = t.id`)
+		where = append(where, "et.entity_id = ?")
+		args = append(args, *filter.EntityID)
+	}
+	if filter.From != nil {
+		where = append(where, "t.created_at >= ?")
+		args = append(args, filter.From.UTC().Format(time.RFC3339))
+	}
+	if filter.To != nil {
+		where = append(where, "t.created_at <= ?")
+		args = append(args, filter.To.UTC().Format(time.RFC3339))
+	}
+
+	clause := ""
+	if len(joins) > 0 {
+		clause += " " + strings.Join(joins, " ")
+	}
+	if len(where) > 0 {
+		clause += " WHERE " + strings.Join(where, " AND ")
+	}
+	return clause, args
+}
+
+func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error) {
+	page := filter.Page
+	if page < 1 {
+		page = 1
+	}
+	perPage := filter.PerPage
+	if perPage < 1 {
+		perPage = 50
+	}
+	offset := (page - 1) * perPage
+
+	filterClause, args := s.summaryFilterQuery(filter)
+	query := `SELECT t.id, t.author_handle, t.text, t.created_at,
+	                 c.results, c.model_name, c.created_at
+	          FROM tweets t
+	          JOIN categorizations c ON c.tweet_id = t.id
+	          JOIN models m ON m.name = c.model_name AND m.type = 'summarizer'` +
+		filterClause +
+		` ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
+	args = append(args, perPage, offset)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list summaries: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*model.SummaryItem
+	for rows.Next() {
+		var item model.SummaryItem
+		var resultsJSON, createdAt, summarizedAt string
+		if err := rows.Scan(
+			&item.TweetID, &item.AuthorHandle, &item.TweetText, &createdAt,
+			&resultsJSON, &item.ModelName, &summarizedAt,
+		); err != nil {
+			return nil, fmt.Errorf("store: list summaries: scan: %w", err)
+		}
+		if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+			item.CreatedAt = t
+		}
+		if t, err := time.Parse(time.RFC3339, summarizedAt); err == nil {
+			item.SummarizedAt = t
+		}
+		var results struct {
+			Summary string `json:"summary"`
+		}
+		if err := json.Unmarshal([]byte(resultsJSON), &results); err == nil {
+			item.Summary = results.Summary
+		}
+		items = append(items, &item)
+	}
+	if items == nil {
+		items = []*model.SummaryItem{}
+	}
+	return items, rows.Err()
+}
+
+func (s *sqliteStore) CountSummaries(ctx context.Context, filter SummaryFilter) (int, error) {
+	filterClause, args := s.summaryFilterQuery(filter)
+	query := `SELECT COUNT(*) FROM tweets t
+	          JOIN categorizations c ON c.tweet_id = t.id
+	          JOIN models m ON m.name = c.model_name AND m.type = 'summarizer'` + filterClause
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("store: count summaries: %w", err)
 	}
 	return count, nil
 }

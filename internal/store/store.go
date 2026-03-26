@@ -9,11 +9,24 @@ import (
 
 // TweetFilter defines optional filters for listing tweets.
 type TweetFilter struct {
-	RuleID  *int64
-	From    *time.Time
-	To      *time.Time
-	Page    int
-	PerPage int
+	RuleID   *int64
+	SourceID *int64
+	EntityID *int64
+	From     *time.Time
+	To       *time.Time
+	Page     int
+	PerPage  int
+}
+
+// SummaryFilter defines optional filters for listing tweet+summary pairs.
+type SummaryFilter struct {
+	RuleID   *int64
+	SourceID *int64
+	EntityID *int64
+	From     *time.Time
+	To       *time.Time
+	Page     int
+	PerPage  int
 }
 
 // SourceFilter defines optional filters for listing sources.
@@ -137,6 +150,10 @@ type Store interface {
 	SaveEntityTrack(ctx context.Context, t *model.EntityTrack) error
 	ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error)
 	CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error)
+
+	// Summaries
+	ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error)
+	CountSummaries(ctx context.Context, filter SummaryFilter) (int, error)
 
 	Close() error
 }
