@@ -102,7 +102,7 @@ go test -tags integration ./...      # unit + integration tests
 - **NER alias suggestions** — when creating/editing a tracked entity the UI surfaces NER-derived alias candidates; edit mode calls `GET /api/tracked-entities/{id}/alias-suggestions` (contexts from the entity's own NER tracks); create mode debounces on name input and calls `GET /api/alias-suggestions?name={name}&type={type}` (searches across all same-type entity NER tracks); suggestions are filtered by entity type and exclude already-added aliases
 - **Ollama integration** — LLM summarization and digest via local Ollama; `ollama.base_url` config
 - **Stream auto-connect** — `stream.auto_connect: true` connects to X on startup without a CLI call
-- **UI runtime config** — `API_BASE_URL` is injected at container startup by `web/docker-entrypoint.sh`, which writes `env-config.js` into the nginx html root; the SPA reads `window.__ENV__.API_BASE_URL` at runtime so the image is not baked with a specific URL and anyone can run it with `-e API_BASE_URL=...`
+- **UI runtime config** — `API_BASE_URL` and `API_UPSTREAM` are injected at container startup by `web/docker-entrypoint.sh`: it writes `env-config.js` (SPA reads `window.__ENV__.API_BASE_URL`) and runs `envsubst` on `nginx.conf.template` to produce the live nginx config. `API_BASE_URL` defaults to `""` (same-origin) so the SPA calls `/api/...` as relative paths; nginx proxies those to `API_UPSTREAM` (default `http://iran-watcher:1452`) via Docker network — API traffic never leaves the server. Set `API_UPSTREAM` to override the backend target.
 
 ## Testing
 
