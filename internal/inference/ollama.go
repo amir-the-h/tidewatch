@@ -597,7 +597,11 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 		return fmt.Errorf("inference: ollama: chat stream: marshal: %w", err)
 	}
 
-	p.sem <- struct{}{}
+	select {
+	case p.sem <- struct{}{}:
+	case <-ctx.Done():
+		return fmt.Errorf("inference: ollama: chat stream: %w", ctx.Err())
+	}
 	defer func() { <-p.sem }()
 
 	if err := p.ensureLoaded(); err != nil {

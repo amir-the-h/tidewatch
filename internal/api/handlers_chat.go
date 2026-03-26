@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -100,7 +101,9 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := cp.ChatStream(ctx, formatted, req.Messages, w); err != nil {
-		s.logger.Error("api: chat stream", "error", err)
+		if !errors.Is(err, context.Canceled) {
+			s.logger.Error("api: chat stream", "error", err)
+		}
 	}
 }
 
