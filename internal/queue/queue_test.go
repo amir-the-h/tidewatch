@@ -137,6 +137,18 @@ func (f *fakeRedisClient) BRPop(_ context.Context, _ time.Duration, _ ...string)
 	return redis.NewStringSliceResult(f.brpopResult, f.brpopErr)
 }
 
+func (f *fakeRedisClient) LLen(_ context.Context, _ string) *redis.IntCmd {
+	return redis.NewIntResult(0, nil)
+}
+
+func (f *fakeRedisClient) LRange(_ context.Context, _ string, _, _ int64) *redis.StringSliceCmd {
+	return redis.NewStringSliceResult(nil, nil)
+}
+
+func (f *fakeRedisClient) Del(_ context.Context, _ ...string) *redis.IntCmd {
+	return redis.NewIntResult(0, nil)
+}
+
 func TestPop_ReturnsNilOnTimeout(t *testing.T) {
 	fake := &fakeRedisClient{
 		brpopErr:    redis.Nil, // BRPop returns redis.Nil on timeout

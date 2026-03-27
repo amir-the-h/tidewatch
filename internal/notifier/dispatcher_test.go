@@ -163,6 +163,19 @@ func (m *mockStore) ListCategorizations(_ context.Context, _ store.Categorizatio
 func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
 	panic("not implemented")
 }
+func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error                   { return nil }
+func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error                { return nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)      { return nil, nil }
+func (m *mockStore) ListModelLabels(_ context.Context, _ string) ([]string, error)      { return nil, nil }
+func (m *mockStore) AddModelLabel(_ context.Context, _, _ string) error                 { return nil }
+func (m *mockStore) RemoveModelLabel(_ context.Context, _, _ string) error              { return nil }
+func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                    { return nil }
+func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)            { return nil, nil }
+func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) { return nil, nil }
+func (m *mockStore) ListUsers(_ context.Context) ([]*model.User, error)                 { return nil, nil }
+func (m *mockStore) UpdateUser(_ context.Context, _ *model.User) error                  { return nil }
+func (m *mockStore) DeleteUser(_ context.Context, _ int64) error                        { return nil }
+func (m *mockStore) CountAdmins(_ context.Context) (int, error)                         { return 1, nil }
 func (m *mockStore) Close() error { return nil }
 
 // --- test helpers --------------------------------------------------------
