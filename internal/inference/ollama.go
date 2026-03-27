@@ -177,6 +177,7 @@ type rawExtractionResult struct {
 // currently reachable; inUse tracks whether a request holds it. State is
 // managed under OllamaPipeline.mu.
 type ollamaBackend struct {
+	name         string    // display name; defaults to baseURL if empty
 	baseURL      string
 	client       *http.Client
 	healthy      bool      // managed by health checker and request-time failures
@@ -224,15 +225,15 @@ type OllamaPipeline struct {
 	cancelHealth context.CancelFunc
 }
 
-// NewOllamaPipeline creates a new OllamaPipeline. baseURLs is the list of
-// Ollama server addresses; an empty slice or a single empty string both fall
-// back to http://localhost:11434. systemPrompt selects the extraction
-// instruction set; an empty value falls back to OllamaGenericSystem.
+// NewOllamaPipeline creates a new OllamaPipeline. backendConfigs is the list of
+// Ollama backends (URL + optional display name); an empty slice falls back to a
+// single default backend at http://localhost:11434. systemPrompt selects the
+// extraction instruction set; an empty value falls back to OllamaGenericSystem.
 // fastWaitTimeout controls how long acquireFastest waits for the best backend
 // before falling back to any idle backend; values <= 0 default to 5s.
-func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string, fastWaitTimeout time.Duration) *OllamaPipeline {
-	if len(baseURLs) == 0 {
-		baseURLs = []string{defaultOllamaBaseURL}
+func NewOllamaPipeline(name string, backendConfigs []BackendConfig, systemPrompt string, fastWaitTimeout time.Duration) *OllamaPipeline {
+	if len(backendConfigs) == 0 {
+		backendConfigs = []BackendConfig{{URL: defaultOllamaBaseURL}}
 	}
 	if systemPrompt == "" {
 		systemPrompt = OllamaGenericSystem
@@ -240,12 +241,18 @@ func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string, fast
 	if fastWaitTimeout <= 0 {
 		fastWaitTimeout = 5 * time.Second
 	}
-	backends := make([]*ollamaBackend, 0, len(baseURLs))
-	for _, u := range baseURLs {
+	backends := make([]*ollamaBackend, 0, len(backendConfigs))
+	for _, bc := range backendConfigs {
+		u := bc.URL
 		if u == "" {
 			u = defaultOllamaBaseURL
 		}
+		displayName := bc.Name
+		if displayName == "" {
+			displayName = u
+		}
 		backends = append(backends, &ollamaBackend{
+			name:    displayName,
 			baseURL: u,
 			client:  &http.Client{}, // no global timeout — each request carries its own context deadline
 			healthy: true,
@@ -447,6 +454,7 @@ func (p *OllamaPipeline) BackendStats() []BackendStat {
 			lat = &t
 		}
 		stats[i] = BackendStat{
+			Name:         b.name,
 			URL:          b.baseURL,
 			Healthy:      b.healthy,
 			InUse:        b.inUse,

@@ -78,8 +78,16 @@ type ChatPipeline interface {
 	EstimateTokens(ctx context.Context, texts []string) (estimated int, contextLimit int, err error)
 }
 
+// BackendConfig holds the URL and optional display name for an Ollama backend.
+// The inference package uses this type so it does not need to import config.
+type BackendConfig struct {
+	URL  string
+	Name string // display name; if empty, URL is used
+}
+
 // BackendStat holds a snapshot of a single Ollama backend's runtime state.
 type BackendStat struct {
+	Name         string     `json:"name"`
 	URL          string     `json:"url"`
 	Healthy      bool       `json:"healthy"`
 	InUse        bool       `json:"in_use"`

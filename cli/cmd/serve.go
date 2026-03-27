@@ -96,6 +96,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	ollamaBackends := ollamaBackendConfigs(cfg.OllamaBackends())
+
 	factory := func(m *model.Model) (inference.Pipeline, error) {
 		switch m.Type {
 		case model.ModelTypeSummarizer:
@@ -106,10 +108,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			if m.Name == "geoconfirmed-extractor" {
 				prompt = inference.OllamaGeoConfirmedSystem
 			}
-			p := inference.NewOllamaPipeline(m.Name, cfg.OllamaBaseURLs(), prompt, cfg.Ollama.FastWaitTimeout)
+			p := inference.NewOllamaPipeline(m.Name, ollamaBackends, prompt, cfg.Ollama.FastWaitTimeout)
 			return p, p.Load(m.Path)
 		case model.ModelTypeDigest:
-			p := inference.NewOllamaPipeline(m.Name, cfg.OllamaBaseURLs(), inference.OllamaDigestSystem, cfg.Ollama.FastWaitTimeout)
+			p := inference.NewOllamaPipeline(m.Name, ollamaBackends, inference.OllamaDigestSystem, cfg.Ollama.FastWaitTimeout)
 			return p, p.Load(m.Path)
 		default:
 			p := inference.NewONNXPipeline(m.Name)
@@ -185,7 +187,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.OllamaBaseURLs(), cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, ollamaBackends, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -251,6 +253,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	logger.Info("serve: shutdown complete")
 	return nil
+}
+
+// ollamaBackendConfigs converts config.OllamaBackendConfig slice to
+// inference.BackendConfig slice for use with NewOllamaPipeline.
+func ollamaBackendConfigs(cfgBackends []config.OllamaBackendConfig) []inference.BackendConfig {
+	out := make([]inference.BackendConfig, len(cfgBackends))
+	for i, b := range cfgBackends {
+		out[i] = inference.BackendConfig{URL: b.URL, Name: b.Name}
+	}
+	return out
 }
 
 func parseLogLevel(level string) slog.Level {

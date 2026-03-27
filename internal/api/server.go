@@ -69,7 +69,7 @@ type Server struct {
 	rules                   ruleManagerInterface
 	stream                  streamClientInterface
 	tier                    string
-	ollamaBaseURLs          []string
+	ollamaBackends          []inference.BackendConfig
 	ollamaFastWaitTimeout   time.Duration
 	jwtSecret               string
 	dispatcher              *notifier.Dispatcher
@@ -92,7 +92,7 @@ func NewServer(
 	rules ruleManagerInterface,
 	sc streamClientInterface,
 	tier string,
-	ollamaBaseURLs []string,
+	ollamaBackends []inference.BackendConfig,
 	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -109,7 +109,7 @@ func NewServer(
 		rules:                 rules,
 		stream:                sc,
 		tier:                  tier,
-		ollamaBaseURLs:        ollamaBaseURLs,
+		ollamaBackends:        ollamaBackends,
 		ollamaFastWaitTimeout: ollamaFastWaitTimeout,
 		jwtSecret:             jwtSecret,
 		dispatcher:            dispatcher,
@@ -436,7 +436,7 @@ func NewServerWithConcreteRules(
 	rules *stream.RuleManager,
 	sc *stream.Client,
 	tier string,
-	ollamaBaseURLs []string,
+	ollamaBackends []inference.BackendConfig,
 	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -446,5 +446,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURLs, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }

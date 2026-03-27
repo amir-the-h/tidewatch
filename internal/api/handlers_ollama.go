@@ -31,6 +31,7 @@ func (s *Server) handleOllamaBackends(w http.ResponseWriter, r *http.Request) {
 			}
 			if !m.initialized {
 				m.stat.URL = stat.URL
+				m.stat.Name = stat.Name
 				m.initialized = true
 			}
 			// healthy: true only if every pipeline instance is healthy

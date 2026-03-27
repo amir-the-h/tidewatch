@@ -10,6 +10,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// OllamaBackendConfig holds the URL and optional display name for a single Ollama backend.
+type OllamaBackendConfig struct {
+	URL  string `yaml:"url"`
+	Name string `yaml:"name"` // optional display name; defaults to URL if empty
+}
+
 // Config holds all application configuration.
 type Config struct {
 	X struct {
@@ -35,9 +41,10 @@ type Config struct {
 		ModelsDir   string `yaml:"models_dir"`
 	} `yaml:"inference"`
 	Ollama struct {
-		BaseURL         string        `yaml:"base_url"`          // single URL — kept for backward compatibility; use base_urls for multiple backends
-		BaseURLs        []string      `yaml:"base_urls"`         // pool of Ollama server addresses; takes precedence over base_url when set
-		FastWaitTimeout time.Duration `yaml:"fast_wait_timeout"` // how long acquireFastest waits for the best backend before falling back; default 5s
+		BaseURL         string                `yaml:"base_url"`          // single URL — kept for backward compatibility; use base_urls for multiple backends
+		BaseURLs        []string              `yaml:"base_urls"`         // pool of Ollama server addresses; takes precedence over base_url when set
+		Backends        []OllamaBackendConfig `yaml:"backends"`          // named backends (takes precedence over base_urls/base_url); supports display names
+		FastWaitTimeout time.Duration         `yaml:"fast_wait_timeout"` // how long acquireFastest waits for the best backend before falling back; default 5s
 	} `yaml:"ollama"`
 	Log struct {
 		Level  string `yaml:"level"`
@@ -122,17 +129,35 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// OllamaBaseURLs returns the effective list of Ollama backend URLs.
-// base_urls takes precedence; if it is empty, base_url is used as a single-
-// element list so callers never need to handle both fields.
-func (cfg *Config) OllamaBaseURLs() []string {
+// OllamaBackends returns the effective list of Ollama backends with optional
+// display names. Precedence: backends > base_urls > base_url > default.
+func (cfg *Config) OllamaBackends() []OllamaBackendConfig {
+	if len(cfg.Ollama.Backends) > 0 {
+		return cfg.Ollama.Backends
+	}
 	if len(cfg.Ollama.BaseURLs) > 0 {
-		return cfg.Ollama.BaseURLs
+		out := make([]OllamaBackendConfig, len(cfg.Ollama.BaseURLs))
+		for i, u := range cfg.Ollama.BaseURLs {
+			out[i] = OllamaBackendConfig{URL: u}
+		}
+		return out
 	}
 	if cfg.Ollama.BaseURL != "" {
-		return []string{cfg.Ollama.BaseURL}
+		return []OllamaBackendConfig{{URL: cfg.Ollama.BaseURL}}
 	}
-	return []string{"http://localhost:11434"}
+	return []OllamaBackendConfig{{URL: "http://localhost:11434"}}
+}
+
+// OllamaBaseURLs returns the effective list of Ollama backend URLs.
+// Delegates to OllamaBackends for consistent precedence logic.
+// Kept for backward compatibility; prefer OllamaBackends() for new code.
+func (cfg *Config) OllamaBaseURLs() []string {
+	backends := cfg.OllamaBackends()
+	urls := make([]string, len(backends))
+	for i, b := range backends {
+		urls[i] = b.URL
+	}
+	return urls
 }
 
 // applyEnv overrides cfg fields from IRAN_WATCHER_* environment variables.
