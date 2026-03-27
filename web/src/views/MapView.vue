@@ -59,11 +59,11 @@ onMounted(async () => {
 
     pinCount.value = pins.length
 
-    // Compute date range for the spectrum
+    // Compute date range for the spectrum using the tweet's own created_at
     let minMs = Infinity
     let maxMs = -Infinity
     for (const { cat } of pins) {
-      const ms = new Date(cat.created_at).getTime()
+      const ms = new Date(cat.tweet_created_at).getTime()
       if (ms < minMs) minMs = ms
       if (ms > maxMs) maxMs = ms
     }
@@ -76,7 +76,7 @@ onMounted(async () => {
 
     for (const { cat, loc } of pins) {
       const [lat, lon] = loc.coordinates
-      const ms = new Date(cat.created_at).getTime()
+      const ms = new Date(cat.tweet_created_at).getTime()
       const t = range === 0 ? 0.5 : (ms - minMs) / range
       const color = tToColor(t)
 
@@ -93,7 +93,7 @@ onMounted(async () => {
       if (loc.place) lines.push(escHtml(loc.place))
       if (cat.results.description) lines.push(escHtml(cat.results.description))
       lines.push(`<a href="/tweets?tweet=${cat.tweet_id}" style="color:${color}">Tweet ${cat.tweet_id}</a>`)
-      lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(cat.created_at))}</span>`)
+      lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(cat.tweet_created_at))}</span>`)
       lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(cat.model_name)}</span>`)
 
       marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })

@@ -825,30 +825,33 @@ func (s *sqliteStore) SaveCategorization(ctx context.Context, c *model.Categoriz
 }
 
 func (s *sqliteStore) ListCategorizations(ctx context.Context, filter CategorizationFilter) ([]*model.Categorization, error) {
-	query := `SELECT id, tweet_id, model_name, model_version, results, created_at FROM categorizations`
+	query := `SELECT c.id, c.tweet_id, c.model_name, c.model_version, c.results, c.created_at,
+	           COALESCE(t.created_at, c.created_at) AS tweet_created_at
+	           FROM categorizations c
+	           LEFT JOIN tweets t ON t.id = c.tweet_id`
 	var args []any
 	var where []string
 
 	if filter.TweetID != nil {
-		where = append(where, "tweet_id = ?")
+		where = append(where, "c.tweet_id = ?")
 		args = append(args, *filter.TweetID)
 	}
 	if filter.ModelName != nil {
-		where = append(where, "model_name = ?")
+		where = append(where, "c.model_name = ?")
 		args = append(args, *filter.ModelName)
 	}
 	if filter.From != nil {
-		where = append(where, "created_at >= ?")
+		where = append(where, "c.created_at >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "created_at <= ?")
+		where = append(where, "c.created_at <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	query += " ORDER BY id ASC"
+	query += " ORDER BY c.id ASC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1180,8 +1183,8 @@ func scanModel(s scanner) (*model.Model, error) {
 
 func scanCategorization(s scanner) (*model.Categorization, error) {
 	var c model.Categorization
-	var results, createdAt string
-	if err := s.Scan(&c.ID, &c.TweetID, &c.ModelName, &c.ModelVersion, &results, &createdAt); err != nil {
+	var results, createdAt, tweetCreatedAt string
+	if err := s.Scan(&c.ID, &c.TweetID, &c.ModelName, &c.ModelVersion, &results, &createdAt, &tweetCreatedAt); err != nil {
 		return nil, err
 	}
 	c.Results = json.RawMessage(results)
@@ -1189,6 +1192,11 @@ func scanCategorization(s scanner) (*model.Categorization, error) {
 	c.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("parse categorization created_at: %w", err)
+	}
+	c.TweetCreatedAt, err = time.Parse(time.RFC3339, tweetCreatedAt)
+	if err != nil {
+		// Fall back to categorization time if tweet timestamp is unparseable.
+		c.TweetCreatedAt = c.CreatedAt
 	}
 	return &c, nil
 }
