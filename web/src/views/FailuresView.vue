@@ -37,6 +37,7 @@ interface WorkerStats {
   queued: number
   pipelines?: Record<string, number>
   pipeline_active?: Record<string, number>
+  pipeline_rate?: Record<string, number>
 }
 
 const queueStats  = ref<QueueStats | null>(null)
@@ -93,7 +94,20 @@ async function onFlush() {
 
 // ── Pipeline table rows ───────────────────────────────────────────────────────
 
-interface PipelineRow { name: string; workers: number; buffered: number }
+interface PipelineRow { name: string; workers: number; buffered: number; eta: string }
+
+function formatEta(buffered: number, rate: number): string {
+  if (buffered === 0) return '—'
+  if (rate <= 0) return '?'
+  const secs = Math.ceil(buffered / rate)
+  if (secs < 60) return `${secs}s`
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`
+  const h = Math.floor(m / 60)
+  const rm = m % 60
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`
+}
 
 const pipelineRows = computed<PipelineRow[]>(() => {
   const ps = workerStats.value?.pipelines
@@ -102,6 +116,7 @@ const pipelineRows = computed<PipelineRow[]>(() => {
     name,
     workers:  workerStats.value?.pipeline_active?.[name] ?? 0,
     buffered,
+    eta: formatEta(buffered, workerStats.value?.pipeline_rate?.[name] ?? 0),
   }))
 })
 
@@ -292,6 +307,19 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             render: (row: PipelineRow) => h('span', {
               style: { color: row.buffered > 0 ? '#f9e2af' : '#585b70' }
             }, row.buffered),
+          },
+          {
+            title: 'ETA',
+            key: 'eta',
+            width: 100,
+            render: (row: PipelineRow) => h('span', {
+              style: {
+                color: row.eta === '—' ? '#585b70'
+                  : row.eta === '?' ? '#f38ba8'
+                  : '#cdd6f4',
+                fontVariantNumeric: 'tabular-nums',
+              }
+            }, row.eta),
           },
           {
             title: '',

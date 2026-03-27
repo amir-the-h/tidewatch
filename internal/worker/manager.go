@@ -43,6 +43,7 @@ type Manager struct {
 	schedNames       []string            // pipeline names parallel to schedOrder
 	pipelineLimits   map[string]int      // max concurrent workers per pipeline; 0 = unlimited
 	activePipelines  sync.Map            // map[string]*atomic.Int32 — workers executing each pipeline
+	pipelineTrackers sync.Map            // map[string]*rateTracker  — per-pipeline throughput trackers
 }
 
 // NewManager creates a Manager with the given dependencies.
@@ -93,6 +94,12 @@ func (m *Manager) Stats() PoolStats {
 		return true
 	})
 
+	pipelineRate := make(map[string]float64)
+	m.pipelineTrackers.Range(func(key, value any) bool {
+		pipelineRate[key.(string)] = value.(*rateTracker).rate()
+		return true
+	})
+
 	return PoolStats{
 		Total:          m.totalWorkers,
 		Active:         active,
@@ -100,6 +107,7 @@ func (m *Manager) Stats() PoolStats {
 		Queued:         queued,
 		Pipelines:      pipelines,
 		PipelineActive: pipelineActive,
+		PipelineRate:   pipelineRate,
 	}
 }
 
@@ -175,13 +183,20 @@ func (m *Manager) syncPipelineChans() {
 
 	m.mu.Unlock()
 
-	// Mirror additions/removals in activePipelines.
+	// Mirror additions/removals in activePipelines and pipelineTrackers.
 	for name := range names {
 		m.activePipelines.LoadOrStore(name, new(atomic.Int32))
+		m.pipelineTrackers.LoadOrStore(name, new(rateTracker))
 	}
 	m.activePipelines.Range(func(key, _ any) bool {
 		if _, ok := names[key.(string)]; !ok {
 			m.activePipelines.Delete(key)
+		}
+		return true
+	})
+	m.pipelineTrackers.Range(func(key, _ any) bool {
+		if _, ok := names[key.(string)]; !ok {
+			m.pipelineTrackers.Delete(key)
 		}
 		return true
 	})
@@ -457,6 +472,11 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *PipelineT
 				Timestamp: time.Now(),
 			})
 		}
+	}
+
+	// Record throughput for ETA estimation regardless of success/failure.
+	if v, ok := m.pipelineTrackers.Load(task.Pipeline.Name()); ok {
+		v.(*rateTracker).record()
 	}
 
 	if task.Tracker.record(nerEnts, failed) {
