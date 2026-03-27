@@ -2,16 +2,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { listOllamaBackends } from '../api/ollama'
-import type { PipelineBackends } from '../api/ollama'
+import type { BackendStat } from '../api/ollama'
 
-const pipelines  = ref<PipelineBackends[]>([])
+const backends   = ref<BackendStat[]>([])
 const loading    = ref(false)
 const lastUpdated = ref<Date | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 async function refresh() {
   try {
-    pipelines.value  = await listOllamaBackends()
+    backends.value   = await listOllamaBackends()
     lastUpdated.value = new Date()
   } catch { /* server unreachable */ }
 }
@@ -25,10 +25,8 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 
 const maxScore = computed(() => {
   let max = 0
-  for (const p of pipelines.value) {
-    for (const b of p.backends) {
-      if (b.score > max) max = b.score
-    }
+  for (const b of backends.value) {
+    if (b.score > max) max = b.score
   }
   return max || 1  // avoid division by zero
 })
@@ -64,23 +62,16 @@ function formatLastUpdated(d: Date): string {
 
     <!-- Empty state -->
     <n-empty
-      v-else-if="pipelines.length === 0"
-      description="No Ollama pipelines active"
+      v-else-if="backends.length === 0"
+      description="No Ollama backends active"
       style="padding: 48px 0;"
     />
 
-    <!-- Pipeline sections -->
+    <!-- Backend cards -->
     <template v-else>
-      <div v-for="pipeline in pipelines" :key="pipeline.pipeline">
-        <n-divider style="margin-bottom: 12px;">
-          <n-text style="font-size: 13px; color: #89dceb; font-weight: 600;">
-            {{ pipeline.pipeline }}
-          </n-text>
-        </n-divider>
-
-        <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
+      <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
           <n-gi
-            v-for="backend in pipeline.backends"
+            v-for="backend in backends"
             :key="backend.url"
             span="3 s:3 m:1"
           >
@@ -175,7 +166,6 @@ function formatLastUpdated(d: Date): string {
             </n-card>
           </n-gi>
         </n-grid>
-      </div>
     </template>
 
   </n-space>

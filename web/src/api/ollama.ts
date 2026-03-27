@@ -7,14 +7,9 @@ export interface BackendStat {
   in_use: boolean
   score: number
   request_count: number
-  last_active_at?: string  // ISO 8601, absent if never used
+  last_active_at?: string
 }
 
-export interface PipelineBackends {
-  pipeline: string
-  backends: BackendStat[]
-}
-
-export function listOllamaBackends(): Promise<PipelineBackends[]> {
-  return apiFetch<PipelineBackends[]>('/api/ollama/backends')
+export function listOllamaBackends(): Promise<BackendStat[]> {
+  return apiFetch<BackendStat[]>('/api/ollama/backends')
 }
