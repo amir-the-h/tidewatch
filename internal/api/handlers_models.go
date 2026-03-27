@@ -149,10 +149,10 @@ func (s *Server) reloadRegistry(ctx context.Context) error {
 			if m.Name == "geoconfirmed-extractor" {
 				prompt = inference.OllamaGeoConfirmedSystem
 			}
-			p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURLs, prompt)
+			p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURLs, prompt, s.ollamaFastWaitTimeout)
 			return p, p.Load(m.Path)
 		case model.ModelTypeDigest:
-			p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURLs, inference.OllamaDigestSystem)
+			p := inference.NewOllamaPipeline(m.Name, s.ollamaBaseURLs, inference.OllamaDigestSystem, s.ollamaFastWaitTimeout)
 			return p, p.Load(m.Path)
 		default:
 			p := inference.NewONNXPipeline(m.Name)

@@ -35,8 +35,9 @@ type Config struct {
 		ModelsDir   string `yaml:"models_dir"`
 	} `yaml:"inference"`
 	Ollama struct {
-		BaseURL  string   `yaml:"base_url"`  // single URL — kept for backward compatibility; use base_urls for multiple backends
-		BaseURLs []string `yaml:"base_urls"` // pool of Ollama server addresses; takes precedence over base_url when set
+		BaseURL         string        `yaml:"base_url"`          // single URL — kept for backward compatibility; use base_urls for multiple backends
+		BaseURLs        []string      `yaml:"base_urls"`         // pool of Ollama server addresses; takes precedence over base_url when set
+		FastWaitTimeout time.Duration `yaml:"fast_wait_timeout"` // how long acquireFastest waits for the best backend before falling back; default 5s
 	} `yaml:"ollama"`
 	Log struct {
 		Level  string `yaml:"level"`
@@ -79,6 +80,7 @@ func defaults() *Config {
 	cfg.API.Bind = "127.0.0.1:8080"
 	cfg.Inference.ModelsDir = "./models"
 	cfg.Ollama.BaseURL = "http://localhost:11434" // default used when base_urls is not set
+	cfg.Ollama.FastWaitTimeout = 5 * time.Second
 	cfg.Log.Level = "info"
 	cfg.Log.Format = "text"
 	cfg.Search.Enabled = false
@@ -189,6 +191,13 @@ func applyEnv(cfg *Config) error {
 			urls[i] = strings.TrimSpace(u)
 		}
 		cfg.Ollama.BaseURLs = urls
+	}
+	if v := os.Getenv("IRAN_WATCHER_OLLAMA_FAST_WAIT_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("config: IRAN_WATCHER_OLLAMA_FAST_WAIT_TIMEOUT: %w", err)
+		}
+		cfg.Ollama.FastWaitTimeout = d
 	}
 	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_APP_TOKEN"); v != "" {
 		cfg.Pushover.AppToken = v

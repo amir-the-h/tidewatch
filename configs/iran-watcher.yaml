@@ -31,6 +31,13 @@ auth:
   admin_username: admin   # initial admin username (used only on first startup)
   admin_password: changeme  # CHANGE THIS — or set IRAN_WATCHER_AUTH_ADMIN_PASSWORD
 
+ollama:
+  # base_url: http://localhost:11434       # single backend (backward-compat)
+  # base_urls:                             # pool of backends (takes precedence)
+  #   - http://desktop:11434
+  #   - http://macbook:11434
+  # fast_wait_timeout: 5s                  # how long to wait for the fastest backend before falling back
+
 search:
   enabled: false
   interval: 15m

@@ -174,8 +174,25 @@ type rawExtractionResult struct {
 type ollamaBackend struct {
 	baseURL string
 	client  *http.Client
-	healthy bool // managed by health checker and request-time failures
-	inUse   bool // true while a request holds this backend
+	healthy bool    // managed by health checker and request-time failures
+	inUse   bool    // true while a request holds this backend
+	score   float64 // tokens/sec, exponential moving average; 0 = not yet measured
+}
+
+// updateScore updates the backend's performance score using an exponential
+// moving average (alpha=0.3). Must be called with OllamaPipeline.mu held.
+func (b *ollamaBackend) updateScore(tokensPerSec float64) {
+	if b.score == 0 {
+		b.score = tokensPerSec
+	} else {
+		b.score = 0.3*tokensPerSec + 0.7*b.score
+	}
+}
+
+// ollamaEval holds the eval stats returned in Ollama generate/chat responses.
+type ollamaEval struct {
+	EvalCount    int   `json:"eval_count"`
+	EvalDuration int64 `json:"eval_duration"` // nanoseconds
 }
 
 // OllamaPipeline implements Pipeline by calling one or more locally-running
@@ -189,10 +206,11 @@ type ollamaBackend struct {
 // Unhealthy backends are skipped; the background health checker probes them
 // for recovery every 30 seconds.
 type OllamaPipeline struct {
-	name         string
-	model        string
-	systemPrompt string
-	backends     []*ollamaBackend // ordered slice for Load iteration
+	name            string
+	model           string
+	systemPrompt    string
+	backends        []*ollamaBackend // ordered slice for Load iteration
+	fastWaitTimeout time.Duration
 
 	mu           sync.Mutex
 	cond         *sync.Cond        // broadcast whenever any backend state changes
@@ -203,12 +221,17 @@ type OllamaPipeline struct {
 // Ollama server addresses; an empty slice or a single empty string both fall
 // back to http://localhost:11434. systemPrompt selects the extraction
 // instruction set; an empty value falls back to OllamaGenericSystem.
-func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string) *OllamaPipeline {
+// fastWaitTimeout controls how long acquireFastest waits for the best backend
+// before falling back to any idle backend; values <= 0 default to 5s.
+func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string, fastWaitTimeout time.Duration) *OllamaPipeline {
 	if len(baseURLs) == 0 {
 		baseURLs = []string{defaultOllamaBaseURL}
 	}
 	if systemPrompt == "" {
 		systemPrompt = OllamaGenericSystem
+	}
+	if fastWaitTimeout <= 0 {
+		fastWaitTimeout = 5 * time.Second
 	}
 	backends := make([]*ollamaBackend, 0, len(baseURLs))
 	for _, u := range baseURLs {
@@ -223,9 +246,10 @@ func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string) *Oll
 		})
 	}
 	p := &OllamaPipeline{
-		name:         name,
-		systemPrompt: systemPrompt,
-		backends:     backends,
+		name:            name,
+		systemPrompt:    systemPrompt,
+		backends:        backends,
+		fastWaitTimeout: fastWaitTimeout,
 	}
 	p.cond = sync.NewCond(&p.mu)
 	return p
@@ -268,6 +292,120 @@ func (p *OllamaPipeline) markUnhealthy(b *ollamaBackend) {
 	p.mu.Unlock()
 	p.cond.Broadcast()
 	slog.Warn("ollama: backend marked unhealthy", "url", b.baseURL)
+}
+
+// benchmark sends a minimal prompt to /api/generate (stream: false) and returns
+// tokens/sec. Uses a 60-second timeout to allow model loading.
+func (p *OllamaPipeline) benchmark(b *ollamaBackend) (float64, error) {
+	type benchReq struct {
+		Model  string `json:"model"`
+		Prompt string `json:"prompt"`
+		Stream bool   `json:"stream"`
+	}
+	type benchResp struct {
+		EvalCount    int   `json:"eval_count"`
+		EvalDuration int64 `json:"eval_duration"`
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	body, _ := json.Marshal(benchReq{Model: p.model, Prompt: "Hi", Stream: false})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/generate", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, &ollamaHTTPError{statusCode: resp.StatusCode, body: "benchmark failed"}
+	}
+	var br benchResp
+	if err := json.NewDecoder(resp.Body).Decode(&br); err != nil {
+		return 0, err
+	}
+	if br.EvalDuration == 0 {
+		return 0, fmt.Errorf("ollama: benchmark: zero eval_duration")
+	}
+	return float64(br.EvalCount) / (float64(br.EvalDuration) / 1e9), nil
+}
+
+// bestHealthy returns the healthy backend with the highest score.
+// If all scores are 0, returns the first healthy backend.
+// Must be called with p.mu held.
+func (p *OllamaPipeline) bestHealthy() *ollamaBackend {
+	var best *ollamaBackend
+	for _, b := range p.backends {
+		if !b.healthy {
+			continue
+		}
+		if best == nil || b.score > best.score {
+			best = b
+		}
+	}
+	return best
+}
+
+// fastestIdle returns the healthy+idle backend with the highest score.
+// Returns nil if no healthy idle backend exists.
+// Must be called with p.mu held.
+func (p *OllamaPipeline) fastestIdle() *ollamaBackend {
+	var best *ollamaBackend
+	for _, b := range p.backends {
+		if !b.healthy || b.inUse {
+			continue
+		}
+		if best == nil || b.score > best.score {
+			best = b
+		}
+	}
+	return best
+}
+
+// acquireFastest acquires the highest-scoring healthy backend.
+// It waits up to p.fastWaitTimeout for the best backend to free up,
+// then falls back to the fastest currently-idle backend.
+func (p *OllamaPipeline) acquireFastest(ctx context.Context) (*ollamaBackend, error) {
+	stop := context.AfterFunc(ctx, func() { p.cond.Broadcast() })
+	defer stop()
+
+	deadline := time.Now().Add(p.fastWaitTimeout)
+	timer := time.AfterFunc(p.fastWaitTimeout, func() { p.cond.Broadcast() })
+	defer timer.Stop()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for {
+		best := p.bestHealthy()
+		if best != nil && !best.inUse {
+			best.inUse = true
+			return best, nil
+		}
+		if best != nil && time.Now().After(deadline) {
+			if b := p.fastestIdle(); b != nil {
+				b.inUse = true
+				return b, nil
+			}
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		p.cond.Wait()
+	}
+}
+
+// recordEval updates the backend's performance score based on eval stats from
+// a completed Ollama response. Safe to call with nil or zero eval stats.
+func (p *OllamaPipeline) recordEval(b *ollamaBackend, eval ollamaEval) {
+	if eval.EvalDuration == 0 || eval.EvalCount == 0 {
+		return
+	}
+	tokensPerSec := float64(eval.EvalCount) / (float64(eval.EvalDuration) / 1e9)
+	p.mu.Lock()
+	b.updateScore(tokensPerSec)
+	p.mu.Unlock()
 }
 
 // Name returns the pipeline name as registered in the models table.
@@ -326,6 +464,22 @@ func (p *OllamaPipeline) Load(modelPath string) error {
 		}
 	}
 	slog.Info("ollama: backends healthy after load", "healthy", healthy, "total", len(p.backends))
+
+	// Benchmark healthy backends to seed performance scores.
+	for _, b := range p.backends {
+		if !b.healthy {
+			continue
+		}
+		score, err := p.benchmark(b)
+		if err != nil {
+			slog.Warn("ollama: backend benchmark failed", "url", b.baseURL, "err", err)
+			continue
+		}
+		p.mu.Lock()
+		b.updateScore(score)
+		p.mu.Unlock()
+		slog.Info("ollama: backend benchmark", "url", b.baseURL, "tokens_per_sec", fmt.Sprintf("%.1f", score))
+	}
 
 	healthCtx, cancel := context.WithCancel(context.Background())
 	p.cancelHealth = cancel
@@ -535,7 +689,9 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 		Format   string    `json:"format"`
 	}
 	type chatResponse struct {
-		Message message `json:"message"`
+		Message      message `json:"message"`
+		EvalCount    int     `json:"eval_count"`
+		EvalDuration int64   `json:"eval_duration"`
 	}
 
 	body, err := json.Marshal(chatRequest{
@@ -602,6 +758,7 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 			p.release(b)
 			return nil, fmt.Errorf("inference: ollama: decode response: %w", decErr)
 		}
+		p.recordEval(b, ollamaEval{EvalCount: chatResp.EvalCount, EvalDuration: chatResp.EvalDuration})
 		p.release(b)
 
 		var raw rawExtractionResult
@@ -657,7 +814,9 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 		Stream   bool      `json:"stream"`
 	}
 	type chatResponse struct {
-		Message message `json:"message"`
+		Message      message `json:"message"`
+		EvalCount    int     `json:"eval_count"`
+		EvalDuration int64   `json:"eval_duration"`
 	}
 
 	body, err := json.Marshal(chatRequest{
@@ -673,7 +832,7 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 	}
 
 	for {
-		b, err := p.acquire(context.Background())
+		b, err := p.acquireFastest(context.Background())
 		if err != nil {
 			return "", fmt.Errorf("inference: ollama: digest: acquire: %w", err)
 		}
@@ -722,6 +881,7 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 			p.release(b)
 			return "", fmt.Errorf("inference: ollama: digest: decode response: %w", decErr)
 		}
+		p.recordEval(b, ollamaEval{EvalCount: chatResp.EvalCount, EvalDuration: chatResp.EvalDuration})
 		p.release(b)
 		return strings.TrimSpace(chatResp.Message.Content), nil
 	}
@@ -843,7 +1003,7 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 	}
 
 	for {
-		b, err := p.acquire(ctx)
+		b, err := p.acquireFastest(ctx)
 		if err != nil {
 			return fmt.Errorf("inference: ollama: chat stream: %w", err)
 		}
@@ -886,7 +1046,9 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
-			Done bool `json:"done"`
+			Done         bool  `json:"done"`
+			EvalCount    int   `json:"eval_count"`
+			EvalDuration int64 `json:"eval_duration"`
 		}
 
 		flusher, canFlush := w.(interface{ Flush() })
@@ -903,6 +1065,7 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 				continue
 			}
 			if chunk.Done {
+				p.recordEval(b, ollamaEval{EvalCount: chunk.EvalCount, EvalDuration: chunk.EvalDuration})
 				fmt.Fprintf(w, "data: [DONE]\n\n")
 				if canFlush {
 					flusher.Flush()

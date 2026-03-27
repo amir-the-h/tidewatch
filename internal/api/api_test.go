@@ -305,6 +305,23 @@ func (m *mockStore) ListSearchJobs(_ context.Context, _ int) ([]*model.SearchJob
 }
 func (m *mockStore) DeleteSearchJob(_ context.Context, _ string) error { return nil }
 
+func (m *mockStore) ListNERSuggestionsForEntity(_ context.Context, _ int64) ([]string, error) {
+	return nil, nil
+}
+func (m *mockStore) SearchNERSuggestions(_ context.Context, _ string, _ string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error          { return nil }
+func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)  { return nil, nil }
+func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) {
+	return nil, nil
+}
+func (m *mockStore) ListUsers(_ context.Context) ([]*model.User, error)          { return nil, nil }
+func (m *mockStore) UpdateUser(_ context.Context, _ *model.User) error           { return nil }
+func (m *mockStore) DeleteUser(_ context.Context, _ int64) error                 { return nil }
+func (m *mockStore) CountAdmins(_ context.Context) (int, error)                  { return 1, nil }
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +367,7 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	mp := &mockProducer{}
 	mr := &mockRuleManager{}
 	logger := slog.Default()
-	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", "", logger, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", nil, 0, "", logger, nil, nil, nil, nil, nil)
 	return srv, ms, mp, mr
 }
 

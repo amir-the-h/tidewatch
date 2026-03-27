@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -62,22 +63,23 @@ type streamClientInterface interface {
 
 // Server is the REST API server.
 type Server struct {
-	store            store.Store
-	producer         queue.Producer
-	registry         *inference.Registry
-	rules            ruleManagerInterface
-	stream           streamClientInterface
-	tier             string
-	ollamaBaseURLs   []string
-	jwtSecret        string
-	dispatcher       *notifier.Dispatcher
-	searchScheduler  searchScheduler // nil if search not configured
-	pool             workerPoolStatsProvider
-	sizer            queueSizer
-	failureLister    queue.FailureLister
-	logger           *slog.Logger
-	router           chi.Router
-	http             *http.Server
+	store                   store.Store
+	producer                queue.Producer
+	registry                *inference.Registry
+	rules                   ruleManagerInterface
+	stream                  streamClientInterface
+	tier                    string
+	ollamaBaseURLs          []string
+	ollamaFastWaitTimeout   time.Duration
+	jwtSecret               string
+	dispatcher              *notifier.Dispatcher
+	searchScheduler         searchScheduler // nil if search not configured
+	pool                    workerPoolStatsProvider
+	sizer                   queueSizer
+	failureLister           queue.FailureLister
+	logger                  *slog.Logger
+	router                  chi.Router
+	http                    *http.Server
 	ctx              context.Context
 }
 
@@ -91,6 +93,7 @@ func NewServer(
 	sc streamClientInterface,
 	tier string,
 	ollamaBaseURLs []string,
+	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
@@ -100,20 +103,21 @@ func NewServer(
 	lister queue.FailureLister,
 ) *Server {
 	srv := &Server{
-		store:           s,
-		producer:        q,
-		registry:        reg,
-		rules:           rules,
-		stream:          sc,
-		tier:            tier,
-		ollamaBaseURLs:  ollamaBaseURLs,
-		jwtSecret:       jwtSecret,
-		dispatcher:      dispatcher,
-		searchScheduler: ss,
-		pool:            pool,
-		sizer:           sizer,
-		failureLister:   lister,
-		logger:          logger,
+		store:                 s,
+		producer:              q,
+		registry:              reg,
+		rules:                 rules,
+		stream:                sc,
+		tier:                  tier,
+		ollamaBaseURLs:        ollamaBaseURLs,
+		ollamaFastWaitTimeout: ollamaFastWaitTimeout,
+		jwtSecret:             jwtSecret,
+		dispatcher:            dispatcher,
+		searchScheduler:       ss,
+		pool:                  pool,
+		sizer:                 sizer,
+		failureLister:         lister,
+		logger:                logger,
 	}
 
 	authMw := auth.Middleware(jwtSecret)
@@ -430,6 +434,7 @@ func NewServerWithConcreteRules(
 	sc *stream.Client,
 	tier string,
 	ollamaBaseURLs []string,
+	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
@@ -438,5 +443,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURLs, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURLs, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }
