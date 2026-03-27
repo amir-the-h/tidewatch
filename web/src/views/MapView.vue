@@ -21,8 +21,18 @@ const mapEl    = ref<HTMLDivElement | null>(null)
 const loading  = ref(true)
 const pinCount = ref(0)
 const error    = ref<string | null>(null)
+const oldestDate = ref<string>('')
+const newestDate = ref<string>('')
 
 let map: L.Map | null = null
+
+// Maps a normalized t ∈ [0,1] (0=oldest, 1=newest) to a hex color
+// Spectrum: blue → cyan → green → yellow → red
+function tToColor(t: number): string {
+  // Hue 240° (blue) → 0° (red), using HSL
+  const hue = Math.round((1 - t) * 240)
+  return `hsl(${hue},90%,60%)`
+}
 
 onMounted(async () => {
   if (!mapEl.value) return
@@ -49,14 +59,32 @@ onMounted(async () => {
 
     pinCount.value = pins.length
 
+    // Compute date range for the spectrum
+    let minMs = Infinity
+    let maxMs = -Infinity
+    for (const { cat } of pins) {
+      const ms = new Date(cat.created_at).getTime()
+      if (ms < minMs) minMs = ms
+      if (ms > maxMs) maxMs = ms
+    }
+    const range = maxMs - minMs
+
+    if (pins.length > 0) {
+      oldestDate.value = fmtDate(new Date(minMs))
+      newestDate.value = fmtDate(new Date(maxMs))
+    }
+
     for (const { cat, loc } of pins) {
-      // coordinates stored as [lat, lon]
       const [lat, lon] = loc.coordinates
+      const ms = new Date(cat.created_at).getTime()
+      const t = range === 0 ? 0.5 : (ms - minMs) / range
+      const color = tToColor(t)
+
       const marker = L.circleMarker([lat, lon], {
         radius: 6,
-        color: '#89b4fa',
-        fillColor: '#89b4fa',
-        fillOpacity: 0.75,
+        color,
+        fillColor: color,
+        fillOpacity: 0.85,
         weight: 1.5,
       })
 
@@ -64,8 +92,9 @@ onMounted(async () => {
       if (loc.label) lines.push(`<b>${escHtml(loc.label)}</b>`)
       if (loc.place) lines.push(escHtml(loc.place))
       if (cat.results.description) lines.push(escHtml(cat.results.description))
-      lines.push(`<a href="/tweets?tweet=${cat.tweet_id}" style="color:#89b4fa">Tweet ${cat.tweet_id}</a>`)
-      lines.push(`<span style="color:#6c7086;font-size:11px">${cat.model_name}</span>`)
+      lines.push(`<a href="/tweets?tweet=${cat.tweet_id}" style="color:${color}">Tweet ${cat.tweet_id}</a>`)
+      lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(cat.created_at))}</span>`)
+      lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(cat.model_name)}</span>`)
 
       marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })
       marker.addTo(map!)
@@ -85,6 +114,10 @@ onUnmounted(() => {
 function escHtml(s: string): string {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
+
+function fmtDate(d: Date): string {
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
 </script>
 
 <template>
@@ -102,6 +135,19 @@ function escHtml(s: string): string {
       </span>
       <span v-if="loading" style="font-size: 12px; color: #a6adc8;">Loading…</span>
       <span v-if="error" style="font-size: 12px; color: #f38ba8;">{{ error }}</span>
+
+      <!-- Date spectrum legend -->
+      <div v-if="!loading && pinCount > 0 && oldestDate" style="
+        display: flex; align-items: center; gap: 6px; margin-left: auto;
+        font-size: 11px; color: #a6adc8;
+      ">
+        <span>{{ oldestDate }}</span>
+        <div style="
+          width: 80px; height: 8px; border-radius: 4px;
+          background: linear-gradient(to right, hsl(240,90%,60%), hsl(180,90%,60%), hsl(120,90%,60%), hsl(60,90%,60%), hsl(0,90%,60%));
+        "/>
+        <span>{{ newestDate }}</span>
+      </div>
     </div>
 
     <!-- Map container -->
