@@ -2,6 +2,7 @@
 import { apiFetch } from './client'
 
 export interface BackendStat {
+  name: string
   url: string
   healthy: boolean
   in_use: boolean

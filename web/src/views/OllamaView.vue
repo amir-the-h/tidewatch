@@ -104,25 +104,31 @@ function formatLastUpdated(d: Date): string {
                   {{ backend.in_use ? 'In use' : backend.healthy ? 'Healthy' : 'Unhealthy' }}
                 </n-tooltip>
 
-                <!-- URL in monospace, truncated -->
-                <n-tooltip trigger="hover" :delay="300">
-                  <template #trigger>
-                    <n-text
-                      code
-                      style="
-                        font-size: 12px;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                        display: block;
-                        max-width: 100%;
-                      "
-                    >
-                      {{ backend.url }}
-                    </n-text>
-                  </template>
-                  {{ backend.url }}
-                </n-tooltip>
+                <!-- Name + URL stack -->
+                <div style="overflow: hidden; min-width: 0;">
+                  <n-text style="font-size: 13px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    {{ backend.name }}
+                  </n-text>
+                  <n-tooltip trigger="hover" :delay="300">
+                    <template #trigger>
+                      <n-text
+                        code
+                        depth="3"
+                        style="
+                          font-size: 11px;
+                          overflow: hidden;
+                          text-overflow: ellipsis;
+                          white-space: nowrap;
+                          display: block;
+                          max-width: 100%;
+                        "
+                      >
+                        {{ backend.url }}
+                      </n-text>
+                    </template>
+                    {{ backend.url }}
+                  </n-tooltip>
+                </div>
               </n-space>
 
               <!-- Score bar -->
