@@ -172,11 +172,13 @@ type rawExtractionResult struct {
 // currently reachable; inUse tracks whether a request holds it. State is
 // managed under OllamaPipeline.mu.
 type ollamaBackend struct {
-	baseURL string
-	client  *http.Client
-	healthy bool    // managed by health checker and request-time failures
-	inUse   bool    // true while a request holds this backend
-	score   float64 // tokens/sec, exponential moving average; 0 = not yet measured
+	baseURL      string
+	client       *http.Client
+	healthy      bool      // managed by health checker and request-time failures
+	inUse        bool      // true while a request holds this backend
+	score        float64   // tokens/sec, exponential moving average; 0 = not yet measured
+	requestCount int64     // total completed requests
+	lastActiveAt time.Time // zero value if never used
 }
 
 // updateScore updates the backend's performance score using an exponential
@@ -405,6 +407,8 @@ func (p *OllamaPipeline) recordEval(b *ollamaBackend, eval ollamaEval) {
 	tokensPerSec := float64(eval.EvalCount) / (float64(eval.EvalDuration) / 1e9)
 	p.mu.Lock()
 	b.updateScore(tokensPerSec)
+	b.requestCount++
+	b.lastActiveAt = time.Now()
 	p.mu.Unlock()
 }
 
@@ -424,6 +428,29 @@ func (p *OllamaPipeline) MaxConcurrency() int {
 		}
 	}
 	return n
+}
+
+// BackendStats returns a snapshot of all backends' runtime state.
+func (p *OllamaPipeline) BackendStats() []BackendStat {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	stats := make([]BackendStat, len(p.backends))
+	for i, b := range p.backends {
+		var lat *time.Time
+		if !b.lastActiveAt.IsZero() {
+			t := b.lastActiveAt
+			lat = &t
+		}
+		stats[i] = BackendStat{
+			URL:          b.baseURL,
+			Healthy:      b.healthy,
+			InUse:        b.inUse,
+			Score:        b.score,
+			RequestCount: b.requestCount,
+			LastActiveAt: lat,
+		}
+	}
+	return stats
 }
 
 // pingBackend pings GET /api/tags with a 5s timeout. Returns true if reachable.

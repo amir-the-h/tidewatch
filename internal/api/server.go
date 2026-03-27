@@ -220,6 +220,9 @@ func NewServer(
 				r.Get("/failures", srv.handleListFailures)
 				r.Delete("/failures", srv.handleClearFailures)
 
+				// Ollama backend pool stats
+				r.Get("/ollama/backends", srv.handleOllamaBackends)
+
 				// Queue management
 				r.Delete("/queue", srv.handleFlushQueue)
 				r.Delete("/workers/buffer", srv.handleFlushWorkerBuffer)

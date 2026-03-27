@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"time"
 )
 
 // Pipeline is the interface every ONNX model integration must implement.
@@ -75,4 +76,19 @@ type ChatPipeline interface {
 	// EstimateTokens returns the approximate token count for the given texts and
 	// the model's context-window limit.
 	EstimateTokens(ctx context.Context, texts []string) (estimated int, contextLimit int, err error)
+}
+
+// BackendStat holds a snapshot of a single Ollama backend's runtime state.
+type BackendStat struct {
+	URL          string     `json:"url"`
+	Healthy      bool       `json:"healthy"`
+	InUse        bool       `json:"in_use"`
+	Score        float64    `json:"score"`
+	RequestCount int64      `json:"request_count"`
+	LastActiveAt *time.Time `json:"last_active_at,omitempty"` // nil if never used
+}
+
+// BackendStatter is implemented by pipelines that manage a backend pool.
+type BackendStatter interface {
+	BackendStats() []BackendStat
 }
