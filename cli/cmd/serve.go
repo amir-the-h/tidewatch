@@ -106,10 +106,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			if m.Name == "geoconfirmed-extractor" {
 				prompt = inference.OllamaGeoConfirmedSystem
 			}
-			p := inference.NewOllamaPipeline(m.Name, cfg.OllamaBaseURLs(), prompt)
+			p := inference.NewOllamaPipeline(m.Name, cfg.OllamaBaseURLs(), prompt, cfg.Ollama.FastWaitTimeout)
 			return p, p.Load(m.Path)
 		case model.ModelTypeDigest:
-			p := inference.NewOllamaPipeline(m.Name, cfg.OllamaBaseURLs(), inference.OllamaDigestSystem)
+			p := inference.NewOllamaPipeline(m.Name, cfg.OllamaBaseURLs(), inference.OllamaDigestSystem, cfg.Ollama.FastWaitTimeout)
 			return p, p.Load(m.Path)
 		default:
 			p := inference.NewONNXPipeline(m.Name)
@@ -185,7 +185,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.OllamaBaseURLs(), jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, cfg.OllamaBaseURLs(), cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
