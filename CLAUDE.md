@@ -125,3 +125,15 @@ After every fix or feature, update all affected docs before considering the task
 - **CLI help strings** — keep `Use`, `Short`, and `Long` fields on Cobra commands in sync with actual behavior
 
 If a new component, table, queue key, or API route is introduced, it must appear in CLAUDE.md's Project Structure or Key Design Decisions (whichever fits) before the task is committed.
+
+## Build Verification
+
+Before committing any change that touches Go code, frontend code, or Dockerfiles, build the local container image to verify the build succeeds:
+
+```bash
+docker compose build --build-arg BUILDKIT_INLINE_CACHE=1 iran-watcher
+# or tag it explicitly
+docker build -t iran-watcher:local .
+```
+
+Do not push changes that have not been verified to build successfully.
