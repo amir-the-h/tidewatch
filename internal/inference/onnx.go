@@ -25,39 +25,310 @@ type modelConfig struct {
 	ID2Label      map[string]string `json:"id2label"`
 }
 
-// ONNXPipeline implements Pipeline using onnxruntime_go and daulet/tokenizers.
-// Requires: InitRuntime called once before Load, CGO enabled, Rust toolchain,
-// ONNX Runtime 1.24.1 shared library with CUDA execution provider.
-type ONNXPipeline struct {
-	name      string
-	modelPath string
+// ── shared session cache ──────────────────────────────────────────────────────
 
+var (
+	sessionCacheMu sync.Mutex
+	sessionCache   = make(map[string]*sharedONNXSession)
+)
+
+// sharedONNXSession holds a single loaded ONNX session shared across all
+// ONNXPipeline instances that reference the same model file. Inference calls
+// are serialized through mu so that pre-allocated tensors are not clobbered
+// by concurrent pipelines.
+type sharedONNXSession struct {
+	path      string
 	tokenizer *tokenizers.Tokenizer
 	session   *ort.AdvancedSession
 
-	id2label      []string // indexed by logit position
+	// Immutable metadata derived from config.json and the ONNX graph.
+	id2label      []string
 	numLabels     int
-	isNER         bool // true for token-classification (per-token logits)
-	isZeroShot    bool // true for NLI models used as zero-shot classifiers
-	entailmentIdx int  // index of "entailment" class in id2label
-	hasTypeIDs    bool // true for DeBERTa-v2/v3 models
+	isNER         bool
+	isZeroShot    bool
+	entailmentIdx int
+	hasTypeIDs    bool
 
-	// candidate labels for zero-shot (guarded by labelsMu)
-	labelsMu sync.RWMutex
-	labels   []string
-
-	// pre-allocated backing slices — modified in-place per inference
-	inputIDsData []int64
-	attnMaskData []int64
-	typeIDsData  []int64 // nil if !hasTypeIDs
-
-	// pre-allocated tensors wrapping the backing slices
+	// Pre-allocated tensors bound to session at creation time.
+	inputIDsData   []int64
+	attnMaskData   []int64
+	typeIDsData    []int64 // nil if !hasTypeIDs
 	inputIDsTensor *ort.Tensor[int64]
 	attnMaskTensor *ort.Tensor[int64]
 	typeIDsTensor  *ort.Tensor[int64] // nil if !hasTypeIDs
 	logitsTensor   *ort.Tensor[float32]
 
-	mu sync.Mutex // guards tensor data + session.Run
+	mu       sync.Mutex // serialises all session.Run calls across shared pipelines
+	refCount int        // guarded by sessionCacheMu
+}
+
+// fillInputs writes ids and mask into the pre-allocated backing slices.
+// Must be called with s.mu held.
+func (s *sharedONNXSession) fillInputs(ids, mask []uint32) {
+	for i := range s.inputIDsData {
+		s.inputIDsData[i] = 0
+		s.attnMaskData[i] = 0
+	}
+	for i, id := range ids {
+		s.inputIDsData[i] = int64(id)
+		s.attnMaskData[i] = int64(mask[i])
+	}
+	if s.hasTypeIDs {
+		for i := range s.typeIDsData {
+			s.typeIDsData[i] = 0
+		}
+	}
+}
+
+// closeResources destroys the ORT session, tokenizer, and tensors.
+// Called only when refCount reaches zero.
+func (s *sharedONNXSession) closeResources() error {
+	var firstErr error
+	if s.session != nil {
+		if err := s.session.Destroy(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("inference: onnx: destroy session: %w", err)
+		}
+		s.session = nil
+	}
+	if s.tokenizer != nil {
+		if err := s.tokenizer.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("inference: onnx: close tokenizer: %w", err)
+		}
+		s.tokenizer = nil
+	}
+	for _, t := range []*ort.Tensor[int64]{s.inputIDsTensor, s.attnMaskTensor, s.typeIDsTensor} {
+		if t != nil {
+			_ = t.Destroy()
+		}
+	}
+	s.inputIDsTensor, s.attnMaskTensor, s.typeIDsTensor = nil, nil, nil
+	if s.logitsTensor != nil {
+		_ = s.logitsTensor.Destroy()
+		s.logitsTensor = nil
+	}
+	return firstErr
+}
+
+// acquireSession returns the cached sharedONNXSession for modelPath, loading
+// it on first use. Callers must call releaseSession when done.
+func acquireSession(modelPath string) (*sharedONNXSession, error) {
+	sessionCacheMu.Lock()
+	if sess, ok := sessionCache[modelPath]; ok {
+		sess.refCount++
+		sessionCacheMu.Unlock()
+		return sess, nil
+	}
+	sessionCacheMu.Unlock()
+
+	// Load outside the lock — this is the slow path (ONNX session creation).
+	sess, err := loadSharedSession(modelPath)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionCacheMu.Lock()
+	// Another goroutine may have loaded the same path concurrently; if so,
+	// discard our copy and use theirs.
+	if existing, ok := sessionCache[modelPath]; ok {
+		existing.refCount++
+		sessionCacheMu.Unlock()
+		_ = sess.closeResources()
+		return existing, nil
+	}
+	sess.refCount = 1
+	sessionCache[modelPath] = sess
+	sessionCacheMu.Unlock()
+	return sess, nil
+}
+
+// releaseSession decrements the ref count. The session is destroyed when it
+// reaches zero.
+func releaseSession(sess *sharedONNXSession) error {
+	sessionCacheMu.Lock()
+	sess.refCount--
+	destroy := sess.refCount == 0
+	if destroy {
+		delete(sessionCache, sess.path)
+	}
+	sessionCacheMu.Unlock()
+	if destroy {
+		return sess.closeResources()
+	}
+	return nil
+}
+
+// loadSharedSession creates a brand-new sharedONNXSession from modelPath.
+func loadSharedSession(modelPath string) (*sharedONNXSession, error) {
+	s := &sharedONNXSession{path: modelPath}
+	dir := filepath.Dir(modelPath)
+
+	// 1. Tokenizer — may be in dir or one level up (e.g. onnx/ sub-dir).
+	tokenizerDir := dir
+	if _, statErr := os.Stat(filepath.Join(dir, "tokenizer.json")); os.IsNotExist(statErr) {
+		tokenizerDir = filepath.Dir(dir)
+	}
+	tok, err := tokenizers.FromFile(filepath.Join(tokenizerDir, "tokenizer.json"))
+	if err != nil {
+		return nil, fmt.Errorf("inference: onnx: load tokenizer: %w", err)
+	}
+	s.tokenizer = tok
+
+	// 2. Parse config.json for label map and model family.
+	cfg, err := loadModelConfig(tokenizerDir)
+	if err != nil {
+		_ = s.tokenizer.Close()
+		return nil, fmt.Errorf("inference: onnx: load config: %w", err)
+	}
+
+	// 3. Derive features from the config.
+	s.hasTypeIDs = onnxHasInput(modelPath, "token_type_ids")
+	for _, arch := range cfg.Architectures {
+		if strings.Contains(arch, "TokenClassification") {
+			s.isNER = true
+			break
+		}
+	}
+	s.numLabels = len(cfg.ID2Label)
+	s.id2label = make([]string, s.numLabels)
+	for k, v := range cfg.ID2Label {
+		idx, idxErr := strconv.Atoi(k)
+		if idxErr != nil || idx < 0 || idx >= s.numLabels {
+			continue
+		}
+		s.id2label[idx] = v
+		if strings.ToLower(v) == "entailment" {
+			s.isZeroShot = true
+			s.entailmentIdx = idx
+		}
+	}
+
+	// 4. Pre-allocate input tensors.
+	s.inputIDsData = make([]int64, maxSeqLen)
+	s.attnMaskData = make([]int64, maxSeqLen)
+	inputShape := ort.NewShape(1, int64(maxSeqLen))
+
+	s.inputIDsTensor, err = ort.NewTensor(inputShape, s.inputIDsData)
+	if err != nil {
+		_ = s.tokenizer.Close()
+		return nil, fmt.Errorf("inference: onnx: input_ids tensor: %w", err)
+	}
+	s.attnMaskTensor, err = ort.NewTensor(inputShape, s.attnMaskData)
+	if err != nil {
+		_ = s.tokenizer.Close()
+		_ = s.inputIDsTensor.Destroy()
+		return nil, fmt.Errorf("inference: onnx: attention_mask tensor: %w", err)
+	}
+
+	inputs := []ort.Value{s.inputIDsTensor, s.attnMaskTensor}
+	inputNames := []string{"input_ids", "attention_mask"}
+
+	if s.hasTypeIDs {
+		s.typeIDsData = make([]int64, maxSeqLen)
+		s.typeIDsTensor, err = ort.NewTensor(inputShape, s.typeIDsData)
+		if err != nil {
+			_ = s.tokenizer.Close()
+			_ = s.inputIDsTensor.Destroy()
+			_ = s.attnMaskTensor.Destroy()
+			return nil, fmt.Errorf("inference: onnx: token_type_ids tensor: %w", err)
+		}
+		inputs = append(inputs, s.typeIDsTensor)
+		inputNames = append(inputNames, "token_type_ids")
+	}
+
+	// 5. Pre-allocate output tensor.
+	var logitsShape ort.Shape
+	var logitsData []float32
+	if s.isNER {
+		logitsShape = ort.NewShape(1, int64(maxSeqLen), int64(s.numLabels))
+		logitsData = make([]float32, maxSeqLen*s.numLabels)
+	} else {
+		logitsShape = ort.NewShape(1, int64(s.numLabels))
+		logitsData = make([]float32, s.numLabels)
+	}
+	s.logitsTensor, err = ort.NewTensor(logitsShape, logitsData)
+	if err != nil {
+		_ = s.tokenizer.Close()
+		_ = s.inputIDsTensor.Destroy()
+		_ = s.attnMaskTensor.Destroy()
+		if s.typeIDsTensor != nil {
+			_ = s.typeIDsTensor.Destroy()
+		}
+		return nil, fmt.Errorf("inference: onnx: logits tensor: %w", err)
+	}
+
+	// 6. Configure session options; try CUDA EP first.
+	sessionOpts, err := ort.NewSessionOptions()
+	if err != nil {
+		_ = s.closeResources()
+		return nil, fmt.Errorf("inference: onnx: session options: %w", err)
+	}
+	defer sessionOpts.Destroy()
+
+	cudaAppended := false
+	cudaOpts, cudaErr := ort.NewCUDAProviderOptions()
+	if cudaErr == nil {
+		cudaErr = cudaOpts.Update(map[string]string{
+			"device_id":             "0",
+			"arena_extend_strategy": "kSameAsRequested",
+		})
+		if cudaErr == nil {
+			cudaErr = sessionOpts.AppendExecutionProviderCUDA(cudaOpts)
+			if cudaErr == nil {
+				cudaAppended = true
+			}
+		}
+		cudaOpts.Destroy()
+	}
+	if cudaErr != nil {
+		slog.Warn("inference: onnx: CUDA EP unavailable, using CPU",
+			"path", modelPath, "error", cudaErr)
+	}
+
+	// 7. Create session; if CUDA OOM, retry with CPU-only options.
+	s.session, err = ort.NewAdvancedSession(
+		modelPath,
+		inputNames, []string{"logits"},
+		inputs, []ort.Value{s.logitsTensor},
+		sessionOpts,
+	)
+	if err != nil && cudaAppended {
+		slog.Warn("inference: onnx: CUDA session init failed, retrying on CPU",
+			"path", modelPath, "error", err)
+		cpuOpts, optErr := ort.NewSessionOptions()
+		if optErr != nil {
+			_ = s.closeResources()
+			return nil, fmt.Errorf("inference: onnx: cpu session options: %w", optErr)
+		}
+		defer cpuOpts.Destroy()
+		s.session, err = ort.NewAdvancedSession(
+			modelPath,
+			inputNames, []string{"logits"},
+			inputs, []ort.Value{s.logitsTensor},
+			cpuOpts,
+		)
+	}
+	if err != nil {
+		_ = s.closeResources()
+		return nil, fmt.Errorf("inference: onnx: create session: %w", err)
+	}
+
+	return s, nil
+}
+
+// ── ONNXPipeline ──────────────────────────────────────────────────────────────
+
+// ONNXPipeline implements Pipeline using onnxruntime_go and daulet/tokenizers.
+// Multiple ONNXPipeline instances that point to the same .onnx file share a
+// single underlying session via the package-level session cache, so the model
+// weights are only loaded once per file regardless of how many model
+// registrations reference it.
+type ONNXPipeline struct {
+	name   string
+	shared *sharedONNXSession
+
+	// Candidate labels for zero-shot classification (per-pipeline).
+	labelsMu sync.RWMutex
+	labels   []string
 }
 
 // NewONNXPipeline creates a new ONNXPipeline with the given model name.
@@ -78,177 +349,37 @@ func (p *ONNXPipeline) SetLabels(labels []string) {
 	p.labelsMu.Unlock()
 }
 
-// Load initializes the model from the given local .onnx file path.
-// The tokenizer.json and config.json must be in the same directory.
+// Load acquires the shared ONNX session for modelPath, loading it from disk
+// if no other pipeline has done so yet.
 func (p *ONNXPipeline) Load(modelPath string) error {
-	p.modelPath = modelPath
-	dir := filepath.Dir(modelPath)
-
-	// 1. Load tokenizer — may be in dir or one level up (e.g. when the .onnx
-	//    file lives in an onnx/ subdirectory as with hf download output).
-	tokenizerDir := dir
-	if _, statErr := os.Stat(filepath.Join(dir, "tokenizer.json")); os.IsNotExist(statErr) {
-		tokenizerDir = filepath.Dir(dir)
-	}
-	tok, err := tokenizers.FromFile(filepath.Join(tokenizerDir, "tokenizer.json"))
+	sess, err := acquireSession(modelPath)
 	if err != nil {
-		return fmt.Errorf("inference: onnx: load tokenizer: %w", err)
+		return err
 	}
-	p.tokenizer = tok
-
-	// 2. Parse config.json for label map and model family.
-	cfg, err := loadModelConfig(tokenizerDir)
-	if err != nil {
-		return fmt.Errorf("inference: onnx: load config: %w", err)
-	}
-
-	// 3. Derive features from the config.
-	// Detect token_type_ids by scanning the ONNX file directly — more reliable
-	// than inferring from model_type, since pre-exported models may omit it.
-	p.hasTypeIDs = onnxHasInput(modelPath, "token_type_ids")
-	for _, arch := range cfg.Architectures {
-		if strings.Contains(arch, "TokenClassification") {
-			p.isNER = true
-			break
-		}
-	}
-	p.numLabels = len(cfg.ID2Label)
-	p.id2label = make([]string, p.numLabels)
-	for k, v := range cfg.ID2Label {
-		idx, err := strconv.Atoi(k)
-		if err != nil || idx < 0 || idx >= p.numLabels {
-			continue
-		}
-		p.id2label[idx] = v
-		if strings.ToLower(v) == "entailment" {
-			p.isZeroShot = true
-			p.entailmentIdx = idx
-		}
-	}
-
-	// 4. Pre-allocate input backing slices and tensors.
-	p.inputIDsData = make([]int64, maxSeqLen)
-	p.attnMaskData = make([]int64, maxSeqLen)
-	inputShape := ort.NewShape(1, int64(maxSeqLen))
-
-	p.inputIDsTensor, err = ort.NewTensor(inputShape, p.inputIDsData)
-	if err != nil {
-		return fmt.Errorf("inference: onnx: input_ids tensor: %w", err)
-	}
-	p.attnMaskTensor, err = ort.NewTensor(inputShape, p.attnMaskData)
-	if err != nil {
-		return fmt.Errorf("inference: onnx: attention_mask tensor: %w", err)
-	}
-
-	inputs := []ort.Value{p.inputIDsTensor, p.attnMaskTensor}
-	inputNames := []string{"input_ids", "attention_mask"}
-
-	if p.hasTypeIDs {
-		p.typeIDsData = make([]int64, maxSeqLen)
-		p.typeIDsTensor, err = ort.NewTensor(inputShape, p.typeIDsData)
-		if err != nil {
-			return fmt.Errorf("inference: onnx: token_type_ids tensor: %w", err)
-		}
-		inputs = append(inputs, p.typeIDsTensor)
-		inputNames = append(inputNames, "token_type_ids")
-	}
-
-	// 5. Pre-allocate output tensor.
-	//    Sequence classification: [1, numLabels]
-	//    Token classification:    [1, maxSeqLen, numLabels]
-	var logitsShape ort.Shape
-	var logitsData []float32
-	if p.isNER {
-		logitsShape = ort.NewShape(1, int64(maxSeqLen), int64(p.numLabels))
-		logitsData = make([]float32, maxSeqLen*p.numLabels)
-	} else {
-		logitsShape = ort.NewShape(1, int64(p.numLabels))
-		logitsData = make([]float32, p.numLabels)
-	}
-	p.logitsTensor, err = ort.NewTensor(logitsShape, logitsData)
-	if err != nil {
-		return fmt.Errorf("inference: onnx: logits tensor: %w", err)
-	}
-
-	// 6. Configure session options; append CUDA EP with conservative arena
-	//    settings to avoid large GPU pre-allocations. If CUDA is unavailable
-	//    or fails to initialise, fall through to CPU-only.
-	sessionOpts, err := ort.NewSessionOptions()
-	if err != nil {
-		return fmt.Errorf("inference: onnx: session options: %w", err)
-	}
-	defer sessionOpts.Destroy()
-
-	cudaAppended := false
-	cudaOpts, cudaErr := ort.NewCUDAProviderOptions()
-	if cudaErr == nil {
-		cudaErr = cudaOpts.Update(map[string]string{
-			"device_id":             "0",
-			"arena_extend_strategy": "kSameAsRequested", // avoid large pre-allocation
-		})
-		if cudaErr == nil {
-			cudaErr = sessionOpts.AppendExecutionProviderCUDA(cudaOpts)
-			if cudaErr == nil {
-				cudaAppended = true
-			}
-		}
-		cudaOpts.Destroy()
-	}
-	if cudaErr != nil {
-		slog.Warn("inference: onnx: CUDA EP unavailable, using CPU",
-			"model", p.name, "error", cudaErr)
-	}
-
-	// 7. Create the ONNX session. If CUDA was appended but session init fails
-	//    (e.g. GPU OOM), retry with a fresh CPU-only session options.
-	p.session, err = ort.NewAdvancedSession(
-		modelPath,
-		inputNames, []string{"logits"},
-		inputs, []ort.Value{p.logitsTensor},
-		sessionOpts,
-	)
-	if err != nil && cudaAppended {
-		slog.Warn("inference: onnx: CUDA session init failed, retrying on CPU",
-			"model", p.name, "error", err)
-		cpuOpts, optErr := ort.NewSessionOptions()
-		if optErr != nil {
-			return fmt.Errorf("inference: onnx: cpu session options: %w", optErr)
-		}
-		defer cpuOpts.Destroy()
-		p.session, err = ort.NewAdvancedSession(
-			modelPath,
-			inputNames, []string{"logits"},
-			inputs, []ort.Value{p.logitsTensor},
-			cpuOpts,
-		)
-	}
-	if err != nil {
-		return fmt.Errorf("inference: onnx: create session: %w", err)
-	}
-
+	p.shared = sess
 	return nil
 }
 
-// Run tokenizes text, runs inference on GPU, and returns a JSON result.
+// Run tokenizes text, runs inference on GPU (falling back to CPU), and returns
+// a JSON result. Concurrent calls on pipelines sharing the same model file are
+// serialized through the shared session mutex.
 func (p *ONNXPipeline) Run(text []byte) (json.RawMessage, error) {
-	if p.session == nil {
+	if p.shared == nil {
 		return nil, fmt.Errorf("inference: onnx: model not loaded")
 	}
+	s := p.shared
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.isZeroShot {
-		return p.runZeroShot(text)
+	if s.isZeroShot {
+		return p.runZeroShot(s, text)
 	}
 
-	// Tokenize with special tokens ([CLS]/[SEP]) and attention mask.
-	enc := p.tokenizer.EncodeWithOptions(
+	enc := s.tokenizer.EncodeWithOptions(
 		string(text), true,
 		tokenizers.WithReturnAttentionMask(),
 		tokenizers.WithReturnTokens(),
 	)
-
 	ids := enc.IDs
 	mask := enc.AttentionMask
 	tokens := enc.Tokens
@@ -260,23 +391,22 @@ func (p *ONNXPipeline) Run(text []byte) (json.RawMessage, error) {
 		seqLen = maxSeqLen
 	}
 
-	p.fillInputs(ids, mask)
-
-	if err := p.session.Run(); err != nil {
+	s.fillInputs(ids, mask)
+	if err := s.session.Run(); err != nil {
 		return nil, fmt.Errorf("inference: onnx: run: %w", err)
 	}
 
-	logits := p.logitsTensor.GetData()
-	if p.isNER {
-		return postProcessNER(logits, p.id2label, p.numLabels, seqLen, tokens)
+	logits := s.logitsTensor.GetData()
+	if s.isNER {
+		return postProcessNER(logits, s.id2label, s.numLabels, seqLen, tokens)
 	}
-	return postProcessClassification(logits, p.id2label)
+	return postProcessClassification(logits, s.id2label)
 }
 
 // runZeroShot performs zero-shot classification using NLI: for each candidate
-// label, it encodes (text, hypothesis) as a pair, runs inference, and collects
-// the entailment score. Called with p.mu already held.
-func (p *ONNXPipeline) runZeroShot(text []byte) (json.RawMessage, error) {
+// label it encodes (text, hypothesis) as a pair, runs inference, and collects
+// the entailment score. Called with s.mu already held.
+func (p *ONNXPipeline) runZeroShot(s *sharedONNXSession, text []byte) (json.RawMessage, error) {
 	p.labelsMu.RLock()
 	labels := make([]string, len(p.labels))
 	copy(labels, p.labels)
@@ -289,14 +419,12 @@ func (p *ONNXPipeline) runZeroShot(text []byte) (json.RawMessage, error) {
 	entailmentLogits := make([]float32, len(labels))
 	for i, label := range labels {
 		hypothesis := "This text is about " + label + "."
-		// Concatenate with [SEP] to form a pair: [CLS] text [SEP] hypothesis [SEP]
 		input := string(text) + " [SEP] " + hypothesis
 
-		enc := p.tokenizer.EncodeWithOptions(
+		enc := s.tokenizer.EncodeWithOptions(
 			input, true,
 			tokenizers.WithReturnAttentionMask(),
 		)
-
 		ids := enc.IDs
 		mask := enc.AttentionMask
 		if len(ids) > maxSeqLen {
@@ -304,20 +432,17 @@ func (p *ONNXPipeline) runZeroShot(text []byte) (json.RawMessage, error) {
 			mask = mask[:maxSeqLen]
 		}
 
-		p.fillInputs(ids, mask)
-
-		if err := p.session.Run(); err != nil {
+		s.fillInputs(ids, mask)
+		if err := s.session.Run(); err != nil {
 			return nil, fmt.Errorf("inference: onnx: zero-shot [%s]: %w", label, err)
 		}
 
-		logits := p.logitsTensor.GetData()
+		logits := s.logitsTensor.GetData()
 		probs := softmax(logits)
-		entailmentLogits[i] = probs[p.entailmentIdx]
+		entailmentLogits[i] = probs[s.entailmentIdx]
 	}
 
-	// Normalize entailment scores across all labels.
 	scores := softmax(entailmentLogits)
-
 	type pair struct {
 		label string
 		score float32
@@ -337,25 +462,7 @@ func (p *ONNXPipeline) runZeroShot(text []byte) (json.RawMessage, error) {
 	return json.Marshal(zeroShotResult{Labels: sortedLabels, Scores: sortedScores})
 }
 
-// fillInputs writes ids and mask into the pre-allocated backing slices.
-// Called with p.mu held.
-func (p *ONNXPipeline) fillInputs(ids, mask []uint32) {
-	for i := range p.inputIDsData {
-		p.inputIDsData[i] = 0
-		p.attnMaskData[i] = 0
-	}
-	for i, id := range ids {
-		p.inputIDsData[i] = int64(id)
-		p.attnMaskData[i] = int64(mask[i])
-	}
-	if p.hasTypeIDs {
-		for i := range p.typeIDsData {
-			p.typeIDsData[i] = 0
-		}
-	}
-}
-
-// RunBatch runs inference on multiple texts, looping over Run().
+// RunBatch runs inference on multiple texts, looping over Run.
 func (p *ONNXPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
 	results := make([]json.RawMessage, len(texts))
 	for i, t := range texts {
@@ -368,31 +475,15 @@ func (p *ONNXPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
 	return results, nil
 }
 
-// Close releases all ONNX Runtime and tokenizer resources.
+// Close releases this pipeline's reference to the shared session. The session
+// is destroyed only when all pipelines referencing it have been closed.
 func (p *ONNXPipeline) Close() error {
-	if p.session != nil {
-		if err := p.session.Destroy(); err != nil {
-			return fmt.Errorf("inference: onnx: destroy session: %w", err)
-		}
-		p.session = nil
+	if p.shared == nil {
+		return nil
 	}
-	if p.tokenizer != nil {
-		if err := p.tokenizer.Close(); err != nil {
-			return fmt.Errorf("inference: onnx: close tokenizer: %w", err)
-		}
-		p.tokenizer = nil
-	}
-	for _, t := range []*ort.Tensor[int64]{p.inputIDsTensor, p.attnMaskTensor, p.typeIDsTensor} {
-		if t != nil {
-			_ = t.Destroy()
-		}
-	}
-	p.inputIDsTensor, p.attnMaskTensor, p.typeIDsTensor = nil, nil, nil
-	if p.logitsTensor != nil {
-		_ = p.logitsTensor.Destroy()
-		p.logitsTensor = nil
-	}
-	return nil
+	err := releaseSession(p.shared)
+	p.shared = nil
+	return err
 }
 
 // ── post-processing ───────────────────────────────────────────────────────────
@@ -451,7 +542,6 @@ func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, 
 		}
 	}
 
-	// Position 0 is [CLS]; seqLen-1 is [SEP] — skip both.
 	for i := 1; i < seqLen-1; i++ {
 		tokenLogits := logits[i*numLabels : (i+1)*numLabels]
 		probs := softmax(tokenLogits)
@@ -465,12 +555,10 @@ func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, 
 		if best < len(id2label) {
 			label = id2label[best]
 		}
-
 		tok := ""
 		if i < len(tokens) {
 			tok = tokens[i]
 		}
-
 		if label == "O" {
 			flush()
 			continue
@@ -501,7 +589,6 @@ func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, 
 }
 
 // joinTokens reconstructs a word from subword tokens.
-// Handles both RoBERTa-style BPE (Ġ prefix = space) and SentencePiece (▁ prefix = word start).
 func joinTokens(toks []string) string {
 	var sb strings.Builder
 	for _, t := range toks {
@@ -548,8 +635,7 @@ func softmax(logits []float32) []float32 {
 // ── onnx introspection ───────────────────────────────────────────────────────
 
 // onnxHasInput reports whether the ONNX model at path lists inputName as a
-// graph input. It reads only the first 16 KB of the file (input names are
-// stored near the beginning of the protobuf) to avoid loading the full model.
+// graph input. Reads only the first 16 KB to avoid loading the full model.
 func onnxHasInput(path, inputName string) bool {
 	f, err := os.Open(path)
 	if err != nil {
