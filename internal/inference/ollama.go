@@ -5,13 +5,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +29,35 @@ const (
 	ollamaDigestTimeout  = 10 * time.Minute
 	ollamaLoadTimeout    = 5 * time.Minute
 )
+
+// ollamaHTTPError is returned when Ollama responds with a non-200 status so
+// that isBackendError can inspect the status code and distinguish 5xx backend
+// failures from 4xx model/request errors.
+type ollamaHTTPError struct {
+	statusCode int
+	body       string
+}
+
+func (e *ollamaHTTPError) Error() string {
+	return fmt.Sprintf("ollama: HTTP %d: %s", e.statusCode, e.body)
+}
+
+// isBackendError reports whether err indicates the Ollama backend itself is
+// unavailable (network failure or 5xx), as opposed to a model or request error.
+func isBackendError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var httpErr *ollamaHTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.statusCode >= 500
+	}
+	return false
+}
 
 // ExtractionLocation holds a single geographic location extracted from a tweet.
 type ExtractionLocation struct {
@@ -127,20 +160,22 @@ type rawExtractionResult struct {
 	Description     string                  `json:"description"`
 	Locations       []rawExtractionLocation `json:"locations"`
 	GeolocatedBy    flexStrings             `json:"geolocated_by"`
-	GeolocationURLs flexStrings          `json:"geolocation_urls"`
-	ProofURLs       flexStrings          `json:"proof_urls"`
-	LocationURL     string               `json:"location_url"`
-	SourceURLs      flexStrings          `json:"source_urls"`
-	Truncated       bool                 `json:"truncated,omitempty"`
+	GeolocationURLs flexStrings             `json:"geolocation_urls"`
+	ProofURLs       flexStrings             `json:"proof_urls"`
+	LocationURL     string                  `json:"location_url"`
+	SourceURLs      flexStrings             `json:"source_urls"`
+	Truncated       bool                    `json:"truncated,omitempty"`
 }
 
 // ollamaBackend represents a single Ollama server instance.
-// Each backend has its own HTTP client. The OllamaPipeline keeps a pool of
-// backends; callers acquire one before making a request and release it after,
-// ensuring at most one in-flight request per backend at any time.
+// Each backend has its own HTTP client. healthy tracks whether the backend is
+// currently reachable; inUse tracks whether a request holds it. State is
+// managed under OllamaPipeline.mu.
 type ollamaBackend struct {
 	baseURL string
 	client  *http.Client
+	healthy bool // managed by health checker and request-time failures
+	inUse   bool // true while a request holds this backend
 }
 
 // OllamaPipeline implements Pipeline by calling one or more locally-running
@@ -148,17 +183,20 @@ type ollamaBackend struct {
 // Ollama model name (e.g. "qwen2.5:3b"). Base URLs come from the application
 // config; multiple URLs form a pool so requests are spread across backends.
 //
-// The pool channel acts as both a semaphore and a round-robin dispatcher:
-// each backend token is returned to the pool after use, and the next caller
-// picks whichever backend becomes free first. This ensures at most one
-// in-flight request per backend — Ollama queues internally and firing
-// concurrent requests to the same instance just causes timeouts.
+// Backends are selected via acquire/release under mu+cond. Each backend
+// handles at most one in-flight request at a time — Ollama queues internally
+// and firing concurrent requests to the same instance just causes timeouts.
+// Unhealthy backends are skipped; the background health checker probes them
+// for recovery every 30 seconds.
 type OllamaPipeline struct {
 	name         string
 	model        string
 	systemPrompt string
-	backends     []*ollamaBackend  // ordered slice for Load iteration
-	pool         chan *ollamaBackend // runtime token bucket — cap == len(backends)
+	backends     []*ollamaBackend // ordered slice for Load iteration
+
+	mu           sync.Mutex
+	cond         *sync.Cond        // broadcast whenever any backend state changes
+	cancelHealth context.CancelFunc
 }
 
 // NewOllamaPipeline creates a new OllamaPipeline. baseURLs is the list of
@@ -180,66 +218,189 @@ func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string) *Oll
 		backends = append(backends, &ollamaBackend{
 			baseURL: u,
 			client:  &http.Client{}, // no global timeout — each request carries its own context deadline
+			healthy: true,
+			inUse:   false,
 		})
 	}
-	pool := make(chan *ollamaBackend, len(backends))
-	for _, b := range backends {
-		pool <- b
-	}
-	return &OllamaPipeline{
+	p := &OllamaPipeline{
 		name:         name,
 		systemPrompt: systemPrompt,
 		backends:     backends,
-		pool:         pool,
 	}
+	p.cond = sync.NewCond(&p.mu)
+	return p
 }
 
-// acquire blocks until a backend is available or ctx is cancelled.
+// acquire blocks until a healthy, idle backend is available or ctx is cancelled.
 func (p *OllamaPipeline) acquire(ctx context.Context) (*ollamaBackend, error) {
-	select {
-	case b := <-p.pool:
-		return b, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	stop := context.AfterFunc(ctx, func() { p.cond.Broadcast() })
+	defer stop()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for {
+		for _, b := range p.backends {
+			if b.healthy && !b.inUse {
+				b.inUse = true
+				return b, nil
+			}
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		p.cond.Wait()
 	}
 }
 
-// acquireBlocking blocks until a backend is available with no cancellation.
-// Use this in methods that manage their own background context internally.
-func (p *OllamaPipeline) acquireBlocking() *ollamaBackend {
-	return <-p.pool
+// release marks a backend as no longer in use and notifies waiters.
+func (p *OllamaPipeline) release(b *ollamaBackend) {
+	p.mu.Lock()
+	b.inUse = false
+	p.mu.Unlock()
+	p.cond.Broadcast()
 }
 
-// release returns a backend to the pool after a request completes.
-func (p *OllamaPipeline) release(b *ollamaBackend) {
-	p.pool <- b
+// markUnhealthy marks a backend as unhealthy and not in use, then wakes waiters
+// so they can try a different backend.
+func (p *OllamaPipeline) markUnhealthy(b *ollamaBackend) {
+	p.mu.Lock()
+	b.healthy = false
+	b.inUse = false
+	p.mu.Unlock()
+	p.cond.Broadcast()
+	slog.Warn("ollama: backend marked unhealthy", "url", b.baseURL)
 }
 
 // Name returns the pipeline name as registered in the models table.
 func (p *OllamaPipeline) Name() string { return p.name }
 
-// Load treats modelPath as the Ollama model name (e.g. "qwen2.5:3b").
-// It pings /api/tags on every backend to verify all servers are reachable.
-func (p *OllamaPipeline) Load(modelPath string) error {
-	p.model = modelPath
+// MaxConcurrency returns the count of currently healthy backends, satisfying
+// ConcurrencyLimiter. Each backend handles at most one request at a time, so
+// the total throughput scales with the number of healthy backends.
+func (p *OllamaPipeline) MaxConcurrency() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
 	for _, b := range p.backends {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL+"/api/tags", nil)
-		if err != nil {
-			cancel()
-			return fmt.Errorf("inference: ollama: build ping: %w", err)
-		}
-		resp, err := b.client.Do(req)
-		cancel()
-		if err != nil {
-			return fmt.Errorf("inference: ollama: ping %s: %w", b.baseURL, err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("inference: ollama: ping %s returned %d", b.baseURL, resp.StatusCode)
+		if b.healthy {
+			n++
 		}
 	}
+	return n
+}
+
+// pingBackend pings GET /api/tags with a 5s timeout. Returns true if reachable.
+func (p *OllamaPipeline) pingBackend(b *ollamaBackend) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// Load treats modelPath as the Ollama model name (e.g. "qwen2.5:3b").
+// It pings /api/tags on every backend with a 5s timeout; unreachable backends
+// are marked unhealthy rather than causing Load to fail. Load only fails for
+// non-backend errors (e.g. bad request construction). After pinging, it starts
+// the background health checker.
+func (p *OllamaPipeline) Load(modelPath string) error {
+	p.model = modelPath
+	healthy := 0
+	for _, b := range p.backends {
+		if p.pingBackend(b) {
+			p.mu.Lock()
+			b.healthy = true
+			p.mu.Unlock()
+			healthy++
+		} else {
+			slog.Warn("ollama: backend unreachable on load, marked unhealthy", "url", b.baseURL)
+			p.mu.Lock()
+			b.healthy = false
+			p.mu.Unlock()
+		}
+	}
+	slog.Info("ollama: backends healthy after load", "healthy", healthy, "total", len(p.backends))
+
+	healthCtx, cancel := context.WithCancel(context.Background())
+	p.cancelHealth = cancel
+	go p.runHealthChecker(healthCtx)
 	return nil
+}
+
+// Close stops the background health checker and releases any pipeline state.
+func (p *OllamaPipeline) Close() error {
+	if p.cancelHealth != nil {
+		p.cancelHealth()
+	}
+	return nil
+}
+
+// runHealthChecker runs two tickers: one to re-probe unhealthy backends for
+// recovery (every 30s), and one to re-probe healthy backends for failure
+// (every 60s). Stops when ctx is cancelled.
+func (p *OllamaPipeline) runHealthChecker(ctx context.Context) {
+	unhealthyTicker := time.NewTicker(30 * time.Second)
+	healthyTicker := time.NewTicker(60 * time.Second)
+	defer unhealthyTicker.Stop()
+	defer healthyTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-unhealthyTicker.C:
+			p.probeUnhealthy()
+		case <-healthyTicker.C:
+			p.probeHealthy()
+		}
+	}
+}
+
+// probeUnhealthy pings all unhealthy backends; marks them healthy on success.
+// Snapshots targets under lock, probes outside lock, updates state under lock.
+func (p *OllamaPipeline) probeUnhealthy() {
+	p.mu.Lock()
+	var targets []*ollamaBackend
+	for _, b := range p.backends {
+		if !b.healthy {
+			targets = append(targets, b)
+		}
+	}
+	p.mu.Unlock()
+
+	for _, b := range targets {
+		if p.pingBackend(b) {
+			p.mu.Lock()
+			b.healthy = true
+			p.mu.Unlock()
+			p.cond.Broadcast()
+			slog.Info("ollama: backend recovered", "url", b.baseURL)
+		}
+	}
+}
+
+// probeHealthy pings all healthy backends; marks them unhealthy on failure.
+func (p *OllamaPipeline) probeHealthy() {
+	p.mu.Lock()
+	var targets []*ollamaBackend
+	for _, b := range p.backends {
+		if b.healthy {
+			targets = append(targets, b)
+		}
+	}
+	p.mu.Unlock()
+
+	for _, b := range targets {
+		if !p.pingBackend(b) {
+			p.markUnhealthy(b)
+		}
+	}
 }
 
 // Run sends the tweet text to Ollama and returns the ExtractionResult as JSON.
@@ -264,17 +425,9 @@ func (p *OllamaPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
 	return results, nil
 }
 
-// Close is a no-op; the HTTP client has no persistent state to release.
-func (p *OllamaPipeline) Close() error { return nil }
-
-// MaxConcurrency returns the number of Ollama backends, satisfying
-// ConcurrencyLimiter. Each backend handles at most one request at a time,
-// so the total throughput scales linearly with the pool size.
-func (p *OllamaPipeline) MaxConcurrency() int { return cap(p.pool) }
-
 // ensureLoaded checks /api/ps on the given backend to see if the model is
 // currently loaded in Ollama. If it is not, it calls warmUp to load it.
-// Must be called with the backend acquired from the pool.
+// Must be called with the backend acquired.
 func (p *OllamaPipeline) ensureLoaded(b *ollamaBackend) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -310,7 +463,7 @@ func (p *OllamaPipeline) ensureLoaded(b *ollamaBackend) error {
 // given backend before actual inference requests begin. Uses ollamaLoadTimeout
 // to accommodate cold starts. Ollama's default keep_alive (5 min idle) applies
 // — the model unloads naturally when not in use.
-// Must be called with the backend acquired from the pool.
+// Must be called with the backend acquired.
 func (p *OllamaPipeline) warmUp(b *ollamaBackend) error {
 	type generateRequest struct {
 		Model  string `json:"model"`
@@ -365,6 +518,8 @@ func isTruncated(text string) bool {
 }
 
 // Extract calls Ollama's chat endpoint and unmarshals the structured result.
+// On backend errors (network or 5xx) it marks the backend unhealthy and retries
+// on another backend.
 func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 	if isTruncated(text) {
 		return &ExtractionResult{Truncated: true}, nil
@@ -396,76 +551,96 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 		return nil, fmt.Errorf("inference: ollama: marshal request: %w", err)
 	}
 
-	// Acquire a backend — blocks until one is free.
-	b := p.acquireBlocking()
-	defer p.release(b)
-
-	// Ensure the model is loaded before sending the real request.
-	// If it is not running, warmUp blocks until Ollama has loaded it.
-	if err := p.ensureLoaded(b); err != nil {
-		return nil, fmt.Errorf("inference: ollama: ensure loaded: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), ollamaRequestTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("inference: ollama: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("inference: ollama: chat: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("inference: ollama: chat returned %d: %s", resp.StatusCode, raw)
-	}
-
-	var chatResp chatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		return nil, fmt.Errorf("inference: ollama: decode response: %w", err)
-	}
-
-	var raw rawExtractionResult
-	if err := json.Unmarshal([]byte(chatResp.Message.Content), &raw); err != nil {
-		return nil, fmt.Errorf("inference: ollama: parse extraction JSON: %w", err)
-	}
-	locs := make([]ExtractionLocation, 0, len(raw.Locations))
-	for _, l := range raw.Locations {
-		if math.IsNaN(l.Coordinates[0]) || math.IsNaN(l.Coordinates[1]) {
-			continue // LLM returned null or unparseable value — skip this location
+	for {
+		b, err := p.acquire(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("inference: ollama: acquire: %w", err)
 		}
-		// Reject coordinates the LLM inferred from place names rather than reading
-		// from the text. Both values must appear as literal numbers in the tweet.
-		if !coordinateAppearsInText(l.Coordinates[0], text) ||
-			!coordinateAppearsInText(l.Coordinates[1], text) {
+
+		// Ensure the model is loaded before sending the real request.
+		if err := p.ensureLoaded(b); err != nil {
+			if isBackendError(err) {
+				p.markUnhealthy(b)
+				continue
+			}
+			p.release(b)
+			return nil, fmt.Errorf("inference: ollama: ensure loaded: %w", err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), ollamaRequestTimeout)
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
+		if reqErr != nil {
+			cancel()
+			p.release(b)
+			return nil, fmt.Errorf("inference: ollama: build request: %w", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, doErr := b.client.Do(req)
+		cancel()
+		if doErr != nil {
+			p.markUnhealthy(b)
 			continue
 		}
-		locs = append(locs, ExtractionLocation{
-			Label:       l.Label,
-			Coordinates: [2]float64(l.Coordinates),
-			Place:       l.Place,
-		})
+
+		if resp.StatusCode != http.StatusOK {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			httpErr := &ollamaHTTPError{statusCode: resp.StatusCode, body: string(raw)}
+			if isBackendError(httpErr) {
+				p.markUnhealthy(b)
+				continue
+			}
+			p.release(b)
+			return nil, httpErr
+		}
+
+		var chatResp chatResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&chatResp)
+		resp.Body.Close()
+		if decErr != nil {
+			p.release(b)
+			return nil, fmt.Errorf("inference: ollama: decode response: %w", decErr)
+		}
+		p.release(b)
+
+		var raw rawExtractionResult
+		if err := json.Unmarshal([]byte(chatResp.Message.Content), &raw); err != nil {
+			return nil, fmt.Errorf("inference: ollama: parse extraction JSON: %w", err)
+		}
+		locs := make([]ExtractionLocation, 0, len(raw.Locations))
+		for _, l := range raw.Locations {
+			if math.IsNaN(l.Coordinates[0]) || math.IsNaN(l.Coordinates[1]) {
+				continue // LLM returned null or unparseable value — skip this location
+			}
+			// Reject coordinates the LLM inferred from place names rather than reading
+			// from the text. Both values must appear as literal numbers in the tweet.
+			if !coordinateAppearsInText(l.Coordinates[0], text) ||
+				!coordinateAppearsInText(l.Coordinates[1], text) {
+				continue
+			}
+			locs = append(locs, ExtractionLocation{
+				Label:       l.Label,
+				Coordinates: [2]float64(l.Coordinates),
+				Place:       l.Place,
+			})
+		}
+		return &ExtractionResult{
+			Description:     raw.Description,
+			Locations:       locs,
+			GeolocatedBy:    []string(raw.GeolocatedBy),
+			GeolocationURLs: []string(raw.GeolocationURLs),
+			ProofURLs:       []string(raw.ProofURLs),
+			LocationURL:     raw.LocationURL,
+			SourceURLs:      []string(raw.SourceURLs),
+			Truncated:       raw.Truncated,
+		}, nil
 	}
-	return &ExtractionResult{
-		Description:     raw.Description,
-		Locations:       locs,
-		GeolocatedBy:    []string(raw.GeolocatedBy),
-		GeolocationURLs: []string(raw.GeolocationURLs),
-		ProofURLs:       []string(raw.ProofURLs),
-		LocationURL:     raw.LocationURL,
-		SourceURLs:      []string(raw.SourceURLs),
-		Truncated:       raw.Truncated,
-	}, nil
 }
 
 // Digest calls Ollama with the OllamaDigestSystem prompt and a numbered list of
 // pre-formatted tweet strings, returning a single plain-text briefing.
+// On backend errors (network or 5xx) it marks the backend unhealthy and retries.
 func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 	var sb strings.Builder
 	for i, t := range tweets {
@@ -497,38 +672,59 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 		return "", fmt.Errorf("inference: ollama: digest: marshal request: %w", err)
 	}
 
-	b := p.acquireBlocking()
-	defer p.release(b)
+	for {
+		b, err := p.acquire(context.Background())
+		if err != nil {
+			return "", fmt.Errorf("inference: ollama: digest: acquire: %w", err)
+		}
 
-	if err := p.ensureLoaded(b); err != nil {
-		return "", fmt.Errorf("inference: ollama: digest: ensure loaded: %w", err)
+		if err := p.ensureLoaded(b); err != nil {
+			if isBackendError(err) {
+				p.markUnhealthy(b)
+				continue
+			}
+			p.release(b)
+			return "", fmt.Errorf("inference: ollama: digest: ensure loaded: %w", err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), ollamaDigestTimeout)
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
+		if reqErr != nil {
+			cancel()
+			p.release(b)
+			return "", fmt.Errorf("inference: ollama: digest: build request: %w", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, doErr := b.client.Do(req)
+		cancel()
+		if doErr != nil {
+			p.markUnhealthy(b)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			httpErr := &ollamaHTTPError{statusCode: resp.StatusCode, body: string(raw)}
+			if isBackendError(httpErr) {
+				p.markUnhealthy(b)
+				continue
+			}
+			p.release(b)
+			return "", httpErr
+		}
+
+		var chatResp chatResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&chatResp)
+		resp.Body.Close()
+		if decErr != nil {
+			p.release(b)
+			return "", fmt.Errorf("inference: ollama: digest: decode response: %w", decErr)
+		}
+		p.release(b)
+		return strings.TrimSpace(chatResp.Message.Content), nil
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), ollamaDigestTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("inference: ollama: digest: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("inference: ollama: digest: chat: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("inference: ollama: digest: chat returned %d: %s", resp.StatusCode, raw)
-	}
-
-	var chatResp chatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-		return "", fmt.Errorf("inference: ollama: digest: decode response: %w", err)
-	}
-	return strings.TrimSpace(chatResp.Message.Content), nil
 }
 
 // OllamaDigestSystem is the prompt for multi-tweet digest/briefing generation.
@@ -614,6 +810,7 @@ Use [] for missing arrays and "" for missing strings.`
 // The caller must set Content-Type: text/event-stream and flush headers before
 // calling this method. w is type-asserted to http.Flusher; if the assertion
 // succeeds each chunk is flushed immediately for real-time streaming.
+// On backend errors (network or 5xx) it marks the backend unhealthy and retries.
 func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, messages []ChatMessage, w io.Writer) error {
 	var sb strings.Builder
 	sb.WriteString(OllamaChatSystem)
@@ -645,68 +842,88 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 		return fmt.Errorf("inference: ollama: chat stream: marshal: %w", err)
 	}
 
-	b, err := p.acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("inference: ollama: chat stream: %w", err)
-	}
-	defer p.release(b)
+	for {
+		b, err := p.acquire(ctx)
+		if err != nil {
+			return fmt.Errorf("inference: ollama: chat stream: %w", err)
+		}
 
-	if err := p.ensureLoaded(b); err != nil {
-		return fmt.Errorf("inference: ollama: chat stream: ensure loaded: %w", err)
-	}
+		if err := p.ensureLoaded(b); err != nil {
+			if isBackendError(err) {
+				p.markUnhealthy(b)
+				continue
+			}
+			p.release(b)
+			return fmt.Errorf("inference: ollama: chat stream: ensure loaded: %w", err)
+		}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("inference: ollama: chat stream: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
+		if reqErr != nil {
+			p.release(b)
+			return fmt.Errorf("inference: ollama: chat stream: build request: %w", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
 
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("inference: ollama: chat stream: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("inference: ollama: chat stream: returned %d: %s", resp.StatusCode, raw)
-	}
-
-	type streamChunk struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-		Done bool `json:"done"`
-	}
-
-	flusher, canFlush := w.(interface{ Flush() })
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
+		resp, doErr := b.client.Do(req)
+		if doErr != nil {
+			p.markUnhealthy(b)
 			continue
 		}
-		var chunk streamChunk
-		if err := json.Unmarshal(line, &chunk); err != nil {
-			continue
-		}
-		if chunk.Done {
-			fmt.Fprintf(w, "data: [DONE]\n\n")
-			if canFlush {
-				flusher.Flush()
+
+		if resp.StatusCode != http.StatusOK {
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			httpErr := &ollamaHTTPError{statusCode: resp.StatusCode, body: string(raw)}
+			if isBackendError(httpErr) {
+				p.markUnhealthy(b)
+				continue
 			}
-			return nil
+			p.release(b)
+			return httpErr
 		}
-		if chunk.Message.Content != "" {
-			encoded, _ := json.Marshal(chunk.Message.Content)
-			fmt.Fprintf(w, "data: %s\n\n", encoded)
-			if canFlush {
-				flusher.Flush()
+
+		type streamChunk struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Done bool `json:"done"`
+		}
+
+		flusher, canFlush := w.(interface{ Flush() })
+
+		scanner := bufio.NewScanner(resp.Body)
+		var scanErr error
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				continue
+			}
+			var chunk streamChunk
+			if err := json.Unmarshal(line, &chunk); err != nil {
+				continue
+			}
+			if chunk.Done {
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				if canFlush {
+					flusher.Flush()
+				}
+				resp.Body.Close()
+				p.release(b)
+				return nil
+			}
+			if chunk.Message.Content != "" {
+				encoded, _ := json.Marshal(chunk.Message.Content)
+				fmt.Fprintf(w, "data: %s\n\n", encoded)
+				if canFlush {
+					flusher.Flush()
+				}
 			}
 		}
+		scanErr = scanner.Err()
+		resp.Body.Close()
+		p.release(b)
+		return scanErr
 	}
-	return scanner.Err()
 }
 
 // EstimateTokens returns the approximate token count for the given texts and
@@ -714,21 +931,30 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 // for an accurate count; if that fails it falls back to len(text)/4.
 // Uses any available backend — token counts and context limits are model
 // properties, identical across all backends.
+// On backend errors (network or 5xx) it marks the backend unhealthy and retries.
 func (p *OllamaPipeline) EstimateTokens(ctx context.Context, texts []string) (int, int, error) {
-	b, err := p.acquire(ctx)
-	if err != nil {
-		return 0, 0, fmt.Errorf("inference: ollama: estimate tokens: %w", err)
-	}
-	defer p.release(b)
-
 	combined := strings.Join(texts, "\n\n")
-	limit := p.getContextLimit(ctx, b)
-	tokens, err := p.tokenize(ctx, b, combined)
-	if err != nil {
-		// Rough fallback: ~4 chars per token
-		return len(combined) / 4, limit, nil
+
+	for {
+		b, err := p.acquire(ctx)
+		if err != nil {
+			return 0, 0, fmt.Errorf("inference: ollama: estimate tokens: %w", err)
+		}
+
+		limit := p.getContextLimit(ctx, b)
+		tokens, err := p.tokenize(ctx, b, combined)
+		if err != nil {
+			if isBackendError(err) {
+				p.markUnhealthy(b)
+				continue
+			}
+			p.release(b)
+			// Rough fallback: ~4 chars per token
+			return len(combined) / 4, limit, nil
+		}
+		p.release(b)
+		return tokens, limit, nil
 	}
-	return tokens, limit, nil
 }
 
 // getContextLimit queries Ollama's /api/show on the given backend for the
@@ -790,7 +1016,7 @@ func (p *OllamaPipeline) tokenize(ctx context.Context, b *ollamaBackend, text st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("tokenize returned %d", resp.StatusCode)
+		return 0, &ollamaHTTPError{statusCode: resp.StatusCode, body: "tokenize failed"}
 	}
 
 	var result struct {
