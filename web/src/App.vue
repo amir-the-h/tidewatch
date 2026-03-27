@@ -22,6 +22,7 @@ const adminMenuOptions = [
   { label: 'Rules',            key: '/rules' },
   { label: 'Sources',          key: '/sources' },
   { label: 'Models',           key: '/models' },
+  { label: 'Ollama Backends',  key: '/ollama' },
   { label: 'Categorizations',  key: '/categorizations' },
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
