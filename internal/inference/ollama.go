@@ -23,6 +23,11 @@ import (
 // that could represent a coordinate value in tweet text.
 var numericPattern = regexp.MustCompile(`[-+]?[0-9]+(?:\.[0-9]+)?`)
 
+// ollamaBenchmarkCache caches initial benchmark scores (tokens/sec) keyed by
+// "url|model" so that multiple pipelines sharing the same backends only run
+// the benchmark once per backend at startup.
+var ollamaBenchmarkCache sync.Map
+
 const (
 	defaultOllamaBaseURL = "http://localhost:11434"
 	ollamaRequestTimeout = 120 * time.Second
@@ -493,8 +498,19 @@ func (p *OllamaPipeline) Load(modelPath string) error {
 	slog.Info("ollama: backends healthy after load", "healthy", healthy, "total", len(p.backends))
 
 	// Benchmark healthy backends to seed performance scores.
+	// A package-level cache avoids re-benchmarking the same backend when
+	// multiple pipelines share the same URLs.
 	for _, b := range p.backends {
 		if !b.healthy {
+			continue
+		}
+		cacheKey := b.baseURL + "|" + p.model
+		if cached, ok := ollamaBenchmarkCache.Load(cacheKey); ok {
+			score := cached.(float64)
+			p.mu.Lock()
+			b.updateScore(score)
+			p.mu.Unlock()
+			slog.Info("ollama: backend score from cache", "url", b.baseURL, "tokens_per_sec", fmt.Sprintf("%.1f", score))
 			continue
 		}
 		score, err := p.benchmark(b)
@@ -502,6 +518,7 @@ func (p *OllamaPipeline) Load(modelPath string) error {
 			slog.Warn("ollama: backend benchmark failed", "url", b.baseURL, "err", err)
 			continue
 		}
+		ollamaBenchmarkCache.Store(cacheKey, score)
 		p.mu.Lock()
 		b.updateScore(score)
 		p.mu.Unlock()
