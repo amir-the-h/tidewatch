@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -17,6 +18,9 @@ type Scheduler struct {
 	interval time.Duration
 	params   SearchParams
 	logger   *slog.Logger
+
+	mu       sync.Mutex
+	sinceIDs map[int64]string // rule.ID -> newest tweet ID seen on the last run
 }
 
 // NewScheduler creates a new Scheduler that runs RunOnce every interval.
@@ -27,6 +31,7 @@ func NewScheduler(client *Client, st store.Store, interval time.Duration, params
 		interval: interval,
 		params:   params,
 		logger:   logger.With("component", "search.scheduler"),
+		sinceIDs: make(map[int64]string),
 	}
 }
 
@@ -53,7 +58,7 @@ func (s *Scheduler) DefaultParams() SearchParams {
 	return s.params
 }
 
-// RunOnce loads all active rules from the store and calls client.RunForRules
+// RunOnce loads all active rules from the store and runs a search for each
 // using the scheduler's default params. Used by the periodic background loop.
 func (s *Scheduler) RunOnce(ctx context.Context) (int, error) {
 	return s.RunWithParams(ctx, nil, s.params)
@@ -61,6 +66,11 @@ func (s *Scheduler) RunOnce(ctx context.Context) (int, error) {
 
 // RunWithParams runs a search for the given rule IDs (all active rules if empty)
 // using the provided params. Called by the API handler for on-demand runs.
+//
+// Per-rule since_id values are injected from the scheduler's in-memory table so
+// that each run only fetches tweets that are genuinely new since the last run.
+// After each successful rule fetch, the newest tweet ID is recorded and used as
+// the since_id on the next call for that rule.
 func (s *Scheduler) RunWithParams(ctx context.Context, ruleIDs []int64, params SearchParams) (int, error) {
 	var rules []*model.Rule
 
@@ -88,9 +98,40 @@ func (s *Scheduler) RunWithParams(ctx context.Context, ruleIDs []int64, params S
 		}
 	}
 
-	n, err := s.client.RunForRules(ctx, rules, params)
-	if err != nil {
-		return n, fmt.Errorf("search: scheduler: run for rules: %w", err)
+	total := 0
+	for _, rule := range rules {
+		// Inject the per-rule since_id so we only fetch tweets newer than the
+		// last run's newest ID. If no prior run exists for this rule, the
+		// caller-provided SinceID (or StartTime) acts as the initial bound.
+		ruleParams := params
+		s.mu.Lock()
+		if id, ok := s.sinceIDs[rule.ID]; ok {
+			ruleParams.SinceID = id
+		}
+		s.mu.Unlock()
+
+		n, newestID, err := s.client.RunForRule(ctx, rule, ruleParams)
+		total += n
+		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to fetch tweets for rule",
+				"rule_id", rule.ID,
+				"rule_name", rule.Name,
+				"error", err,
+			)
+			continue
+		}
+		s.logger.InfoContext(ctx, "fetched tweets for rule",
+			"rule_id", rule.ID,
+			"rule_name", rule.Name,
+			"tweets_fetched", n,
+		)
+
+		// Record the newest tweet ID so the next run uses it as since_id.
+		if newestID != "" {
+			s.mu.Lock()
+			s.sinceIDs[rule.ID] = newestID
+			s.mu.Unlock()
+		}
 	}
-	return n, nil
+	return total, nil
 }

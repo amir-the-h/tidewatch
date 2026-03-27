@@ -159,8 +159,8 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 	count := 0
 	for _, tweet := range tweets {
 		st := &model.StreamTweet{
-			Tweet:         tweet,
-			MatchingRules: nil,
+			Tweet:        tweet,
+			TargetModels: req.ModelNames,
 		}
 		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
 			s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "error", err)

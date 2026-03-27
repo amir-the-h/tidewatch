@@ -192,11 +192,14 @@ func (c *Client) fetchPage(ctx context.Context, endpoint string, params url.Valu
 
 // RunForRule fetches all pages for a single rule's compiled query, storing
 // each tweet in SQLite and pushing it onto the raw Redis queue.
-// Returns the total number of tweets fetched.
-func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params SearchParams) (int, error) {
+// Returns the total number of tweets fetched and the newest tweet ID seen
+// (meta.newest_id from the first page), which callers can use as since_id
+// on subsequent runs to avoid re-fetching already-processed tweets.
+func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params SearchParams) (int, string, error) {
 	endpoint := c.searchURL()
 	fetched := 0
 	nextToken := ""
+	newestID := ""
 
 	for {
 		// Respect the per-rule Limit by trimming max_results on the last page.
@@ -218,27 +221,33 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 		queryVals := c.buildQuery(rule, pageParams, nextToken)
 		body, _, err := c.fetchPage(ctx, endpoint, queryVals)
 		if err != nil {
-			return fetched, fmt.Errorf("search: RunForRule rule %d: %w", rule.ID, err)
+			return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: %w", rule.ID, err)
 		}
 
 		page, err := NormalizeSearchResponse(body, rule)
 		if err != nil {
-			return fetched, fmt.Errorf("search: RunForRule rule %d: normalize: %w", rule.ID, err)
+			return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: normalize: %w", rule.ID, err)
+		}
+
+		// Capture the newest tweet ID from the first page only; subsequent pages
+		// contain older tweets so the first page's value is the authoritative bound.
+		if newestID == "" && page.NewestID != "" {
+			newestID = page.NewestID
 		}
 
 		for _, st := range page.Tweets {
 			if err := c.store.SaveTweet(ctx, st.Tweet); err != nil {
-				return fetched, fmt.Errorf("search: RunForRule rule %d: save tweet %s: %w", rule.ID, st.Tweet.ID, err)
+				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet %s: %w", rule.ID, st.Tweet.ID, err)
 			}
 			tr := &model.TweetRule{
 				TweetID: st.Tweet.ID,
 				RuleID:  rule.ID,
 			}
 			if err := c.store.SaveTweetRule(ctx, tr); err != nil {
-				return fetched, fmt.Errorf("search: RunForRule rule %d: save tweet rule %s: %w", rule.ID, st.Tweet.ID, err)
+				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet rule %s: %w", rule.ID, st.Tweet.ID, err)
 			}
 			if err := c.producer.Push(ctx, queue.QueueRaw, st); err != nil {
-				return fetched, fmt.Errorf("search: RunForRule rule %d: push tweet %s: %w", rule.ID, st.Tweet.ID, err)
+				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: push tweet %s: %w", rule.ID, st.Tweet.ID, err)
 			}
 		}
 
@@ -253,30 +262,5 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 		nextToken = page.NextToken
 	}
 
-	return fetched, nil
-}
-
-// RunForRules fetches tweets for each provided rule, paginating fully.
-// Returns the total tweets fetched across all rules.
-func (c *Client) RunForRules(ctx context.Context, rules []*model.Rule, params SearchParams) (int, error) {
-	total := 0
-	for _, rule := range rules {
-		n, err := c.RunForRule(ctx, rule, params)
-		total += n
-		if err != nil {
-			// Log and continue so one failed rule does not abort the rest.
-			c.logger.ErrorContext(ctx, "failed to fetch tweets for rule",
-				"rule_id", rule.ID,
-				"rule_name", rule.Name,
-				"error", err,
-			)
-			continue
-		}
-		c.logger.InfoContext(ctx, "fetched tweets for rule",
-			"rule_id", rule.ID,
-			"rule_name", rule.Name,
-			"tweets_fetched", n,
-		)
-	}
-	return total, nil
+	return fetched, newestID, nil
 }

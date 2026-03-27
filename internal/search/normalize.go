@@ -47,6 +47,7 @@ type xSearchTweet struct {
 type NormalizedPage struct {
 	Tweets    []*model.StreamTweet
 	NextToken string
+	NewestID  string // meta.newest_id from the X API response; empty when the page has no results
 }
 
 // NormalizeSearchResponse parses an X API v2 search response body and
@@ -130,5 +131,6 @@ func NormalizeSearchResponse(body []byte, rule *model.Rule) (*NormalizedPage, er
 	return &NormalizedPage{
 		Tweets:    tweets,
 		NextToken: resp.Meta.NextToken,
+		NewestID:  resp.Meta.NewestID,
 	}, nil
 }
