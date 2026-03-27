@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/action"
 	"github.com/amir-the-h/iran-watcher/internal/api"
 	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/config"
@@ -20,6 +22,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/search"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
+	"github.com/amir-the-h/iran-watcher/internal/twitter"
 	"github.com/amir-the-h/iran-watcher/internal/worker"
 	"github.com/amir-the-h/iran-watcher/migrations"
 	"github.com/spf13/cobra"
@@ -123,6 +126,27 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load inference registry: %w", err)
 	}
 
+	// Run one-time pipeline-action migration before building the action registry.
+	if err := migrateModelsToActions(ctx, s, logger); err != nil {
+		return fmt.Errorf("failed to migrate models to actions: %w", err)
+	}
+
+	// Optional Twitter client — only created when credentials are configured.
+	// Must be created before the action registry so Twitter actions can load.
+	var twitterClient *twitter.Client
+	if cfg.Twitter.ClientID != "" {
+		twitterClient = twitter.NewClient(cfg.Twitter.ClientID, cfg.Twitter.ClientSecret, cfg.Twitter.CallbackURL, s)
+		logger.Info("serve: twitter client enabled", "component", "twitter")
+	} else {
+		logger.Info("serve: twitter client disabled (no client_id configured)", "component", "twitter")
+	}
+
+	// Build action registry from store + inference registry.
+	actionReg := action.NewRegistry()
+	if err := loadActionRegistry(ctx, s, reg, actionReg, twitterClient, q, logger); err != nil {
+		return fmt.Errorf("failed to load action registry: %w", err)
+	}
+
 	// Initialize notifier clients (each optional — skipped if credentials not configured).
 	var pushClient *notifier.PushoverClient
 	if cfg.Pushover.AppToken != "" && cfg.Pushover.UserKey != "" {
@@ -174,7 +198,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	searchClient := search.NewClient(cfg.X.BearerToken, cfg.X.Tier, s, q, logger)
 	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
 
-	mgr := worker.NewManager(workerCount, q, q, s, reg, emitter, logger)
+	mgr := worker.NewManager(workerCount, q, s, actionReg, logger)
 
 	jwtSecret := cfg.Auth.JWTSecret
 	if jwtSecret == "" {
@@ -187,7 +211,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, rules, streamClient, cfg.X.Tier, ollamaBackends, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, reg, actionReg, twitterClient, rules, streamClient, cfg.X.Tier, ollamaBackends, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -308,3 +332,123 @@ func seedAdminUser(ctx context.Context, s store.Store, username, password string
 	logger.Info("serve: created initial admin user", "username", username, "component", "auth")
 	return nil
 }
+
+// migrateModelsToActions is a one-time idempotent migration: for every active
+// model, create a corresponding pipeline action if no pipeline actions exist yet.
+func migrateModelsToActions(ctx context.Context, s store.Store, logger *slog.Logger) error {
+	existing, err := s.ListActions(ctx, store.ActionFilter{Type: actionTypePtr(model.ActionTypePipeline)})
+	if err != nil {
+		return fmt.Errorf("list pipeline actions: %w", err)
+	}
+	if len(existing) > 0 {
+		return nil // already migrated
+	}
+
+	models, err := s.ListModels(ctx)
+	if err != nil {
+		return fmt.Errorf("list models: %w", err)
+	}
+
+	created := 0
+	for _, m := range models {
+		if !m.Active {
+			continue
+		}
+		cfg, err := encodeConfig(map[string]any{"model_id": m.ID})
+		if err != nil {
+			logger.Warn("serve: migrate actions: encode config", "model", m.Name, "error", err)
+			continue
+		}
+		a := &model.Action{
+			Name:      m.Name,
+			Type:      model.ActionTypePipeline,
+			Active:    true,
+			RuleIDs:   m.RuleIDs,
+			Config:    cfg,
+			CreatedAt: time.Now(),
+		}
+		if err := s.SaveAction(ctx, a); err != nil {
+			logger.Warn("serve: migrate actions: save", "model", m.Name, "error", err)
+			continue
+		}
+		created++
+	}
+
+	if created > 0 {
+		logger.Info("serve: migrated models to pipeline actions", "count", created, "component", "actions")
+	}
+	return nil
+}
+
+// loadActionRegistry populates the ActionRegistry from active actions in the store.
+func loadActionRegistry(ctx context.Context, s store.Store, reg *inference.Registry, actionReg *action.Registry, tc *twitter.Client, producer queue.Producer, logger *slog.Logger) error {
+	active := true
+	dbActions, err := s.ListActions(ctx, store.ActionFilter{Active: &active})
+	if err != nil {
+		return fmt.Errorf("list actions: %w", err)
+	}
+
+	actions := make([]action.Action, 0, len(dbActions))
+	for _, a := range dbActions {
+		act, err := buildAction(ctx, a, s, reg, tc, producer, logger)
+		if err != nil {
+			logger.Warn("serve: load action registry: skip action",
+				"action_id", a.ID, "name", a.Name, "error", err)
+			continue
+		}
+		actions = append(actions, act)
+	}
+	actionReg.Load(actions)
+	logger.Info("serve: action registry loaded", "count", len(actions), "component", "actions")
+	return nil
+}
+
+// buildAction constructs a concrete Action from a model.Action record.
+// twitterClient may be nil if Twitter is not configured.
+func buildAction(ctx context.Context, a *model.Action, s store.Store, reg *inference.Registry, tc *twitter.Client, producer queue.Producer, logger *slog.Logger) (action.Action, error) {
+	switch a.Type {
+	case model.ActionTypePipeline:
+		var cfg struct {
+			ModelID int64 `json:"model_id"`
+		}
+		if err := jsonUnmarshal(a.Config, &cfg); err != nil {
+			return nil, fmt.Errorf("parse pipeline config: %w", err)
+		}
+		mdl, err := s.GetModel(ctx, cfg.ModelID)
+		if err != nil {
+			return nil, fmt.Errorf("get model %d: %w", cfg.ModelID, err)
+		}
+		p := reg.Get(mdl.Name)
+		if p == nil {
+			return nil, fmt.Errorf("model %q not loaded in registry", mdl.Name)
+		}
+		return action.NewPipelineAction(a.ID, a.Name, a.RuleIDs, p, s, producer, nil, reg, logger), nil
+
+	case model.ActionTypeRetweet, model.ActionTypeLike, model.ActionTypeQuote:
+		if tc == nil {
+			return nil, fmt.Errorf("Twitter client not configured")
+		}
+		var cfg action.TwitterConfig
+		if err := jsonUnmarshal(a.Config, &cfg); err != nil {
+			return nil, fmt.Errorf("parse twitter config: %w", err)
+		}
+		return action.NewTwitterAction(a.ID, a.Name, a.Type, a.RuleIDs, cfg, tc, reg, s, logger), nil
+
+	default:
+		return nil, fmt.Errorf("unknown action type: %s", a.Type)
+	}
+}
+
+func actionTypePtr(t model.ActionType) *model.ActionType { return &t }
+
+func encodeConfig(v any) ([]byte, error) {
+	b, err := jsonMarshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// jsonMarshal and jsonUnmarshal are aliases to avoid import ambiguity.
+func jsonMarshal(v any) ([]byte, error)        { return json.Marshal(v) }
+func jsonUnmarshal(b []byte, v any) error       { return json.Unmarshal(b, v) }

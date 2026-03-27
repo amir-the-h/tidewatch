@@ -67,20 +67,8 @@ func (w *worker) run(ctx context.Context) {
 				"error", ruleErr)
 		}
 		pipelines := w.registry.AllForRules(tweetRuleIDs)
-		// If the queued item targets specific models, restrict to those only.
-		if len(streamTweet.TargetModels) > 0 {
-			wanted := make(map[string]struct{}, len(streamTweet.TargetModels))
-			for _, name := range streamTweet.TargetModels {
-				wanted[name] = struct{}{}
-			}
-			filtered := pipelines[:0]
-			for _, p := range pipelines {
-				if _, ok := wanted[p.Name()]; ok {
-					filtered = append(filtered, p)
-				}
-			}
-			pipelines = filtered
-		}
+		// NOTE: legacy worker does not support TargetActions filtering.
+		// The Manager-based dispatcher handles action targeting.
 		var failedModels []queue.FailedModel
 
 		// nerEntities collects NER entities from any pipeline that returns them.

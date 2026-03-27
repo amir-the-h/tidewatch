@@ -3,19 +3,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: iran-watcher:latest
+    image: iran-watcher:local
     container_name: iran-watcher
     restart: unless-stopped
 
     environment:
       # Required
       IRAN_WATCHER_X_BEARER_TOKEN: "${IRAN_WATCHER_X_BEARER_TOKEN}"
+      IRAN_WATCHER_TELEGRAM_BOT_TOKEN: "${IRAN_WATCHER_TELEGRAM_BOT_TOKEN}"
 
       # Port
-      IRAN_WATCHER_API_BIND: "${IRAN_WATCHER_API_BIND:-0.0.0.0:1452}"
+      IRAN_WATCHER_API_BIND: "${IRAN_WATCHER_API_BIND:-0.0.0.0:8080}"
 
       # Redis — point at the service name in your shared network
-      IRAN_WATCHER_REDIS_ADDR: "${IRAN_WATCHER_REDIS_ADDR:-redis:6379}"
+      IRAN_WATCHER_REDIS_ADDR: "${IRAN_WATCHER_REDIS_ADDR:-iran-watcher-redis:6379}"
       IRAN_WATCHER_REDIS_PASSWORD: "${IRAN_WATCHER_REDIS_PASSWORD:-}"
       IRAN_WATCHER_REDIS_DB: "${IRAN_WATCHER_REDIS_DB:-0}"
 
@@ -30,6 +31,14 @@ services:
       IRAN_WATCHER_PUSHOVER_APP_TOKEN: "${IRAN_WATCHER_PUSHOVER_APP_TOKEN:-}"
       IRAN_WATCHER_PUSHOVER_USER_KEY: "${IRAN_WATCHER_PUSHOVER_USER_KEY:-}"
 
+      # Stream
+      IRAN_WATCHER_STREAM_AUTO_CONNECT: "${IRAN_WATCHER_STREAM_AUTO_CONNECT:-true}"
+
+      # Auth — set a strong jwt_secret in production!
+      IRAN_WATCHER_AUTH_JWT_SECRET: "${IRAN_WATCHER_AUTH_JWT_SECRET}"
+      IRAN_WATCHER_AUTH_ADMIN_USERNAME: "${IRAN_WATCHER_AUTH_ADMIN_USERNAME:-admin}"
+      IRAN_WATCHER_AUTH_ADMIN_PASSWORD: "${IRAN_WATCHER_AUTH_ADMIN_PASSWORD:-changeme}"
+
     deploy:
       resources:
         reservations:
@@ -40,23 +49,32 @@ services:
 
     volumes:
       # Persistent SQLite database
-      - iran-watcher-data:/data
-      - iran-watcher-models:/models
-      - iran-watcher-config:/configs
-
-    ports:
-      # Bind API only to localhost on the host — not exposed publicly
-      - "127.0.0.1:1452:1452"
+      - ./data:/data
+      - ./models:/models
+      - ./configs:/configs
+    depends_on:
+      - redis
 
     networks:
       network:
         ipv4_address: 172.79.0.2
       shared: {}
 
+  redis:
+    image: redis:7-alpine
+    container_name: iran-watcher-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ./data/redis:/data
+    networks:
+      network:
+        ipv4_address: 172.79.0.4
+
   iran-watcher-ui:
     build:
       context: ./web
-    image: iran-watcher-ui:latest
+    image: iran-watcher-ui:local
     container_name: iran-watcher-ui
     restart: unless-stopped
     environment:
@@ -64,17 +82,12 @@ services:
       API_BASE_URL: "${API_BASE_URL:-}"
       # Backend container reachable via Docker network — never leaves the server.
       API_UPSTREAM: "${API_UPSTREAM:-http://iran-watcher:1452}"
-    ports:
-      - "127.0.0.1:1453:80"
     networks:
       network:
         ipv4_address: 172.79.0.3
       shared: {}
-
-volumes:
-  iran-watcher-data:
-  iran-watcher-models:
-  iran-watcher-config:
+    depends_on:
+      - iran-watcher
 
 networks:
   network:

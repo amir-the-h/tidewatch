@@ -1,6 +1,9 @@
 # Worktrees
 .worktrees/
 
+# Config file
+configs/config.yaml
+
 # Binary output (anchored to root to avoid matching cmd/iran-watcher/ directory)
 /iran-watcher
 

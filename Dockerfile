@@ -60,7 +60,7 @@ RUN ldconfig
 COPY --from=builder /app/iran-watcher /usr/local/bin/iran-watcher
 
 RUN mkdir -p /configs /data /models
-COPY configs/iran-watcher.yaml /configs/iran-watcher.yaml
+COPY configs/default.yaml /configs/config.yaml
 
 VOLUME ["/data", "/models"]
 
@@ -72,4 +72,4 @@ ENV IRAN_WATCHER_SQLITE_PATH=/data/iran-watcher.db \
     IRAN_WATCHER_ONNX_LIB_PATH=/usr/local/lib/libonnxruntime.so.${ORT_VERSION}
 
 ENTRYPOINT ["iran-watcher"]
-CMD ["serve", "--config", "/configs/iran-watcher.yaml"]
+CMD ["serve", "--config", "/configs/config.yaml"]

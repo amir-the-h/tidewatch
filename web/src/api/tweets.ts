@@ -59,7 +59,7 @@ export const listTweets = (filter: TweetListFilter = {}) => {
 
 export const getTweet = (id: string) => apiFetch<TweetDetail>(`/api/tweets/${id}`)
 
-export const reprocessTweets = (body: { tweet_ids?: string[]; model_names?: string[] }) =>
+export const reprocessTweets = (body: { tweet_ids?: string[]; action_ids?: number[] }) =>
   apiFetch<{ requeued: number }>('/api/tweets/reprocess', { method: 'POST', body: JSON.stringify(body) })
 
 export const deleteTweets = (ids: string[]) =>

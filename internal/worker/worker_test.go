@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/action"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
@@ -183,7 +185,20 @@ func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User,
 func (m *mockStore) ListUsers(_ context.Context) ([]*model.User, error)           { return nil, nil }
 func (m *mockStore) UpdateUser(_ context.Context, _ *model.User) error            { return nil }
 func (m *mockStore) DeleteUser(_ context.Context, _ int64) error                  { return nil }
-func (m *mockStore) CountAdmins(_ context.Context) (int, error)                   { return 1, nil }
+func (m *mockStore) CountAdmins(_ context.Context) (int, error) { return 1, nil }
+func (m *mockStore) SaveAction(_ context.Context, a *model.Action) error { return nil }
+func (m *mockStore) GetAction(_ context.Context, _ int64) (*model.Action, error) { return nil, fmt.Errorf("not found") }
+func (m *mockStore) ListActions(_ context.Context, _ store.ActionFilter) ([]*model.Action, error) { return nil, nil }
+func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error { return nil }
+func (m *mockStore) DeleteAction(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetActionActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) SaveActionExecution(_ context.Context, _ *model.ActionExecution) error { return nil }
+func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFilter) ([]*model.ActionExecution, error) { return nil, nil }
+func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) { return nil, nil }
+func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error { return nil }
+func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error { return nil }
+func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCredentials, error) { return nil, fmt.Errorf("not found") }
+func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
 func (m *mockStore) Close() error                                                  { return nil }
 
 // --- stubPipeline ---
@@ -218,12 +233,6 @@ func makeTweet(id string) *model.StreamTweet {
 func setupRegistry(t *testing.T, pipelines ...inference.Pipeline) *inference.Registry {
 	t.Helper()
 	reg := inference.NewRegistry()
-	err := reg.Load(context.Background(), nil, func(m *model.Model) (inference.Pipeline, error) {
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("registry Load: %v", err)
-	}
 	models := make([]*model.Model, len(pipelines))
 	for i, p := range pipelines {
 		models[i] = &model.Model{Name: p.Name()}
@@ -232,13 +241,40 @@ func setupRegistry(t *testing.T, pipelines ...inference.Pipeline) *inference.Reg
 	for _, p := range pipelines {
 		pipelineMap[p.Name()] = p
 	}
-	err = reg.Load(context.Background(), models, func(m *model.Model) (inference.Pipeline, error) {
+	err := reg.Load(context.Background(), models, func(m *model.Model) (inference.Pipeline, error) {
 		return pipelineMap[m.Name], nil
 	})
 	if err != nil {
 		t.Fatalf("registry Load: %v", err)
 	}
 	return reg
+}
+
+// setupActionRegistry creates an action.Registry backed by PipelineActions wrapping
+// the given inference pipelines. Store and producer are used for categorization/dead-letter.
+func setupActionRegistry(st store.Store, producer queue.Producer, pipelines ...inference.Pipeline) *action.Registry {
+	reg := inference.NewRegistry()
+	models := make([]*model.Model, len(pipelines))
+	for i, p := range pipelines {
+		models[i] = &model.Model{Name: p.Name()}
+	}
+	pipelineMap := make(map[string]inference.Pipeline)
+	for _, p := range pipelines {
+		pipelineMap[p.Name()] = p
+	}
+	_ = reg.Load(context.Background(), models, func(m *model.Model) (inference.Pipeline, error) {
+		return pipelineMap[m.Name], nil
+	})
+
+	acts := make([]action.Action, 0, len(pipelines))
+	for i, p := range pipelines {
+		acts = append(acts, action.NewPipelineAction(
+			int64(i+1), p.Name(), nil, p, st, producer, nil, reg, nil,
+		))
+	}
+	actionReg := action.NewRegistry()
+	actionReg.Load(acts)
+	return actionReg
 }
 
 func runWorkerUntilDrained(t *testing.T, w *worker, consumer *mockConsumer) {
@@ -478,9 +514,9 @@ func TestManager_ProcessesTweet(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-m1")}}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
-	reg := setupRegistry(t, &stubPipeline{name: "pa"})
+	actionReg := setupActionRegistry(storeImpl, producer, &stubPipeline{name: "pa"})
 
-	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	mgr := NewManager(2, consumer, storeImpl, actionReg, nil)
 	runManagerUntilDrained(t, mgr, consumer, 1)
 
 	if len(storeImpl.categorizations) != 1 {
@@ -501,12 +537,12 @@ func TestManager_TwoPipelines_OneFails(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-m2")}}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
-	reg := setupRegistry(t,
+	actionReg := setupActionRegistry(storeImpl, producer,
 		&stubPipeline{name: "pa"},
 		&stubPipeline{name: "pb", failErr: errors.New("boom")},
 	)
 
-	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	mgr := NewManager(2, consumer, storeImpl, actionReg, nil)
 	runManagerUntilDrained(t, mgr, consumer, 1)
 
 	if len(storeImpl.categorizations) != 1 {
@@ -527,12 +563,12 @@ func TestManager_TwoPipelines_BothSucceed(t *testing.T) {
 	consumer := &mockConsumer{tweets: []*model.StreamTweet{makeTweet("tweet-m3")}}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
-	reg := setupRegistry(t,
+	actionReg := setupActionRegistry(storeImpl, producer,
 		&stubPipeline{name: "pa"},
 		&stubPipeline{name: "pb"},
 	)
 
-	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	mgr := NewManager(2, consumer, storeImpl, actionReg, nil)
 	runManagerUntilDrained(t, mgr, consumer, 2)
 
 	if len(storeImpl.categorizations) != 2 {
@@ -545,11 +581,10 @@ func TestManager_TwoPipelines_BothSucceed(t *testing.T) {
 
 func TestManager_Start_RespectsCtxCancel(t *testing.T) {
 	consumer := &mockConsumer{}
-	producer := &mockProducer{}
 	storeImpl := &mockStore{}
-	reg := inference.NewRegistry()
+	actionReg := action.NewRegistry()
 
-	mgr := NewManager(2, consumer, producer, storeImpl, reg, nil, nil)
+	mgr := NewManager(2, consumer, storeImpl, actionReg, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

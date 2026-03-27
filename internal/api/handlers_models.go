@@ -380,13 +380,27 @@ func (s *Server) handleRunModelPipeline(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Find the pipeline action(s) backed by this model so we can target by action ID.
+	active := true
+	pipelineType := model.ActionTypePipeline
+	dbActions, _ := s.store.ListActions(r.Context(), store.ActionFilter{Active: &active, Type: &pipelineType})
+	var actionIDs []int64
+	for _, a := range dbActions {
+		var cfg struct {
+			ModelID int64 `json:"model_id"`
+		}
+		if err := json.Unmarshal(a.Config, &cfg); err == nil && cfg.ModelID == m.ID {
+			actionIDs = append(actionIDs, a.ID)
+		}
+	}
+
 	// Push each tweet into the normal worker queue, tagged so workers run only
-	// this model. The queue gives visibility in the UI and respects the pool.
+	// the actions backed by this model.
 	count := 0
 	for _, tweet := range tweets {
 		st := &model.StreamTweet{
-			Tweet:        tweet,
-			TargetModels: []string{pipeline.Name()},
+			Tweet:         tweet,
+			TargetActions: actionIDs,
 		}
 		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
 			s.logger.Error("api: run model: push", "tweet_id", tweet.ID, "error", err)

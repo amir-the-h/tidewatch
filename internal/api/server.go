@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/amir-the-h/iran-watcher/internal/action"
 	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -19,6 +20,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/search"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 	"github.com/amir-the-h/iran-watcher/internal/stream"
+	"github.com/amir-the-h/iran-watcher/internal/twitter"
 	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
@@ -66,6 +68,8 @@ type Server struct {
 	store                   store.Store
 	producer                queue.Producer
 	registry                *inference.Registry
+	actionRegistry          *action.Registry
+	twitterClient           *twitter.Client // nil when Twitter not configured
 	rules                   ruleManagerInterface
 	stream                  streamClientInterface
 	tier                    string
@@ -80,7 +84,7 @@ type Server struct {
 	logger                  *slog.Logger
 	router                  chi.Router
 	http                    *http.Server
-	ctx              context.Context
+	ctx                     context.Context
 }
 
 // NewServer creates a new Server and registers all routes.
@@ -89,6 +93,8 @@ func NewServer(
 	s store.Store,
 	q queue.Producer,
 	reg *inference.Registry,
+	actionReg *action.Registry,
+	tc *twitter.Client,
 	rules ruleManagerInterface,
 	sc streamClientInterface,
 	tier string,
@@ -106,6 +112,8 @@ func NewServer(
 		store:                 s,
 		producer:              q,
 		registry:              reg,
+		actionRegistry:        actionReg,
+		twitterClient:         tc,
 		rules:                 rules,
 		stream:                sc,
 		tier:                  tier,
@@ -131,6 +139,7 @@ func NewServer(
 	r.Route("/api", func(r chi.Router) {
 		// Public — no auth required.
 		r.Post("/auth/login", srv.handleLogin)
+		r.Get("/twitter/auth/callback", srv.handleTwitterAuthCallback)
 
 		// All routes below require a valid JWT.
 		r.Group(func(r chi.Router) {
@@ -249,6 +258,24 @@ func NewServer(
 				r.Post("/users", srv.handleCreateUser)
 				r.Put("/users/{id}", srv.handleUpdateUser)
 				r.Delete("/users/{id}", srv.handleDeleteUser)
+
+				// Actions
+				r.Get("/actions", srv.handleListActions)
+				r.Post("/actions", srv.handleCreateAction)
+				r.Put("/actions/{id}", srv.handleUpdateAction)
+				r.Delete("/actions/{id}", srv.handleDeleteAction)
+				r.Post("/actions/{id}/activate", srv.handleActivateAction)
+				r.Post("/actions/{id}/deactivate", srv.handleDeactivateAction)
+				r.Post("/actions/{id}/run", srv.handleRunAction)
+
+				// Action execution log
+				r.Get("/actions/{id}/executions", srv.handleListActionExecutions)
+				r.Get("/executions", srv.handleListAllExecutions)
+
+				// Twitter OAuth (callback is public — registered above)
+				r.Get("/twitter/auth/start", srv.handleTwitterAuthStart)
+				r.Get("/twitter/auth/status", srv.handleTwitterAuthStatus)
+				r.Delete("/twitter/auth", srv.handleTwitterDisconnect)
 			})
 		})
 	})
@@ -433,6 +460,8 @@ func NewServerWithConcreteRules(
 	s store.Store,
 	q queue.Producer,
 	reg *inference.Registry,
+	actionReg *action.Registry,
+	tc *twitter.Client,
 	rules *stream.RuleManager,
 	sc *stream.Client,
 	tier string,
@@ -446,5 +475,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, actionReg, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }

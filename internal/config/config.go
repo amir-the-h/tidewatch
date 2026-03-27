@@ -75,6 +75,11 @@ type Config struct {
 		AdminUsername string `yaml:"admin_username"`
 		AdminPassword string `yaml:"admin_password"`
 	} `yaml:"auth"`
+	Twitter struct {
+		ClientID     string `yaml:"client_id"`
+		ClientSecret string `yaml:"client_secret"`
+		CallbackURL  string `yaml:"callback_url"`
+	} `yaml:"twitter"`
 }
 
 // defaults returns a Config populated with sensible default values.
@@ -244,6 +249,15 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_AUTH_ADMIN_PASSWORD"); v != "" {
 		cfg.Auth.AdminPassword = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_TWITTER_CLIENT_ID"); v != "" {
+		cfg.Twitter.ClientID = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_TWITTER_CLIENT_SECRET"); v != "" {
+		cfg.Twitter.ClientSecret = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_TWITTER_CALLBACK_URL"); v != "" {
+		cfg.Twitter.CallbackURL = v
 	}
 	return nil
 }

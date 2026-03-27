@@ -37,7 +37,7 @@ export const useTweetsStore = defineStore('tweets', () => {
     return api.getTweet(id)
   }
 
-  async function reprocess(body: { tweet_ids?: string[]; model_names?: string[] }) {
+  async function reprocess(body: { tweet_ids?: string[]; action_ids?: number[] }) {
     return api.reprocessTweets(body)
   }
 

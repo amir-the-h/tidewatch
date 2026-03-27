@@ -24,10 +24,10 @@ type MatchingRule struct {
 // before the tweet is persisted. It carries the tweet plus the matching rules
 // from the X stream event so tweet_rules rows can be written.
 //
-// When TargetModels is non-empty, workers run only those named pipelines
-// instead of the full applicable set. Used by the manual pipeline-run endpoint.
+// When TargetActions is non-empty, workers run only those action IDs
+// instead of the full applicable set. Used by the reprocess and run-action endpoints.
 type StreamTweet struct {
 	Tweet         *Tweet
 	MatchingRules []MatchingRule
-	TargetModels  []string `json:"TargetModels,omitempty"`
+	TargetActions []int64 `json:"TargetActions,omitempty"`
 }

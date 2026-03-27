@@ -125,42 +125,34 @@ func (s *Server) handleDeleteTweets(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TweetIDs   []string `json:"tweet_ids"`
-		ModelNames []string `json:"model_names"`
+		TweetIDs  []string `json:"tweet_ids"`
+		ActionIDs []int64  `json:"action_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	var tweets []*model.Tweet
+	if len(req.TweetIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "tweet_ids is required")
+		return
+	}
 
-	if len(req.TweetIDs) > 0 {
-		// Explicit list — fetch each and requeue regardless of categorization state.
-		for _, id := range req.TweetIDs {
-			tweet, err := s.store.GetTweet(r.Context(), id)
-			if err != nil {
-				s.logger.Warn("api: reprocess: tweet not found", "tweet_id", id, "error", err)
-				continue
-			}
-			tweets = append(tweets, tweet)
-		}
-	} else {
-		// Fallback: find tweets missing categorizations for the given models.
-		var err error
-		tweets, err = s.store.ListUncategorizedTweets(r.Context(), req.ModelNames)
+	var tweets []*model.Tweet
+	for _, id := range req.TweetIDs {
+		tweet, err := s.store.GetTweet(r.Context(), id)
 		if err != nil {
-			s.logger.Error("api: list uncategorized tweets", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to list uncategorized tweets")
-			return
+			s.logger.Warn("api: reprocess: tweet not found", "tweet_id", id, "error", err)
+			continue
 		}
+		tweets = append(tweets, tweet)
 	}
 
 	count := 0
 	for _, tweet := range tweets {
 		st := &model.StreamTweet{
-			Tweet:        tweet,
-			TargetModels: req.ModelNames,
+			Tweet:         tweet,
+			TargetActions: req.ActionIDs, // empty = all actions
 		}
 		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
 			s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "error", err)

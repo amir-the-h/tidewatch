@@ -26,6 +26,7 @@ const adminMenuOptions = [
   { label: 'Categorizations',  key: '/categorizations' },
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
+  { label: 'Actions',          key: '/actions' },
   { label: 'Queue',            key: '/failures' },
   { label: 'Users',            key: '/users' },
 ]

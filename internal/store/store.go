@@ -73,6 +73,23 @@ type EntityTrackFilter struct {
 	PerPage  int
 }
 
+// ActionFilter defines optional filters for listing actions.
+type ActionFilter struct {
+	Type   *model.ActionType
+	Active *bool
+}
+
+// ExecutionFilter defines optional filters for listing action executions.
+type ExecutionFilter struct {
+	ActionID *int64
+	TweetID  *string
+	Status   *string
+	From     *time.Time
+	To       *time.Time
+	Page     int
+	PerPage  int
+}
+
 // Store is the repository interface for all persistent data.
 type Store interface {
 	// Tweets
@@ -179,6 +196,25 @@ type Store interface {
 	UpdateUser(ctx context.Context, u *model.User) error
 	DeleteUser(ctx context.Context, id int64) error
 	CountAdmins(ctx context.Context) (int, error)
+
+	// Actions
+	SaveAction(ctx context.Context, a *model.Action) error
+	GetAction(ctx context.Context, id int64) (*model.Action, error)
+	ListActions(ctx context.Context, filter ActionFilter) ([]*model.Action, error)
+	UpdateAction(ctx context.Context, a *model.Action) error
+	DeleteAction(ctx context.Context, id int64) error
+	SetActionActive(ctx context.Context, id int64, active bool) error
+
+	// ActionExecutions
+	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
+	ListActionExecutions(ctx context.Context, filter ExecutionFilter) ([]*model.ActionExecution, error)
+	ListActionExecutionMetadata(ctx context.Context, execID int64) (map[string]string, error)
+	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
+
+	// TwitterCredentials
+	SaveTwitterCredentials(ctx context.Context, c *model.TwitterCredentials) error
+	GetTwitterCredentials(ctx context.Context) (*model.TwitterCredentials, error)
+	DeleteTwitterCredentials(ctx context.Context) error
 
 	Close() error
 }

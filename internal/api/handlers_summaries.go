@@ -126,11 +126,28 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Find the pipeline action backed by the summarizer model.
+	active := true
+	pipelineType := model.ActionTypePipeline
+	dbActions, _ := s.store.ListActions(r.Context(), store.ActionFilter{Active: &active, Type: &pipelineType})
+	var actionIDs []int64
+	for _, a := range dbActions {
+		var cfg struct {
+			ModelID int64 `json:"model_id"`
+		}
+		if err := json.Unmarshal(a.Config, &cfg); err == nil {
+			mdl, mErr := s.store.GetModel(r.Context(), cfg.ModelID)
+			if mErr == nil && mdl.Name == summarizerName {
+				actionIDs = append(actionIDs, a.ID)
+			}
+		}
+	}
+
 	count := 0
 	for _, tweet := range tweets {
 		st := &model.StreamTweet{
-			Tweet:        tweet,
-			TargetModels: []string{summarizerName},
+			Tweet:         tweet,
+			TargetActions: actionIDs,
 		}
 		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
 			s.logger.Error("api: run summaries: push", "tweet_id", tweet.ID, "error", err)

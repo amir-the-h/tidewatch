@@ -16,15 +16,7 @@ worker:
 
 inference:
   models_dir: ./models
-
-ollama:
-  # Single Ollama backend (backward-compatible).
-  base_url: http://localhost:11434
-  # Multiple Ollama backends — takes precedence over base_url when set.
-  # Add your PC or any other Ollama instance here to spread load across them.
-  # base_urls:
-  #   - http://localhost:11434
-  #   - http://192.168.1.x:11434
+  onnx_lib_path: /usr/local/lib/libonnxruntime.so.1.24.1
 
 log:
   level: info
@@ -33,6 +25,23 @@ log:
 pushover:
   app_token: ""
   user_key: ""
+
+auth:
+  # jwt_secret: change-me-in-production  # or set IRAN_WATCHER_AUTH_JWT_SECRET env var
+  admin_username: admin   # initial admin username (used only on first startup)
+  admin_password: changeme  # CHANGE THIS — or set IRAN_WATCHER_AUTH_ADMIN_PASSWORD
+
+ollama:
+  # backends:                              # named backends (takes precedence over base_urls/base_url)
+  #   - url: http://desktop:11434
+  #     name: Desktop
+  #   - url: http://macbook:11434
+  #     name: MacBook
+  # base_url: http://localhost:11434       # single backend (backward-compat)
+  # base_urls:                             # pool of backends without names (backward-compat)
+  #   - http://desktop:11434
+  #   - http://macbook:11434
+  # fast_wait_timeout: 5s                  # how long to wait for the fastest backend before falling back
 
 search:
   enabled: false
@@ -50,3 +59,9 @@ search:
     - author_id
     - referenced_tweets.id
   start_time: ""
+
+# Twitter OAuth 2.0 PKCE — optional; enables retweet/like/quote actions.
+# Register callback_url in the Twitter developer portal.
+# twitter:
+#   client_id: ""
+#   callback_url: "http://localhost:1452/api/twitter/auth/callback"

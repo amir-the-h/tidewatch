@@ -23,6 +23,7 @@ export default createRouter({
     { path: '/chat',      component: () => import('../views/ChatView.vue') },
     { path: '/users', component: () => import('../views/UsersView.vue') },
     { path: '/ollama', component: () => import('../views/OllamaView.vue') },
+    { path: '/actions', component: () => import('../views/ActionsView.vue') },
   ],
 })
 

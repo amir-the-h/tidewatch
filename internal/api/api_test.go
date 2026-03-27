@@ -322,6 +322,42 @@ func (m *mockStore) UpdateUser(_ context.Context, _ *model.User) error          
 func (m *mockStore) DeleteUser(_ context.Context, _ int64) error                 { return nil }
 func (m *mockStore) CountAdmins(_ context.Context) (int, error)                  { return 1, nil }
 
+func (m *mockStore) SaveAction(_ context.Context, a *model.Action) error {
+	m.nextID++
+	a.ID = m.nextID
+	return nil
+}
+func (m *mockStore) GetAction(_ context.Context, _ int64) (*model.Action, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) ListActions(_ context.Context, _ store.ActionFilter) ([]*model.Action, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error  { return nil }
+func (m *mockStore) DeleteAction(_ context.Context, _ int64) error          { return nil }
+func (m *mockStore) SetActionActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) SaveActionExecution(_ context.Context, e *model.ActionExecution) error {
+	m.nextID++
+	e.ID = m.nextID
+	return nil
+}
+func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFilter) ([]*model.ActionExecution, error) {
+	return nil, nil
+}
+func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
+	return nil
+}
+func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error {
+	return nil
+}
+func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCredentials, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +403,7 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	mp := &mockProducer{}
 	mr := &mockRuleManager{}
 	logger := slog.Default()
-	srv := NewServer("127.0.0.1:0", ms, mp, nil, mr, nil, "basic", nil, 0, "", logger, nil, nil, nil, nil, nil)
+	srv := NewServer("127.0.0.1:0", ms, mp, nil, nil, nil, mr, nil, "basic", nil, 0, "", logger, nil, nil, nil, nil, nil)
 	return srv, ms, mp, mr
 }
 
