@@ -30,6 +30,7 @@ export interface Categorization {
   model_version: string
   results: CategorizationResults
   created_at: string
+  tweet_created_at: string
 }
 
 export interface TweetListFilter {
