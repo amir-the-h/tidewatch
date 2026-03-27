@@ -406,7 +406,7 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
               v-for="t in tracks"
               :key="t.id"
               :type="t.match_source === 'ner' ? 'success' : 'info'"
-              :title="formatDateTime(t.created_at)"
+              :title="formatDateTime(t.tweet_created_at || t.created_at)"
             >
               <n-flex vertical gap="6">
                 <n-flex align="center" gap="8">

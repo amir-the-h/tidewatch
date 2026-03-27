@@ -1448,7 +1448,7 @@ func (s *sqliteStore) SaveEntityTrack(ctx context.Context, t *model.EntityTrack)
 
 func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error) {
 	query := `SELECT et.id, et.entity_id, te.name, et.tweet_id, et.match_source, et.context, et.summary,
-	                 COALESCE(tw.text, ''), COALESCE(tw.author_handle, ''), et.created_at
+	                 COALESCE(tw.text, ''), COALESCE(tw.author_handle, ''), tw.created_at, et.created_at
 	          FROM entity_tracks et
 	          JOIN tracked_entities te ON te.id = et.entity_id
 	          LEFT JOIN tweets tw ON tw.id = et.tweet_id`
@@ -1464,17 +1464,17 @@ func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFi
 		args = append(args, *filter.TweetID)
 	}
 	if filter.From != nil {
-		where = append(where, "et.created_at >= ?")
+		where = append(where, "COALESCE(tw.created_at, et.created_at) >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "et.created_at <= ?")
+		where = append(where, "COALESCE(tw.created_at, et.created_at) <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	query += " ORDER BY et.created_at DESC"
+	query += " ORDER BY COALESCE(tw.created_at, et.created_at) DESC"
 
 	if filter.PerPage > 0 {
 		query += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.PerPage, (filter.Page-1)*filter.PerPage)
@@ -1499,6 +1499,10 @@ func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFi
 
 func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error) {
 	query := `SELECT COUNT(*) FROM entity_tracks et`
+	needTweetJoin := filter.From != nil || filter.To != nil
+	if needTweetJoin {
+		query += ` LEFT JOIN tweets tw ON tw.id = et.tweet_id`
+	}
 	var args []any
 	var where []string
 
@@ -1511,11 +1515,11 @@ func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackF
 		args = append(args, *filter.TweetID)
 	}
 	if filter.From != nil {
-		where = append(where, "et.created_at >= ?")
+		where = append(where, "COALESCE(tw.created_at, et.created_at) >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "et.created_at <= ?")
+		where = append(where, "COALESCE(tw.created_at, et.created_at) <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 	if len(where) > 0 {
@@ -1719,14 +1723,23 @@ func scanTrackedEntity(s scanner) (*model.TrackedEntity, error) {
 
 func scanEntityTrack(s scanner) (*model.EntityTrack, error) {
 	var t model.EntityTrack
-	var createdAt string
-	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.TweetID, &t.MatchSource, &t.Context, &t.Summary, &t.TweetText, &t.TweetAuthorHandle, &createdAt); err != nil {
+	var tweetCreatedAt, createdAt *string
+	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.TweetID, &t.MatchSource, &t.Context, &t.Summary, &t.TweetText, &t.TweetAuthorHandle, &tweetCreatedAt, &createdAt); err != nil {
 		return nil, err
 	}
-	var err error
-	t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse entity_track created_at: %w", err)
+	if tweetCreatedAt != nil {
+		parsed, err := time.Parse(time.RFC3339, *tweetCreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse entity_track tweet_created_at: %w", err)
+		}
+		t.TweetCreatedAt = &parsed
+	}
+	if createdAt != nil {
+		var err error
+		t.CreatedAt, err = time.Parse(time.RFC3339, *createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse entity_track created_at: %w", err)
+		}
 	}
 	return &t, nil
 }

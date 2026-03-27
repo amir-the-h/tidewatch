@@ -22,6 +22,7 @@ export interface EntityTrack {
   summary?: string
   tweet_text?: string
   tweet_author_handle?: string
+  tweet_created_at?: string
   created_at: string
 }
 
