@@ -16,7 +16,7 @@ const rulesStore = useRulesStore()
 const selectedRuleIds = ref<number[]>([])
 const startMs         = ref<number | null>(null)
 const endMs           = ref<number | null>(null)
-const maxResults      = ref<number>(100)
+const maxResults      = ref<number>(500)
 const totalLimit      = ref<number>(0)
 const sinceId         = ref<string>('')
 const untilId         = ref<string>('')
@@ -110,8 +110,8 @@ async function onRun() {
               <n-input-number
                 v-model:value="maxResults"
                 :min="1"
-                :max="100"
-                placeholder="100"
+                :max="500"
+                placeholder="500"
                 style="width: 100%"
               />
             </n-form-item>
