@@ -68,7 +68,7 @@ type Server struct {
 	rules            ruleManagerInterface
 	stream           streamClientInterface
 	tier             string
-	ollamaBaseURL    string
+	ollamaBaseURLs   []string
 	jwtSecret        string
 	dispatcher       *notifier.Dispatcher
 	searchScheduler  searchScheduler // nil if search not configured
@@ -90,7 +90,7 @@ func NewServer(
 	rules ruleManagerInterface,
 	sc streamClientInterface,
 	tier string,
-	ollamaBaseURL string,
+	ollamaBaseURLs []string,
 	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
@@ -106,7 +106,7 @@ func NewServer(
 		rules:           rules,
 		stream:          sc,
 		tier:            tier,
-		ollamaBaseURL:   ollamaBaseURL,
+		ollamaBaseURLs:  ollamaBaseURLs,
 		jwtSecret:       jwtSecret,
 		dispatcher:      dispatcher,
 		searchScheduler: ss,
@@ -429,7 +429,7 @@ func NewServerWithConcreteRules(
 	rules *stream.RuleManager,
 	sc *stream.Client,
 	tier string,
-	ollamaBaseURL string,
+	ollamaBaseURLs []string,
 	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
@@ -438,5 +438,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURL, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, rules, sc, tier, ollamaBaseURLs, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }

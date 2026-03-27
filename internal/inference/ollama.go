@@ -134,63 +134,110 @@ type rawExtractionResult struct {
 	Truncated       bool                 `json:"truncated,omitempty"`
 }
 
-// OllamaPipeline implements Pipeline by calling a locally-running Ollama server.
-// The model Path stored in the models table is treated as the Ollama model name
-// (e.g. "qwen2.5:3b"). The base URL comes from the application config.
-//
-// A semaphore (sem) limits concurrent in-flight requests to 1. Ollama queues
-// requests internally anyway, so firing N concurrent requests just causes the
-// Nth one to time out waiting. Serialising here prevents that.
-type OllamaPipeline struct {
-	name         string
-	baseURL      string
-	model        string
-	systemPrompt string
-	client       *http.Client
-	sem          chan struct{} // capacity 1 — only one call in flight at a time
+// ollamaBackend represents a single Ollama server instance.
+// Each backend has its own HTTP client. The OllamaPipeline keeps a pool of
+// backends; callers acquire one before making a request and release it after,
+// ensuring at most one in-flight request per backend at any time.
+type ollamaBackend struct {
+	baseURL string
+	client  *http.Client
 }
 
-// NewOllamaPipeline creates a new OllamaPipeline. baseURL defaults to
-// http://localhost:11434 if empty. systemPrompt selects the extraction
-// instruction set; pass OllamaGeoConfirmedSystem or OllamaGenericSystem.
-// An empty systemPrompt falls back to OllamaGenericSystem.
-func NewOllamaPipeline(name, baseURL, systemPrompt string) *OllamaPipeline {
-	if baseURL == "" {
-		baseURL = defaultOllamaBaseURL
+// OllamaPipeline implements Pipeline by calling one or more locally-running
+// Ollama servers. The model Path stored in the models table is treated as the
+// Ollama model name (e.g. "qwen2.5:3b"). Base URLs come from the application
+// config; multiple URLs form a pool so requests are spread across backends.
+//
+// The pool channel acts as both a semaphore and a round-robin dispatcher:
+// each backend token is returned to the pool after use, and the next caller
+// picks whichever backend becomes free first. This ensures at most one
+// in-flight request per backend — Ollama queues internally and firing
+// concurrent requests to the same instance just causes timeouts.
+type OllamaPipeline struct {
+	name         string
+	model        string
+	systemPrompt string
+	backends     []*ollamaBackend  // ordered slice for Load iteration
+	pool         chan *ollamaBackend // runtime token bucket — cap == len(backends)
+}
+
+// NewOllamaPipeline creates a new OllamaPipeline. baseURLs is the list of
+// Ollama server addresses; an empty slice or a single empty string both fall
+// back to http://localhost:11434. systemPrompt selects the extraction
+// instruction set; an empty value falls back to OllamaGenericSystem.
+func NewOllamaPipeline(name string, baseURLs []string, systemPrompt string) *OllamaPipeline {
+	if len(baseURLs) == 0 {
+		baseURLs = []string{defaultOllamaBaseURL}
 	}
 	if systemPrompt == "" {
 		systemPrompt = OllamaGenericSystem
 	}
+	backends := make([]*ollamaBackend, 0, len(baseURLs))
+	for _, u := range baseURLs {
+		if u == "" {
+			u = defaultOllamaBaseURL
+		}
+		backends = append(backends, &ollamaBackend{
+			baseURL: u,
+			client:  &http.Client{}, // no global timeout — each request carries its own context deadline
+		})
+	}
+	pool := make(chan *ollamaBackend, len(backends))
+	for _, b := range backends {
+		pool <- b
+	}
 	return &OllamaPipeline{
 		name:         name,
-		baseURL:      baseURL,
 		systemPrompt: systemPrompt,
-		client:       &http.Client{}, // no global timeout — each request carries its own context deadline
-		sem:          make(chan struct{}, 1),
+		backends:     backends,
+		pool:         pool,
 	}
+}
+
+// acquire blocks until a backend is available or ctx is cancelled.
+func (p *OllamaPipeline) acquire(ctx context.Context) (*ollamaBackend, error) {
+	select {
+	case b := <-p.pool:
+		return b, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// acquireBlocking blocks until a backend is available with no cancellation.
+// Use this in methods that manage their own background context internally.
+func (p *OllamaPipeline) acquireBlocking() *ollamaBackend {
+	return <-p.pool
+}
+
+// release returns a backend to the pool after a request completes.
+func (p *OllamaPipeline) release(b *ollamaBackend) {
+	p.pool <- b
 }
 
 // Name returns the pipeline name as registered in the models table.
 func (p *OllamaPipeline) Name() string { return p.name }
 
 // Load treats modelPath as the Ollama model name (e.g. "qwen2.5:3b").
-// It pings /api/tags to verify the server is reachable.
+// It pings /api/tags on every backend to verify all servers are reachable.
 func (p *OllamaPipeline) Load(modelPath string) error {
 	p.model = modelPath
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/api/tags", nil)
-	if err != nil {
-		return fmt.Errorf("inference: ollama: build ping: %w", err)
-	}
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("inference: ollama: ping %s: %w", p.baseURL, err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("inference: ollama: ping returned %d", resp.StatusCode)
+	for _, b := range p.backends {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL+"/api/tags", nil)
+		if err != nil {
+			cancel()
+			return fmt.Errorf("inference: ollama: build ping: %w", err)
+		}
+		resp, err := b.client.Do(req)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("inference: ollama: ping %s: %w", b.baseURL, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("inference: ollama: ping %s returned %d", b.baseURL, resp.StatusCode)
+		}
 	}
 	return nil
 }
@@ -220,23 +267,23 @@ func (p *OllamaPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
 // Close is a no-op; the HTTP client has no persistent state to release.
 func (p *OllamaPipeline) Close() error { return nil }
 
-// MaxConcurrency returns 1, satisfying ConcurrencyLimiter. Ollama serialises
-// requests internally anyway; allowing multiple workers to block on the
-// semaphore just wastes goroutines without improving throughput.
-func (p *OllamaPipeline) MaxConcurrency() int { return 1 }
+// MaxConcurrency returns the number of Ollama backends, satisfying
+// ConcurrencyLimiter. Each backend handles at most one request at a time,
+// so the total throughput scales linearly with the pool size.
+func (p *OllamaPipeline) MaxConcurrency() int { return cap(p.pool) }
 
-// ensureLoaded checks /api/ps to see if the model is currently loaded in Ollama.
-// If it is not, it calls warmUp to load it before returning.
-// Must be called with the semaphore held.
-func (p *OllamaPipeline) ensureLoaded() error {
+// ensureLoaded checks /api/ps on the given backend to see if the model is
+// currently loaded in Ollama. If it is not, it calls warmUp to load it.
+// Must be called with the backend acquired from the pool.
+func (p *OllamaPipeline) ensureLoaded(b *ollamaBackend) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/api/ps", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.baseURL+"/api/ps", nil)
 	if err != nil {
 		return fmt.Errorf("inference: ollama: ps request: %w", err)
 	}
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("inference: ollama: ps: %w", err)
 	}
@@ -256,14 +303,15 @@ func (p *OllamaPipeline) ensureLoaded() error {
 		}
 	}
 
-	return p.warmUp()
+	return p.warmUp(b)
 }
 
-// warmUp sends a no-op generate request to load the model into memory before
-// actual inference requests begin. Uses ollamaLoadTimeout to accommodate cold
-// starts. Ollama's default keep_alive (5 min idle) applies — the model unloads
-// naturally when not in use. Must be called with the semaphore held.
-func (p *OllamaPipeline) warmUp() error {
+// warmUp sends a no-op generate request to load the model into memory on the
+// given backend before actual inference requests begin. Uses ollamaLoadTimeout
+// to accommodate cold starts. Ollama's default keep_alive (5 min idle) applies
+// — the model unloads naturally when not in use.
+// Must be called with the backend acquired from the pool.
+func (p *OllamaPipeline) warmUp(b *ollamaBackend) error {
 	type generateRequest struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
@@ -276,13 +324,13 @@ func (p *OllamaPipeline) warmUp() error {
 	ctx, cancel := context.WithTimeout(context.Background(), ollamaLoadTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/generate", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/generate", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("inference: ollama: warmup request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("inference: ollama: warmup: %w", err)
 	}
@@ -348,26 +396,26 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 		return nil, fmt.Errorf("inference: ollama: marshal request: %w", err)
 	}
 
-	// Acquire semaphore — only one Ollama request in flight at a time.
-	p.sem <- struct{}{}
-	defer func() { <-p.sem }()
+	// Acquire a backend — blocks until one is free.
+	b := p.acquireBlocking()
+	defer p.release(b)
 
 	// Ensure the model is loaded before sending the real request.
 	// If it is not running, warmUp blocks until Ollama has loaded it.
-	if err := p.ensureLoaded(); err != nil {
+	if err := p.ensureLoaded(b); err != nil {
 		return nil, fmt.Errorf("inference: ollama: ensure loaded: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), ollamaRequestTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("inference: ollama: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("inference: ollama: chat: %w", err)
 	}
@@ -449,23 +497,23 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 		return "", fmt.Errorf("inference: ollama: digest: marshal request: %w", err)
 	}
 
-	p.sem <- struct{}{}
-	defer func() { <-p.sem }()
+	b := p.acquireBlocking()
+	defer p.release(b)
 
-	if err := p.ensureLoaded(); err != nil {
+	if err := p.ensureLoaded(b); err != nil {
 		return "", fmt.Errorf("inference: ollama: digest: ensure loaded: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), ollamaDigestTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("inference: ollama: digest: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("inference: ollama: digest: chat: %w", err)
 	}
@@ -597,24 +645,23 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 		return fmt.Errorf("inference: ollama: chat stream: marshal: %w", err)
 	}
 
-	select {
-	case p.sem <- struct{}{}:
-	case <-ctx.Done():
-		return fmt.Errorf("inference: ollama: chat stream: %w", ctx.Err())
+	b, err := p.acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("inference: ollama: chat stream: %w", err)
 	}
-	defer func() { <-p.sem }()
+	defer p.release(b)
 
-	if err := p.ensureLoaded(); err != nil {
+	if err := p.ensureLoaded(b); err != nil {
 		return fmt.Errorf("inference: ollama: chat stream: ensure loaded: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/chat", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("inference: ollama: chat stream: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("inference: ollama: chat stream: %w", err)
 	}
@@ -665,10 +712,18 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 // EstimateTokens returns the approximate token count for the given texts and
 // the model's context-window limit. It calls Ollama's /api/tokenize endpoint
 // for an accurate count; if that fails it falls back to len(text)/4.
+// Uses any available backend — token counts and context limits are model
+// properties, identical across all backends.
 func (p *OllamaPipeline) EstimateTokens(ctx context.Context, texts []string) (int, int, error) {
-	limit := p.getContextLimit(ctx)
+	b, err := p.acquire(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("inference: ollama: estimate tokens: %w", err)
+	}
+	defer p.release(b)
+
 	combined := strings.Join(texts, "\n\n")
-	tokens, err := p.tokenize(ctx, combined)
+	limit := p.getContextLimit(ctx, b)
+	tokens, err := p.tokenize(ctx, b, combined)
 	if err != nil {
 		// Rough fallback: ~4 chars per token
 		return len(combined) / 4, limit, nil
@@ -676,22 +731,22 @@ func (p *OllamaPipeline) EstimateTokens(ctx context.Context, texts []string) (in
 	return tokens, limit, nil
 }
 
-// getContextLimit queries Ollama's /api/show for the model's context window size.
-// Falls back to 8192 if the endpoint is unavailable or the field is missing.
-func (p *OllamaPipeline) getContextLimit(ctx context.Context) int {
+// getContextLimit queries Ollama's /api/show on the given backend for the
+// model's context window size. Falls back to 8192 if unavailable.
+func (p *OllamaPipeline) getContextLimit(ctx context.Context, b *ollamaBackend) int {
 	const defaultLimit = 8192
 
 	body, _ := json.Marshal(map[string]string{"model": p.model})
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, p.baseURL+"/api/show", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/show", bytes.NewReader(body))
 	if err != nil {
 		return defaultLimit
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return defaultLimit
 	}
@@ -714,20 +769,21 @@ func (p *OllamaPipeline) getContextLimit(ctx context.Context) int {
 	return defaultLimit
 }
 
-// tokenize calls Ollama's /api/tokenize endpoint and returns the token count.
-func (p *OllamaPipeline) tokenize(ctx context.Context, text string) (int, error) {
+// tokenize calls Ollama's /api/tokenize endpoint on the given backend and
+// returns the token count.
+func (p *OllamaPipeline) tokenize(ctx context.Context, b *ollamaBackend, text string) (int, error) {
 	body, _ := json.Marshal(map[string]string{"model": p.model, "prompt": text})
 
 	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, p.baseURL+"/api/tokenize", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/tokenize", bytes.NewReader(body))
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.client.Do(req)
+	resp, err := b.client.Do(req)
 	if err != nil {
 		return 0, err
 	}

@@ -17,6 +17,15 @@ worker:
 inference:
   models_dir: ./models
 
+ollama:
+  # Single Ollama backend (backward-compatible).
+  base_url: http://localhost:11434
+  # Multiple Ollama backends — takes precedence over base_url when set.
+  # Add your PC or any other Ollama instance here to spread load across them.
+  # base_urls:
+  #   - http://localhost:11434
+  #   - http://192.168.1.x:11434
+
 log:
   level: info
   format: text
