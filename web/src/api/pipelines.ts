@@ -68,6 +68,27 @@ export interface ModelFile {
 
 export const listModels = () => apiFetch<ModelFile[]>('/api/models')
 
+export interface PipelineBackend {
+  pipeline_id: number
+  backend_id: number
+  priority: number
+}
+
+export const listPipelineBackends = (id: number) =>
+  apiFetch<PipelineBackend[]>(`/api/pipelines/${id}/backends`)
+
+export const setPipelineBackends = (
+  id: number,
+  assignments: { backend_id: number; priority: number }[],
+) =>
+  apiFetch<PipelineBackend[]>(`/api/pipelines/${id}/backends`, {
+    method: 'PUT',
+    body: JSON.stringify(assignments),
+  })
+
+export const removePipelineBackend = (id: number, backendId: number) =>
+  apiFetch<void>(`/api/pipelines/${id}/backends/${backendId}`, { method: 'DELETE' })
+
 // Action chains
 export const listActionChains = (actionId: number) =>
   apiFetch<ActionChain[]>(`/api/actions/${actionId}/chains`)
