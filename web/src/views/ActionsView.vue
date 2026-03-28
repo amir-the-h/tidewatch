@@ -78,7 +78,7 @@ const filteredActions = computed(() => {
 })
 
 const ruleOptions = computed(() =>
-  rules.value.map(r => ({ label: `${r.name} (#${r.id})`, value: r.id }))
+  rules.value.filter(r => !r.local).map(r => ({ label: `${r.name} (#${r.id})`, value: r.id }))
 )
 
 const modelOptions = computed(() =>
@@ -106,7 +106,7 @@ function openEdit(action: Action) {
   editingId.value = action.id
   formName.value = action.name
   formType.value = action.type
-  formRuleIds.value = [...action.rule_ids]
+  formRuleIds.value = [...(action.rule_ids ?? [])]
   formConfig.value = { ...action.config }
   showForm.value = true
 }

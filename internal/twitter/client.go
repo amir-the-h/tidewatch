@@ -89,7 +89,7 @@ func (c *Client) StartAuth() (authURL string, state string, err error) {
 		"response_type":         {"code"},
 		"client_id":             {c.clientID},
 		"redirect_uri":          {c.callbackURL},
-		"scope":                 {"tweet.read tweet.write users.read offline.access"},
+		"scope":                 {"tweet.read tweet.write like.read like.write users.read offline.access"},
 		"state":                 {state},
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},

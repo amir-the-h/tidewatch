@@ -114,7 +114,17 @@ func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
 }
 
 func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM actions WHERE id = ?`, id)
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM action_execution_metadata
+		WHERE execution_id IN (SELECT id FROM action_executions WHERE action_id = ?)`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete action: delete metadata: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM action_executions WHERE action_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete action: delete executions: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM actions WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("store: delete action: %w", err)
 	}
@@ -307,7 +317,7 @@ func scanAction(r actionScanner) (*model.Action, error) {
 		return nil, err
 	}
 	a.Active = activeInt != 0
-	if err := json.Unmarshal([]byte(ruleIDsStr), &a.RuleIDs); err != nil {
+	if err := json.Unmarshal([]byte(ruleIDsStr), &a.RuleIDs); err != nil || a.RuleIDs == nil {
 		a.RuleIDs = []int64{}
 	}
 	a.Config = []byte(configStr)
