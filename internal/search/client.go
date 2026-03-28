@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 const (
@@ -46,7 +48,8 @@ type Client struct {
 	bearerToken string
 	store       store.Store
 	producer    queue.Producer
-	tier        string // "basic" | "pro"
+	cache       *worker.ActionCache // may be nil; if nil, no tasks are dispatched
+	tier        string              // "basic" | "pro"
 	logger      *slog.Logger
 }
 
@@ -60,6 +63,12 @@ func NewClient(bearerToken, tier string, st store.Store, producer queue.Producer
 		tier:        tier,
 		logger:      logger.With("component", "search"),
 	}
+}
+
+// WithActionCache sets the ActionCache used to dispatch tasks for ingested
+// tweets. Call this before starting the scheduler.
+func (c *Client) WithActionCache(cache *worker.ActionCache) {
+	c.cache = cache
 }
 
 // searchURL returns the appropriate endpoint based on the account tier.
@@ -246,8 +255,27 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 			if err := c.store.SaveTweetRule(ctx, tr); err != nil {
 				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet rule %s: %w", rule.ID, st.Tweet.ID, err)
 			}
-			if err := c.producer.Push(ctx, queue.QueueRaw, st); err != nil {
-				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: push tweet %s: %w", rule.ID, st.Tweet.ID, err)
+			// Dispatch tasks to all matching actions via ActionCache.
+			if c.cache != nil {
+				entries := c.cache.AllForTrigger(model.TriggerTypeNewTweet, []int64{rule.ID})
+				eventPayload, _ := json.Marshal(queue.TweetEvent{
+					TweetID:      st.Tweet.ID,
+					Text:         st.Tweet.Text,
+					AuthorHandle: st.Tweet.AuthorHandle,
+					RuleIDs:      []int64{rule.ID},
+				})
+				for _, e := range entries {
+					task := &queue.Task{
+						TriggerType: string(model.TriggerTypeNewTweet),
+						Event:       eventPayload,
+						ActionID:    e.Action.ID,
+						Context:     map[string]any{},
+					}
+					if pushErr := c.producer.PushTask(ctx, task); pushErr != nil && c.logger != nil {
+						c.logger.Warn("search: push task",
+							"tweet_id", st.Tweet.ID, "action_id", e.Action.ID, "error", pushErr)
+					}
+				}
 			}
 		}
 

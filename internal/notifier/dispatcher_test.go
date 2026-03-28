@@ -143,17 +143,28 @@ func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error) {
 func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error {
 	panic("not implemented")
 }
-func (m *mockStore) SaveModel(_ context.Context, _ *model.Model) error { panic("not implemented") }
-func (m *mockStore) GetModel(_ context.Context, _ int64) (*model.Model, error) {
-	panic("not implemented")
+func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error { return nil }
+func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error) {
+	return nil, fmt.Errorf("not found")
 }
-func (m *mockStore) ListModels(_ context.Context) ([]*model.Model, error) {
-	panic("not implemented")
+func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) {
+	return nil, nil
 }
-func (m *mockStore) DeleteModel(_ context.Context, _ int64) error        { panic("not implemented") }
-func (m *mockStore) SetModelActive(_ context.Context, _ int64, _ bool) error {
-	panic("not implemented")
+func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error             { return nil }
+func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error                       { return nil }
+func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error            { return nil }
+func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error)       { return nil, nil }
+func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error           { return nil }
+func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error        { return nil }
+func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error         { return nil }
+func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) {
+	return nil, fmt.Errorf("not found")
 }
+func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilter) ([]*model.ActionChain, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
+func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
 func (m *mockStore) SaveCategorization(_ context.Context, _ *model.Categorization) error {
 	panic("not implemented")
 }
@@ -163,12 +174,7 @@ func (m *mockStore) ListCategorizations(_ context.Context, _ store.Categorizatio
 func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
 	panic("not implemented")
 }
-func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error                   { return nil }
-func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error                { return nil }
-func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)      { return nil, nil }
-func (m *mockStore) ListModelLabels(_ context.Context, _ string) ([]string, error)      { return nil, nil }
-func (m *mockStore) AddModelLabel(_ context.Context, _, _ string) error                 { return nil }
-func (m *mockStore) RemoveModelLabel(_ context.Context, _, _ string) error              { return nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error) { return nil, nil }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                    { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)            { return nil, nil }
 func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) { return nil, nil }

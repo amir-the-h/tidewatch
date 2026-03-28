@@ -349,10 +349,10 @@ func (m *mockStore) Close() error { return nil }
 // ---------------------------------------------------------------------------
 
 type mockProducer struct {
-	pushed []*model.StreamTweet
+	pushed []*queue.Task
 }
 
-func (m *mockProducer) Push(_ context.Context, _ string, t *model.StreamTweet) error {
+func (m *mockProducer) PushTask(_ context.Context, t *queue.Task) error {
 	m.pushed = append(m.pushed, t)
 	return nil
 }
@@ -545,28 +545,16 @@ func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 	}
 }
 
-func TestActivateModel_ReloadsRegistry(t *testing.T) {
-	srv, ms, _, _ := newTestServer(t)
+func TestActivateModel_ReturnsGone(t *testing.T) {
+	// The models API is deprecated and returns 410 Gone.
+	srv, _, _, _ := newTestServer(t)
 
-	mdl := &model.Model{
-		Name:    "test-model",
-		Version: "1.0",
-		Path:    "./models/test",
-		Type:    model.ModelTypeClassification,
-		Active:  false,
-	}
-	_ = ms.SaveModel(context.Background(), mdl)
-
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/models/%d/activate", mdl.ID), nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/models/1/activate", nil)
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if !ms.models[mdl.ID].Active {
-		t.Error("expected model to be active after activate call")
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410 Gone, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

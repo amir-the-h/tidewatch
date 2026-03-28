@@ -330,36 +330,34 @@ func TestSaveTweetRule_GetTweet_PopulatesRules(t *testing.T) {
 	}
 }
 
-// 12. TestSaveModel_SetActive_ListModels
-func TestSaveModel_SetActive_ListModels(t *testing.T) {
+// 12. TestSavePipeline_SetActive_ListPipelines
+func TestSavePipeline_SetActive_ListPipelines(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	m := &model.Model{
-		Name:      "sentiment-v1",
-		Version:   "1.0.0",
-		Path:      "/models/sentiment.onnx",
-		Type:      model.ModelTypeSentiment,
-		Active:    false,
-		CreatedAt: time.Now().UTC(),
+	p := &model.Pipeline{
+		Name:   "sentiment-v1",
+		Type:   model.PipelineTypeONNX,
+		Config: json.RawMessage(`{"path":"/models/sentiment.onnx"}`),
+		Active: false,
 	}
-	if err := s.SaveModel(ctx, m); err != nil {
-		t.Fatalf("SaveModel: %v", err)
+	if err := s.SavePipeline(ctx, p); err != nil {
+		t.Fatalf("SavePipeline: %v", err)
 	}
 
-	if err := s.SetModelActive(ctx, m.ID, true); err != nil {
-		t.Fatalf("SetModelActive: %v", err)
+	if err := s.SetPipelineActive(ctx, p.ID, true); err != nil {
+		t.Fatalf("SetPipelineActive: %v", err)
 	}
 
-	models, err := s.ListModels(ctx)
+	pipelines, err := s.ListPipelines(ctx, PipelineFilter{})
 	if err != nil {
-		t.Fatalf("ListModels: %v", err)
+		t.Fatalf("ListPipelines: %v", err)
 	}
-	if len(models) != 1 {
-		t.Fatalf("expected 1 model, got %d", len(models))
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
 	}
-	if !models[0].Active {
-		t.Error("expected model to be active")
+	if !pipelines[0].Active {
+		t.Error("expected pipeline to be active")
 	}
 }
 

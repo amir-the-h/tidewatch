@@ -3,6 +3,7 @@ package stream
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 const (
@@ -29,6 +31,7 @@ type Client struct {
 	bearerToken string
 	store       store.Store
 	producer    queue.Producer
+	cache       *worker.ActionCache
 	rules       *RuleManager
 	httpClient  *http.Client
 	logger      *slog.Logger
@@ -42,11 +45,12 @@ type Client struct {
 }
 
 // NewClient creates a new stream Client. The stream is disconnected by default.
-func NewClient(bearerToken string, s store.Store, p queue.Producer, rules *RuleManager, emitter notifier.EventEmitter, logger *slog.Logger) *Client {
+func NewClient(bearerToken string, s store.Store, p queue.Producer, cache *worker.ActionCache, rules *RuleManager, emitter notifier.EventEmitter, logger *slog.Logger) *Client {
 	return &Client{
 		bearerToken: bearerToken,
 		store:       s,
 		producer:    p,
+		cache:       cache,
 		rules:       rules,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
@@ -305,9 +309,33 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		})
 	}
 
-	// 3. Push to the raw queue.
-	if err := c.producer.Push(ctx, queue.QueueRaw, st); err != nil {
-		return fmt.Errorf("stream: push tweet %s: %w", st.Tweet.ID, err)
+	// 3. Fan out a Task per matching action via ActionCache.
+	if c.cache != nil {
+		entries := c.cache.AllForTrigger(model.TriggerTypeNewTweet, resolvedRuleIDs)
+
+		eventPayload, _ := json.Marshal(queue.TweetEvent{
+			TweetID:      st.Tweet.ID,
+			Text:         st.Tweet.Text,
+			AuthorHandle: st.Tweet.AuthorHandle,
+			RuleIDs:      resolvedRuleIDs,
+		})
+
+		for _, e := range entries {
+			task := &queue.Task{
+				TriggerType: string(model.TriggerTypeNewTweet),
+				Event:       eventPayload,
+				ActionID:    e.Action.ID,
+				Context:     map[string]any{},
+			}
+			if err := c.producer.PushTask(ctx, task); err != nil && c.logger != nil {
+				c.logger.Warn("stream: push task",
+					"component", "stream",
+					"tweet_id", st.Tweet.ID,
+					"action_id", e.Action.ID,
+					"error", err,
+				)
+			}
+		}
 	}
 
 	c.logger.Info("stream: processed tweet",

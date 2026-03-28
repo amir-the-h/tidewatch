@@ -126,34 +126,41 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the pipeline action backed by the summarizer model.
-	active := true
-	pipelineType := model.ActionTypePipeline
-	dbActions, _ := s.store.ListActions(r.Context(), store.ActionFilter{Active: &active, Type: &pipelineType})
+	// Find active actions backed by the summarizer pipeline via the action cache.
 	var actionIDs []int64
-	for _, a := range dbActions {
-		var cfg struct {
-			ModelID int64 `json:"model_id"`
-		}
-		if err := json.Unmarshal(a.Config, &cfg); err == nil {
-			mdl, mErr := s.store.GetModel(r.Context(), cfg.ModelID)
-			if mErr == nil && mdl.Name == summarizerName {
-				actionIDs = append(actionIDs, a.ID)
+	if s.actionCache != nil {
+		entries := s.actionCache.AllForRules(nil)
+		for _, e := range entries {
+			if e.Pipeline != nil && e.Pipeline.Name() == summarizerName {
+				actionIDs = append(actionIDs, e.Action.ID)
 			}
 		}
 	}
 
 	count := 0
 	for _, tweet := range tweets {
-		st := &model.StreamTweet{
-			Tweet:         tweet,
-			TargetActions: actionIDs,
+		ev, _ := json.Marshal(queue.TweetEvent{
+			TweetID:      tweet.ID,
+			Text:         tweet.Text,
+			AuthorHandle: tweet.AuthorHandle,
+		})
+		pushed := false
+		for _, actionID := range actionIDs {
+			task := &queue.Task{
+				TriggerType: string(model.TriggerTypeNewTweet),
+				Event:       ev,
+				ActionID:    actionID,
+				Context:     map[string]any{},
+			}
+			if err := s.producer.PushTask(r.Context(), task); err != nil {
+				s.logger.Error("api: run summaries: push task", "tweet_id", tweet.ID, "action_id", actionID, "error", err)
+			} else {
+				pushed = true
+			}
 		}
-		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
-			s.logger.Error("api: run summaries: push", "tweet_id", tweet.ID, "error", err)
-			continue
+		if pushed {
+			count++
 		}
-		count++
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
@@ -262,7 +269,7 @@ func (s *Server) runDigestJob(job *model.DigestJob, pipeline inference.DigestPip
 		}
 	}
 
-	digest, err := pipeline.Digest(formatted)
+	digest, err := pipeline.Digest(ctx, formatted)
 	if err != nil {
 		s.logger.Error("api: digest job: run", "job_id", job.ID, "error", err)
 		job.Status = model.DigestStatusError

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/action"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
@@ -17,9 +16,9 @@ import (
 func (s *Server) handleListActions(w http.ResponseWriter, r *http.Request) {
 	filter := store.ActionFilter{}
 
-	if v := r.URL.Query().Get("type"); v != "" {
-		t := model.ActionType(v)
-		filter.Type = &t
+	if v := r.URL.Query().Get("trigger_type"); v != "" {
+		t := model.TriggerType(v)
+		filter.TriggerType = &t
 	}
 	if v := r.URL.Query().Get("active"); v != "" {
 		b := v == "true"
@@ -37,10 +36,10 @@ func (s *Server) handleListActions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name    string          `json:"name"`
-		Type    model.ActionType `json:"type"`
-		RuleIDs []int64         `json:"rule_ids"`
-		Config  json.RawMessage `json:"config"`
+		Name        string            `json:"name"`
+		TriggerType model.TriggerType `json:"trigger_type"`
+		PipelineID  int64             `json:"pipeline_id"`
+		RuleIDs     []int64           `json:"rule_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -50,27 +49,30 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	switch req.Type {
-	case model.ActionTypePipeline, model.ActionTypeRetweet, model.ActionTypeLike, model.ActionTypeQuote:
+	switch req.TriggerType {
+	case model.TriggerTypeNewTweet, model.TriggerTypeNewCategorization, model.TriggerTypeEntityMatched:
 	default:
-		writeError(w, http.StatusBadRequest, "invalid action type")
+		writeError(w, http.StatusBadRequest, "invalid trigger_type")
+		return
+	}
+	if req.PipelineID == 0 {
+		writeError(w, http.StatusBadRequest, "pipeline_id is required")
 		return
 	}
 
 	if req.RuleIDs == nil {
 		req.RuleIDs = []int64{}
 	}
-	if len(req.Config) == 0 {
-		req.Config = json.RawMessage("{}")
-	}
 
+	now := time.Now()
 	a := &model.Action{
-		Name:      req.Name,
-		Type:      req.Type,
-		Active:    true,
-		RuleIDs:   req.RuleIDs,
-		Config:    req.Config,
-		CreatedAt: time.Now(),
+		Name:        req.Name,
+		TriggerType: req.TriggerType,
+		PipelineID:  req.PipelineID,
+		Active:      true,
+		RuleIDs:     req.RuleIDs,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := s.store.SaveAction(r.Context(), a); err != nil {
 		s.logger.Error("api: create action", "error", err)
@@ -78,8 +80,8 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.reloadActionRegistry(r.Context()); err != nil {
-		s.logger.Error("api: create action: reload registry", "error", err)
+	if err := s.reloadActionCache(r.Context()); err != nil {
+		s.logger.Error("api: create action: reload cache", "error", err)
 	}
 
 	writeJSON(w, http.StatusCreated, a)
@@ -99,9 +101,8 @@ func (s *Server) handleUpdateAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name    string          `json:"name"`
-		RuleIDs []int64         `json:"rule_ids"`
-		Config  json.RawMessage `json:"config"`
+		Name    string  `json:"name"`
+		RuleIDs []int64 `json:"rule_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -114,9 +115,6 @@ func (s *Server) handleUpdateAction(w http.ResponseWriter, r *http.Request) {
 	if req.RuleIDs != nil {
 		existing.RuleIDs = req.RuleIDs
 	}
-	if len(req.Config) > 0 {
-		existing.Config = req.Config
-	}
 
 	if err := s.store.UpdateAction(r.Context(), existing); err != nil {
 		s.logger.Error("api: update action", "action_id", id, "error", err)
@@ -124,8 +122,8 @@ func (s *Server) handleUpdateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.reloadActionRegistry(r.Context()); err != nil {
-		s.logger.Error("api: update action: reload registry", "error", err)
+	if err := s.reloadActionCache(r.Context()); err != nil {
+		s.logger.Error("api: update action: reload cache", "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, existing)
@@ -149,8 +147,8 @@ func (s *Server) handleDeleteAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.reloadActionRegistry(r.Context()); err != nil {
-		s.logger.Error("api: delete action: reload registry", "error", err)
+	if err := s.reloadActionCache(r.Context()); err != nil {
+		s.logger.Error("api: delete action: reload cache", "error", err)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -182,8 +180,8 @@ func (s *Server) setActionActive(w http.ResponseWriter, r *http.Request, active 
 		return
 	}
 
-	if err := s.reloadActionRegistry(r.Context()); err != nil {
-		s.logger.Error("api: set action active: reload registry", "action_id", id, "error", err)
+	if err := s.reloadActionCache(r.Context()); err != nil {
+		s.logger.Error("api: set action active: reload cache", "action_id", id, "error", err)
 	}
 
 	a, err := s.store.GetAction(r.Context(), id)
@@ -284,11 +282,18 @@ func (s *Server) handleRunAction(w http.ResponseWriter, r *http.Request) {
 
 	count := 0
 	for _, tweet := range tweets {
-		st := &model.StreamTweet{
-			Tweet:         tweet,
-			TargetActions: []int64{a.ID},
+		ev, _ := json.Marshal(queue.TweetEvent{
+			TweetID:      tweet.ID,
+			Text:         tweet.Text,
+			AuthorHandle: tweet.AuthorHandle,
+		})
+		task := &queue.Task{
+			TriggerType: string(a.TriggerType),
+			Event:       ev,
+			ActionID:    a.ID,
+			Context:     map[string]any{},
 		}
-		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
+		if err := s.producer.PushTask(r.Context(), task); err != nil {
 			s.logger.Error("api: run action: push", "tweet_id", tweet.ID, "error", err)
 			continue
 		}
@@ -325,86 +330,13 @@ func (s *Server) tweetsForAction(ctx context.Context, a *model.Action) ([]*model
 	return result, nil
 }
 
-// reloadActionRegistry reloads the action registry from the store.
-// Called after any action or model change.
-func (s *Server) reloadActionRegistry(ctx context.Context) error {
-	if s.actionRegistry == nil {
+// reloadActionCache reloads the action cache from the store.
+// Called after any action change.
+func (s *Server) reloadActionCache(ctx context.Context) error {
+	if s.actionCache == nil {
 		return nil
 	}
-	actions, err := s.buildActions(ctx)
-	if err != nil {
-		return err
-	}
-	s.actionRegistry.Reload(actions)
-	return nil
-}
-
-// buildActions loads active actions from the store and constructs Action instances.
-func (s *Server) buildActions(ctx context.Context) ([]action.Action, error) {
-	active := true
-	dbActions, err := s.store.ListActions(ctx, store.ActionFilter{Active: &active})
-	if err != nil {
-		return nil, err
-	}
-
-	out := make([]action.Action, 0, len(dbActions))
-	for _, a := range dbActions {
-		act, err := s.constructAction(ctx, a)
-		if err != nil {
-			s.logger.Warn("api: build actions: skip action",
-				"action_id", a.ID, "name", a.Name, "error", err)
-			continue
-		}
-		out = append(out, act)
-	}
-	return out, nil
-}
-
-// constructAction builds the concrete Action for a model.Action record.
-func (s *Server) constructAction(ctx context.Context, a *model.Action) (action.Action, error) {
-	switch a.Type {
-	case model.ActionTypePipeline:
-		var cfg struct {
-			ModelID int64 `json:"model_id"`
-		}
-		if err := json.Unmarshal(a.Config, &cfg); err != nil {
-			return nil, err
-		}
-		mdl, err := s.store.GetModel(ctx, cfg.ModelID)
-		if err != nil {
-			return nil, err
-		}
-		p := s.registry.Get(mdl.Name)
-		if p == nil {
-			return nil, errorf("model %q not loaded in registry", mdl.Name)
-		}
-		return action.NewPipelineAction(
-			a.ID, a.Name, a.RuleIDs, p,
-			s.store, s.producer,
-			nil, // emitter not available here; will be nil
-			s.registry,
-			s.logger,
-		), nil
-
-	case model.ActionTypeRetweet, model.ActionTypeLike, model.ActionTypeQuote:
-		if s.twitterClient == nil {
-			return nil, errorf("Twitter client not configured")
-		}
-		var cfg action.TwitterConfig
-		if err := json.Unmarshal(a.Config, &cfg); err != nil {
-			return nil, err
-		}
-		return action.NewTwitterAction(
-			a.ID, a.Name, a.Type, a.RuleIDs, cfg,
-			s.twitterClient,
-			s.registry,
-			s.store,
-			s.logger,
-		), nil
-
-	default:
-		return nil, errorf("unknown action type: %s", a.Type)
-	}
+	return s.actionCache.Load(ctx)
 }
 
 func errorf(format string, args ...any) error {

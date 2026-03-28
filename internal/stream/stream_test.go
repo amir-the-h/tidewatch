@@ -86,13 +86,24 @@ func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFil
 func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
 func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
 func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
-func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error                  { return nil }
-func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error               { return nil }
 func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
 func (m *mockStore) CountEntityTracks(_ context.Context, _ store.EntityTrackFilter) (int, error) { return 0, nil }
-func (m *mockStore) ListModelLabels(_ context.Context, _ string) ([]string, error)     { return nil, nil }
-func (m *mockStore) AddModelLabel(_ context.Context, _, _ string) error                { return nil }
-func (m *mockStore) RemoveModelLabel(_ context.Context, _, _ string) error             { return nil }
+// Pipelines
+func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error { return nil }
+func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error) { return nil, fmt.Errorf("not found") }
+func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) { return nil, nil }
+func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error    { return nil }
+func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error   { return nil }
+func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error) { return nil, nil }
+func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error    { return nil }
+func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error { return nil }
+// ActionChains
+func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
+func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) { return nil, fmt.Errorf("not found") }
+func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilter) ([]*model.ActionChain, error) { return nil, nil }
+func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
+func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                   { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)           { return nil, nil }
 func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) { return nil, nil }
@@ -144,11 +155,13 @@ func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error           
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {
-	pushCalled bool
+	pushTaskCalled bool
+	pushedTasks    []*queue.Task
 }
 
-func (m *mockProducer) Push(_ context.Context, _ string, _ *model.StreamTweet) error {
-	m.pushCalled = true
+func (m *mockProducer) PushTask(_ context.Context, t *queue.Task) error {
+	m.pushTaskCalled = true
+	m.pushedTasks = append(m.pushedTasks, t)
 	return nil
 }
 func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTweet) error { return nil }
@@ -299,7 +312,7 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 	rm := NewRuleManager("token", srv.Client())
 	rm.apiBase = srv.URL
 
-	c := NewClient("token", ms, mp, rm, nil, newTestLogger())
+	c := NewClient("token", ms, mp, nil, rm, nil, newTestLogger())
 	c.streamURL = srv.URL + "/stream"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -321,7 +334,7 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 			<-done
 			goto check
 		case <-time.After(50 * time.Millisecond):
-			if ms.saveTweetCalled && ms.saveTweetRuleCalled && mp.pushCalled {
+			if ms.saveTweetCalled && ms.saveTweetRuleCalled {
 				cancel()
 				<-done
 				goto check
@@ -335,9 +348,7 @@ check:
 	if !ms.saveTweetRuleCalled {
 		t.Error("expected SaveTweetRule to be called")
 	}
-	if !mp.pushCalled {
-		t.Error("expected Producer.Push to be called")
-	}
+	// Note: no task push expected because cache is nil in this test.
 }
 
 func TestClient_Start_ReconnectsAfterDisconnect(t *testing.T) {
@@ -354,7 +365,7 @@ func TestClient_Start_ReconnectsAfterDisconnect(t *testing.T) {
 	rm := NewRuleManager("token", srv.Client())
 	rm.apiBase = srv.URL
 
-	c := NewClient("token", ms, mp, rm, nil, newTestLogger())
+	c := NewClient("token", ms, mp, nil, rm, nil, newTestLogger())
 	c.streamURL = srv.URL + "/stream"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

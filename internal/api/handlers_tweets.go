@@ -150,15 +150,36 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 
 	count := 0
 	for _, tweet := range tweets {
-		st := &model.StreamTweet{
-			Tweet:         tweet,
-			TargetActions: req.ActionIDs, // empty = all actions
+		ev, _ := json.Marshal(queue.TweetEvent{
+			TweetID:      tweet.ID,
+			Text:         tweet.Text,
+			AuthorHandle: tweet.AuthorHandle,
+		})
+		pushed := false
+		targetIDs := req.ActionIDs
+		if len(targetIDs) == 0 && s.actionCache != nil {
+			// No specific actions requested — dispatch to all active new-tweet actions.
+			entries := s.actionCache.AllForTrigger(model.TriggerTypeNewTweet, nil)
+			for _, e := range entries {
+				targetIDs = append(targetIDs, e.Action.ID)
+			}
 		}
-		if err := s.producer.Push(r.Context(), queue.QueueRaw, st); err != nil {
-			s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "error", err)
-			continue
+		for _, actionID := range targetIDs {
+			task := &queue.Task{
+				TriggerType: string(model.TriggerTypeNewTweet),
+				Event:       ev,
+				ActionID:    actionID,
+				Context:     map[string]any{},
+			}
+			if err := s.producer.PushTask(r.Context(), task); err != nil {
+				s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "action_id", actionID, "error", err)
+			} else {
+				pushed = true
+			}
 		}
-		count++
+		if pushed {
+			count++
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]int{"requeued": count})

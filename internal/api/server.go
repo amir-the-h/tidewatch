@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/amir-the-h/iran-watcher/internal/action"
 	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -68,7 +67,7 @@ type Server struct {
 	store                   store.Store
 	producer                queue.Producer
 	registry                *inference.Registry
-	actionRegistry          *action.Registry
+	actionCache             *worker.ActionCache
 	twitterClient           *twitter.Client // nil when Twitter not configured
 	rules                   ruleManagerInterface
 	stream                  streamClientInterface
@@ -93,7 +92,7 @@ func NewServer(
 	s store.Store,
 	q queue.Producer,
 	reg *inference.Registry,
-	actionReg *action.Registry,
+	cache *worker.ActionCache,
 	tc *twitter.Client,
 	rules ruleManagerInterface,
 	sc streamClientInterface,
@@ -112,7 +111,7 @@ func NewServer(
 		store:                 s,
 		producer:              q,
 		registry:              reg,
-		actionRegistry:        actionReg,
+		actionCache:           cache,
 		twitterClient:         tc,
 		rules:                 rules,
 		stream:                sc,
@@ -460,7 +459,7 @@ func NewServerWithConcreteRules(
 	s store.Store,
 	q queue.Producer,
 	reg *inference.Registry,
-	actionReg *action.Registry,
+	cache *worker.ActionCache,
 	tc *twitter.Client,
 	rules *stream.RuleManager,
 	sc *stream.Client,
@@ -475,5 +474,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, actionReg, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, cache, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }
