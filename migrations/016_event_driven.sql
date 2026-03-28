@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS pipeline_labels (
 );
 
 INSERT OR IGNORE INTO pipeline_labels (pipeline_id, label)
-SELECT model_id, label FROM model_labels;
+SELECT m.id, ml.label
+FROM model_labels ml
+JOIN models m ON m.name = ml.model_name;
 
 -- 5. action_chains table
 CREATE TABLE IF NOT EXISTS action_chains (
@@ -106,7 +108,9 @@ SELECT
 FROM actions_old a
 WHERE a.type IN ('retweet', 'like', 'quote');
 
+PRAGMA foreign_keys = OFF;
 DROP TABLE actions_old;
+PRAGMA foreign_keys = ON;
 
 -- 9. Drop superseded tables
 DROP TABLE IF EXISTS rule_models;
