@@ -19,7 +19,10 @@ func (s *Server) handleListOllamaBackends(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	stats := s.backendPool.Stats()
+	var stats []inference.BackendStat
+	if s.backendPool != nil {
+		stats = s.backendPool.Stats()
+	}
 	statsByID := make(map[int64]inference.BackendStat, len(stats))
 	for _, st := range stats {
 		statsByID[st.ID] = st
@@ -88,7 +91,7 @@ func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Reques
 	}
 	existing, err := s.store.GetOllamaBackend(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "backend not found")
 		return
 	}
 	if req.Name == "" {
@@ -102,7 +105,11 @@ func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.reloadBackendPool(r.Context())
-	b, _ := s.store.GetOllamaBackend(r.Context(), id)
+	b, err := s.store.GetOllamaBackend(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, b)
 }
 
@@ -216,6 +223,9 @@ func (s *Server) handleRemovePipelineBackend(w http.ResponseWriter, r *http.Requ
 
 // reloadBackendPool reloads BackendPool from DB then reloads ActionCache.
 func (s *Server) reloadBackendPool(ctx context.Context) {
+	if s.backendPool == nil {
+		return
+	}
 	backends, err := s.store.ListOllamaBackends(ctx)
 	if err != nil {
 		s.logger.Error("api: reload backend pool: list backends", "error", err)
