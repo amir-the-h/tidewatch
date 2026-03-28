@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -92,4 +94,62 @@ func exitIfError(err error) {
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+// tokenFile returns the path to the stored JWT token.
+func tokenFile() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".iran-watcher-token"
+	}
+	return filepath.Join(home, ".iran-watcher", "token")
+}
+
+// loadToken reads the stored JWT token, returning empty string if not found.
+func loadToken() string {
+	data, err := os.ReadFile(tokenFile())
+	if err != nil {
+		return ""
+	}
+	return string(bytes.TrimSpace(data))
+}
+
+// apiRequest performs an authenticated HTTP request, attaching the stored Bearer token.
+func apiRequest(method, url string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token := loadToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return http.DefaultClient.Do(req)
+}
+
+func apiGet(url string) (*http.Response, error) {
+	return apiRequest(http.MethodGet, url, nil)
+}
+
+func apiPost(url string, body io.Reader) (*http.Response, error) {
+	return apiRequest(http.MethodPost, url, body)
+}
+
+func apiPut(url string, body io.Reader) (*http.Response, error) {
+	return apiRequest(http.MethodPut, url, body)
+}
+
+func apiDelete(url string) (*http.Response, error) {
+	return apiRequest(http.MethodDelete, url, nil)
+}
+
+// jsonBody marshals v into a reader suitable for request bodies.
+func jsonBody(v any) (io.Reader, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewReader(data), nil
 }
