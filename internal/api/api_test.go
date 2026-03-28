@@ -140,17 +140,17 @@ func (m *mockStore) SaveTweetRule(_ context.Context, tr *model.TweetRule) error 
 	return nil
 }
 
-func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error          { return nil }
-func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error)  { return nil, nil }
+func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error         { return nil }
+func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error) { return nil, nil }
 func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error             { return nil }
-func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error                       { return nil }
-func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error            { return nil }
-func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error)       { return nil, nil }
-func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error           { return nil }
-func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error        { return nil }
+func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error       { return nil }
+func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error                 { return nil }
+func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error      { return nil }
+func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error) { return nil, nil }
+func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error     { return nil }
+func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error  { return nil }
 
 func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
 func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) {
@@ -211,13 +211,13 @@ func (m *mockStore) SetNotificationActive(_ context.Context, id int64, active bo
 func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error) {
 	return len(m.tweets), nil
 }
-func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)    { return 0, nil }
-func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)            { return 0, nil }
-func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error         { return nil }
+func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error) { return 0, nil }
+func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)        { return 0, nil }
+func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error     { return nil }
 func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)  { return nil, nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
 func (m *mockStore) SaveTrackedEntity(_ context.Context, _ *model.TrackedEntity) error { return nil }
 func (m *mockStore) GetTrackedEntity(_ context.Context, _ int64) (*model.TrackedEntity, error) {
 	return nil, fmt.Errorf("not found")
@@ -226,8 +226,8 @@ func (m *mockStore) ListTrackedEntities(_ context.Context, _ store.TrackedEntity
 	return nil, nil
 }
 func (m *mockStore) UpdateTrackedEntity(_ context.Context, _ *model.TrackedEntity) error { return nil }
-func (m *mockStore) DeleteTrackedEntity(_ context.Context, _ int64) error                 { return nil }
-func (m *mockStore) SetTrackedEntityActive(_ context.Context, _ int64, _ bool) error      { return nil }
+func (m *mockStore) DeleteTrackedEntity(_ context.Context, _ int64) error                { return nil }
+func (m *mockStore) SetTrackedEntityActive(_ context.Context, _ int64, _ bool) error     { return nil }
 func (m *mockStore) ListActiveTrackedEntities(_ context.Context) ([]*model.TrackedEntity, error) {
 	return nil, nil
 }
@@ -245,7 +245,7 @@ func (m *mockStore) CountSummaries(_ context.Context, _ store.SummaryFilter) (in
 	return 0, nil
 }
 
-func (m *mockStore) SaveDigestJob(_ context.Context, _ *model.DigestJob) error  { return nil }
+func (m *mockStore) SaveDigestJob(_ context.Context, _ *model.DigestJob) error { return nil }
 func (m *mockStore) GetDigestJob(_ context.Context, _ string) (*model.DigestJob, error) {
 	return nil, fmt.Errorf("not found")
 }
@@ -255,7 +255,7 @@ func (m *mockStore) ListDigestJobs(_ context.Context, _ int) ([]*model.DigestJob
 }
 func (m *mockStore) DeleteDigestJob(_ context.Context, _ string) error { return nil }
 
-func (m *mockStore) SaveSearchJob(_ context.Context, _ *model.SearchJob) error  { return nil }
+func (m *mockStore) SaveSearchJob(_ context.Context, _ *model.SearchJob) error { return nil }
 func (m *mockStore) GetSearchJob(_ context.Context, _ string) (*model.SearchJob, error) {
 	return nil, fmt.Errorf("not found")
 }
@@ -272,15 +272,15 @@ func (m *mockStore) SearchNERSuggestions(_ context.Context, _ string, _ string) 
 	return nil, nil
 }
 
-func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error          { return nil }
-func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)  { return nil, nil }
+func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error         { return nil }
+func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error) { return nil, nil }
 func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil
 }
-func (m *mockStore) ListUsers(_ context.Context) ([]*model.User, error)          { return nil, nil }
-func (m *mockStore) UpdateUser(_ context.Context, _ *model.User) error           { return nil }
-func (m *mockStore) DeleteUser(_ context.Context, _ int64) error                 { return nil }
-func (m *mockStore) CountAdmins(_ context.Context) (int, error)                  { return 1, nil }
+func (m *mockStore) ListUsers(_ context.Context) ([]*model.User, error) { return nil, nil }
+func (m *mockStore) UpdateUser(_ context.Context, _ *model.User) error  { return nil }
+func (m *mockStore) DeleteUser(_ context.Context, _ int64) error        { return nil }
+func (m *mockStore) CountAdmins(_ context.Context) (int, error)         { return 1, nil }
 
 func (m *mockStore) SaveAction(_ context.Context, a *model.Action) error {
 	m.nextID++
@@ -293,8 +293,8 @@ func (m *mockStore) GetAction(_ context.Context, _ int64) (*model.Action, error)
 func (m *mockStore) ListActions(_ context.Context, _ store.ActionFilter) ([]*model.Action, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error  { return nil }
-func (m *mockStore) DeleteAction(_ context.Context, _ int64) error          { return nil }
+func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error    { return nil }
+func (m *mockStore) DeleteAction(_ context.Context, _ int64) error            { return nil }
 func (m *mockStore) SetActionActive(_ context.Context, _ int64, _ bool) error { return nil }
 func (m *mockStore) SaveActionExecution(_ context.Context, e *model.ActionExecution) error {
 	m.nextID++
@@ -488,7 +488,7 @@ func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 	_ = ms.SaveTweet(context.Background(), tw1)
 	_ = ms.SaveTweet(context.Background(), tw2)
 
-	body := `{"model_names":["classifier"]}`
+	body := `{"tweet_ids":["t1","t2"]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/tweets/reprocess", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
