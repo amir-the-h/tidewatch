@@ -14,8 +14,10 @@ import (
 
 // WorkerInfo describes a single worker currently processing a task.
 type WorkerInfo struct {
-	ID     int    `json:"id"`
-	Action string `json:"action"`
+	ID       int    `json:"id"`
+	Action   string `json:"action"`
+	Pipeline string `json:"pipeline"`
+	Backend  string `json:"backend,omitempty"` // empty for non-Ollama; "waiting" or backend name for Ollama
 }
 
 // PoolStats holds a snapshot of worker pool activity.
