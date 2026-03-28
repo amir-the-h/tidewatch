@@ -34,7 +34,7 @@ func doMatchEntities(ctx context.Context, tweet *model.Tweet, nerEntities []mode
 	var summary string
 	for _, p := range reg.All() {
 		if sp, ok := p.(inference.SummarizationPipeline); ok {
-			s, sumErr := sp.Summarize(tweet.Text)
+			s, sumErr := sp.Summarize(ctx, tweet.Text)
 			if sumErr != nil {
 				if logger != nil {
 					logger.Warn("worker: match entities: summarize",

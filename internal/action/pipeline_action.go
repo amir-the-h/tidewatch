@@ -175,7 +175,7 @@ func (a *PipelineAction) matchEntities(ctx context.Context, tweet *model.Tweet, 
 	if a.reg != nil {
 		for _, p := range a.reg.All() {
 			if sp, ok := p.(inference.SummarizationPipeline); ok {
-				s, sumErr := sp.Summarize(tweet.Text)
+				s, sumErr := sp.Summarize(ctx, tweet.Text)
 				if sumErr != nil {
 					if a.logger != nil {
 						a.logger.Warn("action: match entities: summarize",
