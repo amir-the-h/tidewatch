@@ -6,11 +6,11 @@ import (
 )
 
 type mapPinResponse struct {
-	TweetID        string            `json:"tweet_id"`
-	TweetCreatedAt string            `json:"tweet_created_at"`
-	ModelName      string            `json:"model_name"`
-	Description    string            `json:"description,omitempty"`
-	Locations      []json.RawMessage `json:"locations"`
+	TweetID        string        `json:"tweet_id"`
+	TweetCreatedAt string        `json:"tweet_created_at"`
+	ModelName      string        `json:"model_name"`
+	Description    string        `json:"description,omitempty"`
+	Coordinates    [][2]float64  `json:"coordinates"`
 }
 
 func (s *Server) handleListMapPins(w http.ResponseWriter, r *http.Request) {
@@ -23,21 +23,11 @@ func (s *Server) handleListMapPins(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]mapPinResponse, 0, len(pins))
 	for _, pin := range pins {
-		var locs []json.RawMessage
-		if err := json.Unmarshal([]byte(pin.LocationsJSON), &locs); err != nil {
-			continue // skip rows where locations JSON is malformed
+		var coords [][2]float64
+		if err := json.Unmarshal([]byte(pin.CoordinatesJSON), &coords); err != nil {
+			continue
 		}
-		// Strip entries without coordinates (guard against partial extractor output)
-		valid := locs[:0]
-		for _, l := range locs {
-			var check struct {
-				Coordinates []float64 `json:"coordinates"`
-			}
-			if json.Unmarshal(l, &check) == nil && len(check.Coordinates) == 2 {
-				valid = append(valid, l)
-			}
-		}
-		if len(valid) == 0 {
+		if len(coords) == 0 {
 			continue
 		}
 
@@ -55,7 +45,7 @@ func (s *Server) handleListMapPins(w http.ResponseWriter, r *http.Request) {
 			TweetCreatedAt: pin.TweetCreatedAt,
 			ModelName:      pin.ModelName,
 			Description:    desc,
-			Locations:      valid,
+			Coordinates:    coords,
 		})
 	}
 

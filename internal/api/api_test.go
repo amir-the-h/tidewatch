@@ -307,6 +307,9 @@ func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFil
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) {
+	return nil, nil
+}
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }

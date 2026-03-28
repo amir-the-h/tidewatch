@@ -211,6 +211,7 @@ func (m *mockStore) SetActionActive(_ context.Context, _ int64, _ bool) error { 
 func (m *mockStore) SaveActionExecution(_ context.Context, _ *model.ActionExecution) error { return nil }
 func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFilter) ([]*model.ActionExecution, error) { return nil, nil }
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) { return nil, nil }
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) { return nil, nil }
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error { return nil }
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error { return nil }
 func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCredentials, error) { return nil, fmt.Errorf("not found") }

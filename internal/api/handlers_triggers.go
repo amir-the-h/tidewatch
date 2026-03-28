@@ -7,6 +7,7 @@ func (s *Server) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 		{"type": "new_tweet", "description": "Fires when a tweet is received from the stream"},
 		{"type": "new_categorization", "description": "Fires when an ONNX/Ollama pipeline action completes"},
 		{"type": "entity_matched", "description": "Fires when an entity matcher action finds a match"},
+		{"type": "chain_only", "description": "Only triggered by a chain from another action — never fires directly"},
 	}
 	writeJSON(w, http.StatusOK, triggers)
 }

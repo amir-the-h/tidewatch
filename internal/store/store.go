@@ -87,11 +87,11 @@ type ActionChainFilter struct {
 
 // MapPin is a geo-event pin derived from action_execution_metadata.
 type MapPin struct {
-	TweetID        string `json:"tweet_id"`
-	TweetCreatedAt string `json:"tweet_created_at"`
-	ModelName      string `json:"model_name"`
-	Description    string `json:"description,omitempty"`
-	LocationsJSON  string `json:"-"` // raw JSON, parsed by handler
+	TweetID          string `json:"tweet_id"`
+	TweetCreatedAt   string `json:"tweet_created_at"`
+	ModelName        string `json:"model_name"`
+	Description      string `json:"description,omitempty"`
+	CoordinatesJSON  string `json:"-"` // raw JSON [[lat,lon],...], parsed by handler
 }
 
 // ExecutionFilter defines optional filters for listing action executions.
@@ -228,6 +228,7 @@ type Store interface {
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
 	ListActionExecutions(ctx context.Context, filter ExecutionFilter) ([]*model.ActionExecution, error)
 	ListActionExecutionMetadata(ctx context.Context, execID int64) (map[string]string, error)
+	MergeActionExecutionMetadata(ctx context.Context, actionID int64, tweetID string) (map[string]string, error)
 	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
 
 	// TwitterCredentials

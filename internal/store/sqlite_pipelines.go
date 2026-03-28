@@ -57,6 +57,10 @@ func (s *sqliteStore) ListPipelines(ctx context.Context, filter PipelineFilter) 
 		where = append(where, "active = ?")
 		args = append(args, boolToInt(*filter.Active))
 	}
+	if filter.Usecase != nil {
+		where = append(where, "json_extract(config, '$.usecase') = ?")
+		args = append(args, *filter.Usecase)
+	}
 	q := "SELECT id, name, type, config, active, created_at, updated_at FROM pipelines"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")

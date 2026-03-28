@@ -6,10 +6,13 @@ import { useMessage } from 'naive-ui'
 import { listRules } from '../api/rules'
 import { listSources } from '../api/sources'
 import { listTrackedEntities } from '../api/entities'
+import { listPipelines } from '../api/pipelines'
 import { SparklesOutline, TrashOutline } from '@vicons/ionicons5'
 
 const store = useDigestStore()
 const msg   = useMessage()
+
+const pipelineReady = ref(false)
 
 const filterFrom     = ref<number | null>(null)
 const filterTo       = ref<number | null>(null)
@@ -38,10 +41,11 @@ async function onGenerate() {
 }
 
 onMounted(async () => {
-  const [rulesData, sourcesData, entitiesData] = await Promise.allSettled([
+  const [rulesData, sourcesData, entitiesData, pipelinesData] = await Promise.allSettled([
     listRules(),
     listSources(),
     listTrackedEntities(),
+    listPipelines({ usecase: 'digest', active: true }),
   ])
   if (rulesData.status === 'fulfilled')
     rules.value = rulesData.value.map(r => ({ label: r.name || String(r.id), value: r.id }))
@@ -49,6 +53,8 @@ onMounted(async () => {
     sources.value = sourcesData.value.map(s => ({ label: s.name || s.value, value: s.id }))
   if (entitiesData.status === 'fulfilled')
     entities.value = entitiesData.value.map(e => ({ label: e.name, value: e.id }))
+  if (pipelinesData.status === 'fulfilled')
+    pipelineReady.value = pipelinesData.value.length > 0
 
   await store.fetchJobs()
 })
@@ -89,12 +95,16 @@ onMounted(async () => {
       </n-space>
 
       <template #footer>
-        <n-button type="primary" :loading="store.loading" @click="onGenerate" style="width: 100%;">
+        <n-button type="primary" :loading="store.loading" :disabled="!pipelineReady" @click="onGenerate" style="width: 100%;">
           <template #icon><n-icon><SparklesOutline /></n-icon></template>
           {{ store.loading ? 'Generating digest…' : 'Generate Digest' }}
         </n-button>
       </template>
     </n-card>
+
+    <n-alert v-if="!pipelineReady" type="warning">
+      No active digest pipeline found. Go to <strong>Pipelines</strong> and create an Ollama pipeline with usecase <strong>digest</strong>.
+    </n-alert>
 
     <n-alert v-if="store.error" type="error">{{ store.error }}</n-alert>
 

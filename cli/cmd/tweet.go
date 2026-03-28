@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 	"text/tabwriter"
@@ -51,7 +49,7 @@ var tweetListCmd = &cobra.Command{
 			reqURL += "?" + params.Encode()
 		}
 
-		resp, err := http.Get(reqURL)
+		resp, err := apiGet(reqURL)
 		if err != nil {
 			return fmt.Errorf("tweet list: %w", err)
 		}
@@ -88,7 +86,7 @@ var tweetShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := http.Get(baseURL + "/api/tweets/" + id)
+		resp, err := apiGet(baseURL + "/api/tweets/" + id)
 		if err != nil {
 			return fmt.Errorf("tweet show: %w", err)
 		}
@@ -141,12 +139,12 @@ var tweetReprocessCmd = &cobra.Command{
 			"tweet_ids":   tweetIDs,
 			"model_names": modelNames,
 		}
-		data, err := json.Marshal(body)
+		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("tweet reprocess: marshal body: %w", err)
+			return fmt.Errorf("tweet reprocess: %w", err)
 		}
 
-		resp, err := http.Post(baseURL+"/api/tweets/reprocess", "application/json", bytes.NewReader(data))
+		resp, err := apiPost(baseURL+"/api/tweets/reprocess", r)
 		if err != nil {
 			return fmt.Errorf("tweet reprocess: %w", err)
 		}

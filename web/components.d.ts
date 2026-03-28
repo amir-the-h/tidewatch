@@ -11,10 +11,13 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    FormDrawer: typeof import('./src/components/FormDrawer.vue')['default']
+    IconButton: typeof import('./src/components/IconButton.vue')['default']
     NAlert: typeof import('naive-ui')['NAlert']
     NBadge: typeof import('naive-ui')['NBadge']
     NButton: typeof import('naive-ui')['NButton']
     NCard: typeof import('naive-ui')['NCard']
+    NCheckbox: typeof import('naive-ui')['NCheckbox']
     NCollapseTransition: typeof import('naive-ui')['NCollapseTransition']
     NConfigProvider: typeof import('naive-ui')['NConfigProvider']
     NDataTable: typeof import('naive-ui')['NDataTable']
@@ -55,6 +58,7 @@ declare module 'vue' {
     NTimeline: typeof import('naive-ui')['NTimeline']
     NTimelineItem: typeof import('naive-ui')['NTimelineItem']
     NTooltip: typeof import('naive-ui')['NTooltip']
+    PageHeader: typeof import('./src/components/PageHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     RuleExprBuilder: typeof import('./src/components/RuleExprBuilder.vue')['default']

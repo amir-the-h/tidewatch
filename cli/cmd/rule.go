@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"text/tabwriter"
@@ -21,7 +19,7 @@ var ruleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all rules",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := http.Get(baseURL + "/api/rules")
+		resp, err := apiGet(baseURL + "/api/rules")
 		if err != nil {
 			return fmt.Errorf("rule list: %w", err)
 		}
@@ -54,7 +52,7 @@ var ruleShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := http.Get(baseURL + "/api/rules/" + id)
+		resp, err := apiGet(baseURL + "/api/rules/" + id)
 		if err != nil {
 			return fmt.Errorf("rule show: %w", err)
 		}
@@ -111,11 +109,11 @@ var ruleAddCmd = &cobra.Command{
 			"name":       args[0],
 			"expression": expr,
 		}
-		data, err := json.Marshal(body)
+		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("rule add: marshal: %w", err)
+			return fmt.Errorf("rule add: %w", err)
 		}
-		resp, err := http.Post(baseURL+"/api/rules", "application/json", bytes.NewReader(data))
+		resp, err := apiPost(baseURL+"/api/rules", r)
 		if err != nil {
 			return fmt.Errorf("rule add: %w", err)
 		}
@@ -153,10 +151,11 @@ var ruleUpdateCmd = &cobra.Command{
 			}
 			body["expression"] = expr
 		}
-		data, _ := json.Marshal(body)
-		req, _ := http.NewRequest(http.MethodPut, baseURL+"/api/rules/"+id, bytes.NewReader(data))
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+		r, err := jsonBody(body)
+		if err != nil {
+			return fmt.Errorf("rule update: %w", err)
+		}
+		resp, err := apiPut(baseURL+"/api/rules/"+id, r)
 		if err != nil {
 			return fmt.Errorf("rule update: %w", err)
 		}
@@ -175,8 +174,7 @@ var ruleRemoveCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		req, _ := http.NewRequest(http.MethodDelete, baseURL+"/api/rules/"+id, nil)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := apiDelete(baseURL + "/api/rules/" + id)
 		if err != nil {
 			return fmt.Errorf("rule remove: %w", err)
 		}
@@ -206,7 +204,7 @@ var ruleDeactivateCmd = &cobra.Command{
 func ruleLifecycleAction(action string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := http.Post(baseURL+"/api/rules/"+id+"/"+action, "application/json", nil)
+		resp, err := apiPost(baseURL+"/api/rules/"+id+"/"+action, nil)
 		if err != nil {
 			return fmt.Errorf("rule %s: %w", action, err)
 		}
