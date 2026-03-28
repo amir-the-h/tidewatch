@@ -237,7 +237,7 @@ const columns: DataTableColumns<Pipeline> = [
     render: (row) => new Date(row.created_at).toLocaleString(),
   },
   {
-    title: 'Actions', key: 'actions', width: 160,
+    title: 'Actions', key: 'actions', width: 200,
     render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
         ...(row.type === 'ollama'
