@@ -120,7 +120,7 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 			actionName = a.Name
 		}
 
-		rawMeta, _ := s.store.ListActionExecutionMetadata(r.Context(), e.ID)
+		rawMeta, _ := s.store.MergeActionExecutionMetadata(r.Context(), e.ActionID, e.TweetID)
 		meta := make(map[string]any, len(rawMeta))
 		for k, v := range rawMeta {
 			var parsed any

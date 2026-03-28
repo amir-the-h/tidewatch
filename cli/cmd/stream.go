@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 
 	"github.com/spf13/cobra"
 )
@@ -17,7 +16,7 @@ var streamStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show stream connection status",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := http.Get(baseURL + "/api/stream/status")
+		resp, err := apiGet(baseURL + "/api/stream/status")
 		if err != nil {
 			return fmt.Errorf("stream status: %w", err)
 		}
@@ -45,7 +44,7 @@ var streamConnectCmd = &cobra.Command{
 	Use:   "connect",
 	Short: "Connect to the X filtered stream",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := http.Post(baseURL+"/api/stream/connect", "application/json", nil)
+		resp, err := apiPost(baseURL+"/api/stream/connect", nil)
 		if err != nil {
 			return fmt.Errorf("stream connect: %w", err)
 		}
@@ -64,7 +63,7 @@ var streamDisconnectCmd = &cobra.Command{
 	Use:   "disconnect",
 	Short: "Disconnect from the X filtered stream",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := http.Post(baseURL+"/api/stream/disconnect", "application/json", nil)
+		resp, err := apiPost(baseURL+"/api/stream/disconnect", nil)
 		if err != nil {
 			return fmt.Errorf("stream disconnect: %w", err)
 		}

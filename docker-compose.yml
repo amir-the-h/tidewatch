@@ -89,6 +89,17 @@ services:
     depends_on:
       - iran-watcher
 
+  cli:
+    image: iran-watcher:local
+    profiles: ["cli"]
+    entrypoint: ["iran-watcher"]
+    environment:
+      IRAN_WATCHER_BASE_URL: "http://iran-watcher:8080"
+    volumes:
+      - "${HOME}/.iran-watcher:/root/.iran-watcher"
+    networks:
+      network: {}
+
 networks:
   network:
     driver: bridge

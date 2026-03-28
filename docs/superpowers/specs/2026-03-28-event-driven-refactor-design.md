@@ -263,9 +263,13 @@ When an action is activated or deactivated via the API, the `ActionCache` is inv
 |---|---|---|
 | `GET` | `/api/triggers` | List available trigger types (registered in code) with payload schema — used by UI to populate trigger dropdown |
 
-### Execution log — unchanged
+### Execution log
 
-`GET /api/actions/{id}/executions` and `GET /api/executions` stay as-is. Outputs are visible in the execution log via the existing metadata rows.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/actions/{id}/executions` | List executions for a specific action |
+| `GET` | `/api/executions` | List all executions (filterable by action_id, tweet_id, status, page, per_page) |
+| `GET` | `/api/executions/{id}/metadata` | Return `action_execution_metadata` rows for a single execution as `map[string]string` |
 
 ### UI
 

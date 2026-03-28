@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { SendOutline, StopCircleOutline, ArrowBackOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
+import { listPipelines } from '../api/pipelines'
 
 const router = useRouter()
 const msg    = useMessage()
@@ -14,6 +15,7 @@ const input          = ref('')
 const messagesEl     = ref<HTMLElement | null>(null)
 const inputEl        = ref<HTMLTextAreaElement | null>(null)
 const estimateLoading = ref(false)
+const pipelineReady  = ref(false)
 
 // ── Scroll to bottom whenever messages change or stream appends ──────────────
 
@@ -35,10 +37,16 @@ watch(() => store.messages.length, scrollToBottom)
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
+  try {
+    const pipelines = await listPipelines({ usecase: 'chat', active: true })
+    pipelineReady.value = pipelines.length > 0
+  } catch {}
+
   if (!store.hasSession) {
     msg.warning('No tweets selected — go to Tweets and select some first.')
     return
   }
+  if (!pipelineReady.value) return
   if (!store.estimate) {
     estimateLoading.value = true
     try {
@@ -154,9 +162,20 @@ function onKeydown(e: KeyboardEvent) {
       </n-button>
     </div>
 
+    <!-- No pipeline state -->
+    <div
+      v-if="!pipelineReady"
+      style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;"
+    >
+      <n-alert type="warning" style="max-width: 480px;">
+        No active chat pipeline found. Go to <strong>Pipelines</strong> and create an Ollama pipeline with usecase <strong>chat</strong>.
+      </n-alert>
+      <n-button type="primary" @click="router.push('/pipelines')">Go to Pipelines</n-button>
+    </div>
+
     <!-- No session state -->
     <div
-      v-if="!store.hasSession"
+      v-else-if="!store.hasSession"
       style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;"
     >
       <n-text depth="3">No tweets selected as context.</n-text>

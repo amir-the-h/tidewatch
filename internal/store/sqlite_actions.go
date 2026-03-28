@@ -113,18 +113,21 @@ func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
 }
 
 func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `
+	// Chains may not cascade due to migration 016 table-rename re-association;
+	// delete explicitly to avoid FK constraint errors.
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM action_chains WHERE source_action_id = ? OR target_action_id = ?`, id, id); err != nil {
+		return fmt.Errorf("store: delete action: delete chains: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM action_execution_metadata
-		WHERE execution_id IN (SELECT id FROM action_executions WHERE action_id = ?)`, id)
-	if err != nil {
+		WHERE execution_id IN (SELECT id FROM action_executions WHERE action_id = ?)`, id); err != nil {
 		return fmt.Errorf("store: delete action: delete metadata: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `DELETE FROM action_executions WHERE action_id = ?`, id)
-	if err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM action_executions WHERE action_id = ?`, id); err != nil {
 		return fmt.Errorf("store: delete action: delete executions: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `DELETE FROM actions WHERE id = ?`, id)
-	if err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM actions WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("store: delete action: %w", err)
 	}
 	return nil
@@ -225,10 +228,24 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 }
 
 func (s *sqliteStore) SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO action_execution_metadata (execution_id, key, value) VALUES (?, ?, ?)`,
-		execID, key, value,
-	)
+	// Skip if a previous successful execution for the same (action_id, tweet_id)
+	// already produced an identical value for this key — avoids storing redundant
+	// rows when a tweet is reprocessed and the model output hasn't changed.
+	_, err := s.db.ExecContext(ctx, `
+		INSERT OR REPLACE INTO action_execution_metadata (execution_id, key, value)
+		SELECT ?, ?, ?
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM action_execution_metadata aem
+			JOIN action_executions prev ON prev.id = aem.execution_id
+			JOIN action_executions cur  ON cur.id  = ?
+				AND prev.action_id = cur.action_id
+				AND prev.tweet_id  = cur.tweet_id
+				AND prev.id       != cur.id
+				AND prev.status    = 'success'
+			WHERE aem.key   = ?
+			  AND aem.value = ?
+		)`, execID, key, value, execID, key, value)
 	if err != nil {
 		return fmt.Errorf("store: save action execution metadata: %w", err)
 	}
@@ -248,6 +265,37 @@ func (s *sqliteStore) ListActionExecutionMetadata(ctx context.Context, execID in
 		var k, v string
 		if err := rows.Scan(&k, &v); err != nil {
 			return nil, fmt.Errorf("store: list action execution metadata: scan: %w", err)
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// MergeActionExecutionMetadata returns the latest value per key across all
+// successful executions of actionID on tweetID. This gives the full picture of
+// what an action knows about a tweet regardless of how many times it ran or
+// which keys were deduped on a given run.
+func (s *sqliteStore) MergeActionExecutionMetadata(ctx context.Context, actionID int64, tweetID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key, value FROM (
+			SELECT aem.key, aem.value,
+			       ROW_NUMBER() OVER (PARTITION BY aem.key ORDER BY ae.id DESC) AS rn
+			FROM action_execution_metadata aem
+			JOIN action_executions ae ON ae.id = aem.execution_id
+			WHERE ae.action_id = ?
+			  AND ae.tweet_id  = ?
+			  AND ae.status    = 'success'
+		) WHERE rn = 1`, actionID, tweetID)
+	if err != nil {
+		return nil, fmt.Errorf("store: merge action execution metadata: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, fmt.Errorf("store: merge action execution metadata: scan: %w", err)
 		}
 		out[k] = v
 	}

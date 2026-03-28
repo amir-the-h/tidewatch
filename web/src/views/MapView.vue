@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { listMapPins } from '../api/map'
-import type { MapPin, MapLocation } from '../api/map'
+import type { MapPin } from '../api/map'
 
 // Fix Leaflet's default icon paths broken by Vite bundling
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -12,9 +12,9 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
 
-interface PinWithLoc {
+interface PinWithCoords {
   pin: MapPin
-  loc: MapLocation
+  coords: [number, number]
 }
 
 const mapEl    = ref<HTMLDivElement | null>(null)
@@ -48,11 +48,11 @@ onMounted(async () => {
 
   try {
     const pins = await listMapPins()
-    const items: PinWithLoc[] = []
+    const items: PinWithCoords[] = []
 
     for (const pin of pins ?? []) {
-      for (const loc of pin.locations ?? []) {
-        if (loc.coordinates?.length === 2) items.push({ pin, loc })
+      for (const coords of pin.coordinates ?? []) {
+        if (coords?.length === 2) items.push({ pin, coords })
       }
     }
 
@@ -73,8 +73,8 @@ onMounted(async () => {
       newestDate.value = fmtDate(new Date(maxMs))
     }
 
-    for (const { pin, loc } of items) {
-      const [lat, lon] = loc.coordinates
+    for (const { pin, coords } of items) {
+      const [lat, lon] = coords
       const ms = new Date(pin.tweet_created_at).getTime()
       const t = range === 0 ? 0.5 : (ms - minMs) / range
       const color = tToColor(t)
@@ -88,8 +88,6 @@ onMounted(async () => {
       })
 
       const lines: string[] = []
-      if (loc.label) lines.push(`<b>${escHtml(loc.label)}</b>`)
-      if (loc.place) lines.push(escHtml(loc.place))
       if (pin.description) lines.push(escHtml(pin.description))
       lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
       lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)

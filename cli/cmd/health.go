@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 
 	"github.com/spf13/cobra"
 )
@@ -12,7 +11,7 @@ var healthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Check the health of the iran-watcher API",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := http.Get(baseURL + "/api/health")
+		resp, err := apiGet(baseURL + "/api/health")
 		if err != nil {
 			return fmt.Errorf("health: %w", err)
 		}

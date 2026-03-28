@@ -28,8 +28,8 @@ type ActionCache struct {
 	store    store.Store
 	infReg   *inference.Registry
 	pipeReg  *pipeline.Registry
-	backends []inference.BackendConfig
-	logger   *slog.Logger
+	pool    *inference.BackendPool
+	logger  *slog.Logger
 }
 
 // NewActionCache creates a new ActionCache with the given dependencies.
@@ -37,21 +37,27 @@ func NewActionCache(
 	st store.Store,
 	infReg *inference.Registry,
 	pipeReg *pipeline.Registry,
-	backends []inference.BackendConfig,
+	pool *inference.BackendPool,
 	logger *slog.Logger,
 ) *ActionCache {
 	return &ActionCache{
-		entries:  make(map[int64]*CacheEntry),
-		store:    st,
-		infReg:   infReg,
-		pipeReg:  pipeReg,
-		backends: backends,
-		logger:   logger,
+		entries: make(map[int64]*CacheEntry),
+		store:   st,
+		infReg:  infReg,
+		pipeReg: pipeReg,
+		pool:    pool,
+		logger:  logger,
 	}
 }
 
 // Load (re)builds the entire cache from active actions in the DB.
 func (c *ActionCache) Load(ctx context.Context) error {
+	// Fetch priority-ordered backend IDs for each pipeline.
+	pipelineBackendIDs, err := c.store.ListAllPipelineBackendIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("action_cache: list pipeline backend ids: %w", err)
+	}
+
 	active := true
 	actions, err := c.store.ListActions(ctx, store.ActionFilter{Active: &active})
 	if err != nil {
@@ -60,7 +66,7 @@ func (c *ActionCache) Load(ctx context.Context) error {
 
 	entries := make(map[int64]*CacheEntry, len(actions))
 	for _, a := range actions {
-		p, pErr := c.resolvePipeline(ctx, a.PipelineID)
+		p, pErr := c.resolvePipeline(ctx, a.PipelineID, pipelineBackendIDs)
 		if pErr != nil {
 			if c.logger != nil {
 				c.logger.Warn("action_cache: skip action (pipeline resolution failed)",
@@ -139,7 +145,7 @@ func (c *ActionCache) FindByType(pipelineType inference.PipelineType) inference.
 	return nil
 }
 
-func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64) (inference.Pipeline, error) {
+func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pipelineBackendIDs map[int64][]int64) (inference.Pipeline, error) {
 	row, err := c.store.GetPipeline(ctx, pipelineID)
 	if err != nil {
 		return nil, fmt.Errorf("get pipeline row: %w", err)
@@ -177,7 +183,8 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64) (in
 		if p := c.infReg.Get(row.Name); p != nil {
 			return p, nil
 		}
-		p := inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.backends, 0)
+		assignedIDs := pipelineBackendIDs[pipelineID] // nil → use full pool
+		p := inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.pool, assignedIDs, 0)
 		c.infReg.Register(p)
 		return p, nil
 

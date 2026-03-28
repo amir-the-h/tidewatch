@@ -136,11 +136,22 @@ func (m *mockStore) SetActionActive(_ context.Context, _ int64, _ bool) error   
 func (m *mockStore) SaveActionExecution(_ context.Context, _ *model.ActionExecution) error { return nil }
 func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFilter) ([]*model.ActionExecution, error) { return nil, nil }
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) { return nil, nil }
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) { return nil, nil }
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error { return nil }
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error { return nil }
 func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCredentials, error) { return nil, fmt.Errorf("not found") }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error                  { return nil }
 func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error)             { return nil, nil }
+func (m *mockStore) ListOllamaBackends(_ context.Context) ([]model.OllamaBackend, error)          { return nil, nil }
+func (m *mockStore) GetOllamaBackend(_ context.Context, _ int64) (model.OllamaBackend, error)     { return model.OllamaBackend{}, nil }
+func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string) (model.OllamaBackend, error) { return model.OllamaBackend{}, nil }
+func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string) error            { return nil }
+func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error                         { return nil }
+func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error             { return nil }
+func (m *mockStore) ListPipelineBackends(_ context.Context, _ int64) ([]model.PipelineBackend, error) { return nil, nil }
+func (m *mockStore) SetPipelineBackends(_ context.Context, _ int64, _ []model.PipelineBackend) error  { return nil }
+func (m *mockStore) RemovePipelineBackend(_ context.Context, _, _ int64) error                    { return nil }
+func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]int64, error)       { return nil, nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {
@@ -240,6 +251,61 @@ func TestNormalize_RetweetExpandsFullText(t *testing.T) {
 	}
 	if st.Tweet.Text != "GeoConfirmed Iran.\n\nFull original text with coordinates 36.42, 43.10\n\nGeoLocated by\n@someuser" {
 		t.Errorf("expected full original text, got: %q", st.Tweet.Text)
+	}
+}
+
+func TestNormalize_NoteTweetUsesFullText(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"id": "1001",
+			"text": "This is the first 280 characters of a long note tweet\u2026",
+			"author_id": "111",
+			"created_at": "2026-03-23T12:00:00.000Z",
+			"note_tweet": {"text": "This is the complete full text of a long note tweet that exceeds 280 characters and contains much more detail."}
+		},
+		"includes": {
+			"users": [{"id": "111", "username": "author"}]
+		},
+		"matching_rules": []
+	}`)
+
+	st, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "This is the complete full text of a long note tweet that exceeds 280 characters and contains much more detail."
+	if st.Tweet.Text != want {
+		t.Errorf("expected note_tweet full text, got: %q", st.Tweet.Text)
+	}
+}
+
+func TestNormalize_RetweetOfNoteTweetUsesFullText(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"id": "1002",
+			"text": "RT @author: This is the first 280 characters\u2026",
+			"author_id": "222",
+			"created_at": "2026-03-23T12:00:00.000Z",
+			"referenced_tweets": [{"id": "1001", "type": "retweeted"}]
+		},
+		"includes": {
+			"users": [{"id": "222", "username": "retweeter"}],
+			"tweets": [{
+				"id": "1001",
+				"text": "This is the first 280 characters\u2026",
+				"note_tweet": {"text": "Full text of the retweeted note tweet with all its details intact."}
+			}]
+		},
+		"matching_rules": []
+	}`)
+
+	st, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "Full text of the retweeted note tweet with all its details intact."
+	if st.Tweet.Text != want {
+		t.Errorf("expected full note_tweet text from retweet, got: %q", st.Tweet.Text)
 	}
 }
 

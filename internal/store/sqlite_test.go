@@ -59,6 +59,14 @@ func sampleRule() *model.Rule {
 	}
 }
 
+func samplePipeline() *model.Pipeline {
+	return &model.Pipeline{
+		Name:   "test-pipeline",
+		Type:   model.PipelineTypeOllama,
+		Active: true,
+	}
+}
+
 // 1. TestSaveTweet_GetTweet
 func TestSaveTweet_GetTweet(t *testing.T) {
 	ctx := context.Background()

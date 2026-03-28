@@ -10,7 +10,7 @@ import {
 import {
   CreateOutline, TrashOutline, PauseCircleOutline, PlayOutline,
   CheckmarkCircleOutline, ListOutline, LogoTwitter, LinkOutline,
-  UnlinkOutline, AddOutline, ChevronDownOutline, ChevronForwardOutline,
+  UnlinkOutline, AddOutline,
 } from '@vicons/ionicons5'
 import PageHeader from '../components/PageHeader.vue'
 import FormDrawer from '../components/FormDrawer.vue'
@@ -52,15 +52,15 @@ const execsLoading = ref(false)
 const execsPage = ref(1)
 
 // Chains state
-const expandedId = ref<number | null>(null)
+const expandedRowKeys = ref<number[]>([])
 const chainsMap = ref<Record<number, ActionChain[]>>({})
-const chainsLoading = ref(false)
+const chainsLoading = ref<Record<number, boolean>>({})
 
 // Add-chain form state
 const showAddChain = ref(false)
 const addChainActionId = ref<number | null>(null)
 const addChainTargetId = ref<number | null>(null)
-const addChainConditions = ref<ChainCondition[]>([{ key: '', op: '==', value: '' }])
+const addChainConditions = ref<ChainCondition[]>([])
 const savingChain = ref(false)
 
 // Select options data
@@ -206,31 +206,31 @@ function onExecsPageChange(page: number) {
 }
 
 // Chains
-async function toggleExpand(actionId: number) {
-  if (expandedId.value === actionId) {
-    expandedId.value = null
-    return
+async function onExpandChange(keys: Array<string | number>) {
+  const numKeys = keys.map(Number)
+  const newKey = numKeys.find(k => !expandedRowKeys.value.includes(k))
+  expandedRowKeys.value = numKeys
+  if (newKey !== undefined && !chainsMap.value[newKey]) {
+    await loadChains(newKey)
   }
-  expandedId.value = actionId
-  await loadChains(actionId)
 }
 
 async function loadChains(actionId: number) {
-  chainsLoading.value = true
+  chainsLoading.value = { ...chainsLoading.value, [actionId]: true }
   try {
     const chains = await listActionChains(actionId)
     chainsMap.value = { ...chainsMap.value, [actionId]: chains ?? [] }
   } catch (e: any) {
     msg.error(e.message)
   } finally {
-    chainsLoading.value = false
+    chainsLoading.value = { ...chainsLoading.value, [actionId]: false }
   }
 }
 
 function openAddChain(actionId: number) {
   addChainActionId.value = actionId
   addChainTargetId.value = null
-  addChainConditions.value = [{ key: '', op: '==', value: '' }]
+  addChainConditions.value = []
   showAddChain.value = true
 }
 
@@ -278,25 +278,54 @@ async function onRemoveChain(actionId: number, chainId: number) {
 }
 
 function formatConditions(conditions: ChainCondition[]): string {
-  if (!conditions || !conditions.length) return '(no conditions)'
+  if (!conditions || !conditions.length) return '(always)'
   return conditions.map(c => {
     if (c.op === 'is_empty' || c.op === 'not_empty') return `${c.key} ${c.op}`
     return `${c.key} ${c.op} "${c.value}"`
   }).join(', ')
 }
 
+function renderChainsPanel(row: Action) {
+  const chains = chainsMap.value[row.id] ?? []
+  const loading = chainsLoading.value[row.id]
+
+  return h('div', { style: 'padding: 4px 8px 8px' }, [
+    h(NFlex, { align: 'center', justify: 'space-between', style: 'margin-bottom: 8px' }, {
+      default: () => [
+        h(NText, { depth: 3, style: 'font-size: 13px' }, { default: () => `Chains from ${row.name}` }),
+        h(NButton, { size: 'tiny', type: 'primary', ghost: true, onClick: () => openAddChain(row.id) }, {
+          icon: () => h(NIcon, null, { default: () => h(AddOutline) }),
+          default: () => 'Add Chain',
+        }),
+      ],
+    }),
+    loading ? h(NSpin, { size: 'small' }) : null,
+    !loading && !chains.length
+      ? h(NText, { depth: 3, style: 'font-size: 12px' }, { default: () => 'No chains defined.' })
+      : null,
+    ...(!loading ? chains.map(chain =>
+      h('div', {
+        key: chain.id,
+        style: 'display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px;',
+      }, [
+        h(NText, null, { default: () => `→ Action #${chain.target_action_id}` }),
+        h(NTag, { size: 'small', bordered: false, style: 'font-size: 11px; font-family: monospace;' },
+          { default: () => formatConditions(chain.conditions) }),
+        h(NButton, {
+          size: 'tiny', type: 'error', ghost: true, style: 'margin-left: auto',
+          onClick: () => onRemoveChain(row.id, chain.id),
+        }, { default: () => 'Remove' }),
+      ])
+    ) : []),
+  ])
+}
+
 // Table columns
 const columns: DataTableColumns<Action> = [
   {
-    title: '', key: 'expand', width: 32,
-    render: (row) => h(NButton, {
-      size: 'tiny', text: true,
-      onClick: () => toggleExpand(row.id),
-    }, {
-      icon: () => h(NIcon, null, {
-        default: () => h(expandedId.value === row.id ? ChevronDownOutline : ChevronForwardOutline),
-      }),
-    }),
+    type: 'expand',
+    expandable: () => true,
+    renderExpand: (row) => renderChainsPanel(row),
   },
   { title: 'ID', key: 'id', width: 60, sorter: 'default' },
   { title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true } },
@@ -418,48 +447,10 @@ const execColumns: DataTableColumns<ActionExecution> = [
     :loading="store.loading"
     :bordered="false"
     :row-key="(row: Action) => row.id"
+    :expanded-row-keys="expandedRowKeys"
     size="small"
+    @update:expanded-row-keys="onExpandChange"
   />
-
-  <!-- Expanded chains section -->
-  <template v-for="action in filteredActions" :key="`chains-${action.id}`">
-    <n-card
-      v-if="expandedId === action.id"
-      size="small"
-      style="margin: 4px 0 8px 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);"
-    >
-      <n-flex align="center" justify="space-between" style="margin-bottom: 8px">
-        <n-text depth="3" style="font-size: 13px">Chains from {{ action.name }}</n-text>
-        <n-button size="tiny" type="primary" ghost @click="openAddChain(action.id)">
-          <template #icon><n-icon><AddOutline /></n-icon></template>
-          Add Chain
-        </n-button>
-      </n-flex>
-      <n-spin v-if="chainsLoading" size="small" />
-      <template v-else>
-        <n-text v-if="!chainsMap[action.id]?.length" depth="3" style="font-size: 12px">No chains defined.</n-text>
-        <div
-          v-for="chain in chainsMap[action.id]"
-          :key="chain.id"
-          style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px;"
-        >
-          <n-text>→ Action #{{ chain.target_action_id }}</n-text>
-          <n-tag size="small" :bordered="false" style="font-size: 11px; font-family: monospace;">
-            {{ formatConditions(chain.conditions) }}
-          </n-tag>
-          <n-button
-            size="tiny"
-            type="error"
-            ghost
-            style="margin-left: auto"
-            @click="onRemoveChain(action.id, chain.id)"
-          >
-            Remove
-          </n-button>
-        </div>
-      </template>
-    </n-card>
-  </template>
 
   <!-- Create/Edit Drawer -->
   <FormDrawer
@@ -516,7 +507,7 @@ const execColumns: DataTableColumns<ActionExecution> = [
     </n-form-item>
 
     <n-divider style="margin: 8px 0">
-      <n-text depth="3" style="font-size: 12px">Conditions (all must pass)</n-text>
+      <n-text depth="3" style="font-size: 12px">Conditions (all must pass — leave empty to always trigger)</n-text>
     </n-divider>
 
     <div
@@ -539,13 +530,7 @@ const execColumns: DataTableColumns<ActionExecution> = [
         size="small"
       />
       <div v-else style="flex: 2" />
-      <n-button
-        size="small"
-        type="error"
-        ghost
-        :disabled="addChainConditions.length <= 1"
-        @click="removeConditionRow(idx)"
-      >×</n-button>
+      <n-button size="small" type="error" ghost @click="removeConditionRow(idx)">×</n-button>
     </div>
     <n-button size="small" dashed style="width: 100%; margin-top: 4px" @click="addConditionRow">
       + Add condition

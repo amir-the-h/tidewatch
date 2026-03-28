@@ -4,17 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
-
-// OllamaBackendConfig holds the URL and optional display name for a single Ollama backend.
-type OllamaBackendConfig struct {
-	URL  string `yaml:"url"`
-	Name string `yaml:"name"` // optional display name; defaults to URL if empty
-}
 
 // Config holds all application configuration.
 type Config struct {
@@ -41,10 +34,7 @@ type Config struct {
 		ModelsDir   string `yaml:"models_dir"`
 	} `yaml:"inference"`
 	Ollama struct {
-		BaseURL         string                `yaml:"base_url"`          // single URL — kept for backward compatibility; use base_urls for multiple backends
-		BaseURLs        []string              `yaml:"base_urls"`         // pool of Ollama server addresses; takes precedence over base_url when set
-		Backends        []OllamaBackendConfig `yaml:"backends"`          // named backends (takes precedence over base_urls/base_url); supports display names
-		FastWaitTimeout time.Duration         `yaml:"fast_wait_timeout"` // how long acquireFastest waits for the best backend before falling back; default 5s
+		FastWaitTimeout time.Duration `yaml:"fast_wait_timeout"`
 	} `yaml:"ollama"`
 	Log struct {
 		Level  string `yaml:"level"`
@@ -91,7 +81,6 @@ func defaults() *Config {
 	cfg.SQLite.Path = "./data/iran-watcher.db"
 	cfg.API.Bind = "127.0.0.1:8080"
 	cfg.Inference.ModelsDir = "./models"
-	cfg.Ollama.BaseURL = "http://localhost:11434" // default used when base_urls is not set
 	cfg.Ollama.FastWaitTimeout = 5 * time.Second
 	cfg.Log.Level = "info"
 	cfg.Log.Format = "text"
@@ -99,7 +88,7 @@ func defaults() *Config {
 	cfg.Search.Interval = 15 * time.Minute
 	cfg.Search.MaxResults = 100
 	cfg.Search.Limit = 0
-	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text"}
+	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text", "note_tweet"}
 	cfg.Search.UserFields = []string{"username"}
 	cfg.Search.Expansions = []string{"author_id", "referenced_tweets.id"}
 	cfg.Auth.AdminUsername = "admin"
@@ -132,37 +121,6 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// OllamaBackends returns the effective list of Ollama backends with optional
-// display names. Precedence: backends > base_urls > base_url > default.
-func (cfg *Config) OllamaBackends() []OllamaBackendConfig {
-	if len(cfg.Ollama.Backends) > 0 {
-		return cfg.Ollama.Backends
-	}
-	if len(cfg.Ollama.BaseURLs) > 0 {
-		out := make([]OllamaBackendConfig, len(cfg.Ollama.BaseURLs))
-		for i, u := range cfg.Ollama.BaseURLs {
-			out[i] = OllamaBackendConfig{URL: u}
-		}
-		return out
-	}
-	if cfg.Ollama.BaseURL != "" {
-		return []OllamaBackendConfig{{URL: cfg.Ollama.BaseURL}}
-	}
-	return []OllamaBackendConfig{{URL: "http://localhost:11434"}}
-}
-
-// OllamaBaseURLs returns the effective list of Ollama backend URLs.
-// Delegates to OllamaBackends for consistent precedence logic.
-// Kept for backward compatibility; prefer OllamaBackends() for new code.
-func (cfg *Config) OllamaBaseURLs() []string {
-	backends := cfg.OllamaBackends()
-	urls := make([]string, len(backends))
-	for i, b := range backends {
-		urls[i] = b.URL
-	}
-	return urls
 }
 
 // applyEnv overrides cfg fields from IRAN_WATCHER_* environment variables.
@@ -211,16 +169,6 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
-	}
-	if v := os.Getenv("IRAN_WATCHER_OLLAMA_BASE_URL"); v != "" {
-		cfg.Ollama.BaseURL = v
-	}
-	if v := os.Getenv("IRAN_WATCHER_OLLAMA_BASE_URLS"); v != "" {
-		urls := strings.Split(v, ",")
-		for i, u := range urls {
-			urls[i] = strings.TrimSpace(u)
-		}
-		cfg.Ollama.BaseURLs = urls
 	}
 	if v := os.Getenv("IRAN_WATCHER_OLLAMA_FAST_WAIT_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)

@@ -18,8 +18,11 @@ type xSearchResponse struct {
 			Name     string `json:"name"`
 		} `json:"users"`
 		Tweets []struct {
-			ID   string `json:"id"`
-			Text string `json:"text"`
+			ID        string `json:"id"`
+			Text      string `json:"text"`
+			NoteTweet *struct {
+				Text string `json:"text"`
+			} `json:"note_tweet"`
 		} `json:"tweets"`
 	} `json:"includes"`
 	Meta struct {
@@ -36,6 +39,9 @@ type xSearchTweet struct {
 	Text      string `json:"text"`
 	AuthorID  string `json:"author_id"`
 	CreatedAt string `json:"created_at"`
+	NoteTweet *struct {
+		Text string `json:"text"`
+	} `json:"note_tweet"`
 	ReferencedTweets []struct {
 		Type string `json:"type"`
 		ID   string `json:"id"`
@@ -65,9 +71,14 @@ func NormalizeSearchResponse(body []byte, rule *model.Rule) (*NormalizedPage, er
 	}
 
 	// Build a lookup map for included tweets by ID (for retweet full text).
+	// Prefer note_tweet.text over text for long-form tweets.
 	tweetTextByID := make(map[string]string, len(resp.Includes.Tweets))
 	for _, t := range resp.Includes.Tweets {
-		tweetTextByID[t.ID] = t.Text
+		if t.NoteTweet != nil && t.NoteTweet.Text != "" {
+			tweetTextByID[t.ID] = t.NoteTweet.Text
+		} else {
+			tweetTextByID[t.ID] = t.Text
+		}
 	}
 
 	tweets := make([]*model.StreamTweet, 0, len(resp.Data))
@@ -92,8 +103,13 @@ func NormalizeSearchResponse(body []byte, rule *model.Rule) (*NormalizedPage, er
 			authorHandle = handle
 		}
 
-		// For retweets, substitute the full text from includes.tweets.
+		// Prefer note_tweet.text for long-form tweets (> 280 chars); fall back to text.
 		text := d.Text
+		if d.NoteTweet != nil && d.NoteTweet.Text != "" {
+			text = d.NoteTweet.Text
+		}
+
+		// For retweets, substitute the full text from includes.tweets.
 		for _, ref := range d.ReferencedTweets {
 			if ref.Type == "retweeted" {
 				if fullText, ok := tweetTextByID[ref.ID]; ok && fullText != "" {

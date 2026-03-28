@@ -255,6 +255,29 @@ func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return n
 
 func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error) { return nil, nil }
 
+func (m *mockStore) ListOllamaBackends(_ context.Context) ([]model.OllamaBackend, error) {
+	return nil, nil
+}
+func (m *mockStore) GetOllamaBackend(_ context.Context, _ int64) (model.OllamaBackend, error) {
+	return model.OllamaBackend{}, nil
+}
+func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string) (model.OllamaBackend, error) {
+	return model.OllamaBackend{}, nil
+}
+func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string) error { return nil }
+func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error  { return nil }
+func (m *mockStore) ListPipelineBackends(_ context.Context, _ int64) ([]model.PipelineBackend, error) {
+	return nil, nil
+}
+func (m *mockStore) SetPipelineBackends(_ context.Context, _ int64, _ []model.PipelineBackend) error {
+	return nil
+}
+func (m *mockStore) RemovePipelineBackend(_ context.Context, _, _ int64) error { return nil }
+func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]int64, error) {
+	return nil, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // --- stubPipeline ---

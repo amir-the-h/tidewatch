@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"text/tabwriter"
 
@@ -20,7 +18,7 @@ var sourceListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all sources",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := http.Get(baseURL + "/api/sources")
+		resp, err := apiGet(baseURL + "/api/sources")
 		if err != nil {
 			return fmt.Errorf("source list: %w", err)
 		}
@@ -68,12 +66,12 @@ var sourceAddCmd = &cobra.Command{
 		if sourceName != "" {
 			body["name"] = sourceName
 		}
-		data, err := json.Marshal(body)
+		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("source add: marshal body: %w", err)
+			return fmt.Errorf("source add: %w", err)
 		}
 
-		resp, err := http.Post(baseURL+"/api/sources", "application/json", bytes.NewReader(data))
+		resp, err := apiPost(baseURL+"/api/sources", r)
 		if err != nil {
 			return fmt.Errorf("source add: %w", err)
 		}
@@ -104,13 +102,7 @@ var sourceRemoveCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/sources/"+id, nil)
-		if err != nil {
-			return fmt.Errorf("source remove: build request: %w", err)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := apiDelete(baseURL + "/api/sources/" + id)
 		if err != nil {
 			return fmt.Errorf("source remove: %w", err)
 		}

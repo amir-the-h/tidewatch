@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"text/tabwriter"
@@ -39,7 +37,7 @@ var notificationListCmd = &cobra.Command{
 		}
 		u.RawQuery = q.Encode()
 
-		resp, err := http.Get(u.String())
+		resp, err := apiGet(u.String())
 		if err != nil {
 			return fmt.Errorf("notification list: %w", err)
 		}
@@ -121,12 +119,12 @@ var notificationCreateCmd = &cobra.Command{
 			body["filter_model_result"] = modelResult
 		}
 
-		data, err := json.Marshal(body)
+		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("notification create: marshal body: %w", err)
+			return fmt.Errorf("notification create: %w", err)
 		}
 
-		resp, err := http.Post(baseURL+"/api/notifications", "application/json", bytes.NewReader(data))
+		resp, err := apiPost(baseURL+"/api/notifications", r)
 		if err != nil {
 			return fmt.Errorf("notification create: %w", err)
 		}
@@ -156,7 +154,7 @@ var notificationGetCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := http.Get(baseURL + "/api/notifications/" + id)
+		resp, err := apiGet(baseURL + "/api/notifications/" + id)
 		if err != nil {
 			return fmt.Errorf("notification get: %w", err)
 		}
@@ -187,13 +185,7 @@ var notificationDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/notifications/"+id, nil)
-		if err != nil {
-			return fmt.Errorf("notification delete: build request: %w", err)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := apiDelete(baseURL + "/api/notifications/" + id)
 		if err != nil {
 			return fmt.Errorf("notification delete: %w", err)
 		}
@@ -214,13 +206,7 @@ var notificationActivateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		req, err := http.NewRequest(http.MethodPost, baseURL+"/api/notifications/"+id+"/activate", http.NoBody)
-		if err != nil {
-			return fmt.Errorf("notification activate: build request: %w", err)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := apiPost(baseURL+"/api/notifications/"+id+"/activate", nil)
 		if err != nil {
 			return fmt.Errorf("notification activate: %w", err)
 		}
@@ -241,13 +227,7 @@ var notificationDeactivateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		req, err := http.NewRequest(http.MethodPost, baseURL+"/api/notifications/"+id+"/deactivate", http.NoBody)
-		if err != nil {
-			return fmt.Errorf("notification deactivate: build request: %w", err)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := apiPost(baseURL+"/api/notifications/"+id+"/deactivate", nil)
 		if err != nil {
 			return fmt.Errorf("notification deactivate: %w", err)
 		}
@@ -319,18 +299,12 @@ var notificationUpdateCmd = &cobra.Command{
 			body["message_template"] = notifMessageTemplate
 		}
 
-		data, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("notification update: marshal: %w", err)
-		}
-
-		req, err := http.NewRequest(http.MethodPut, baseURL+"/api/notifications/"+id, bytes.NewReader(data))
+		r, err := jsonBody(body)
 		if err != nil {
 			return fmt.Errorf("notification update: %w", err)
 		}
-		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := (&http.Client{}).Do(req)
+		resp, err := apiPut(baseURL+"/api/notifications/"+id, r)
 		if err != nil {
 			return fmt.Errorf("notification update: %w", err)
 		}
@@ -355,12 +329,12 @@ var notificationTestCmd = &cobra.Command{
 		}
 
 		body := map[string]int64{"notification_id": notifID}
-		data, err := json.Marshal(body)
+		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("notification test: marshal body: %w", err)
+			return fmt.Errorf("notification test: %w", err)
 		}
 
-		resp, err := http.Post(baseURL+"/api/notifications/test", "application/json", bytes.NewReader(data))
+		resp, err := apiPost(baseURL+"/api/notifications/test", r)
 		if err != nil {
 			return fmt.Errorf("notification test: %w", err)
 		}

@@ -6,6 +6,7 @@ configs/config.yaml
 
 # Binary output (anchored to root to avoid matching cmd/iran-watcher/ directory)
 /iran-watcher
+/bin/
 
 # ONNX model files
 models/

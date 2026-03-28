@@ -74,7 +74,7 @@ type Server struct {
 	rules                   ruleManagerInterface
 	stream                  streamClientInterface
 	tier                    string
-	ollamaBackends          []inference.BackendConfig
+	backendPool             *inference.BackendPool
 	ollamaFastWaitTimeout   time.Duration
 	jwtSecret               string
 	dispatcher              *notifier.Dispatcher
@@ -101,7 +101,7 @@ func NewServer(
 	rules ruleManagerInterface,
 	sc streamClientInterface,
 	tier string,
-	ollamaBackends []inference.BackendConfig,
+	backendPool *inference.BackendPool,
 	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -122,7 +122,7 @@ func NewServer(
 		rules:                 rules,
 		stream:                sc,
 		tier:                  tier,
-		ollamaBackends:        ollamaBackends,
+		backendPool:           backendPool,
 		ollamaFastWaitTimeout: ollamaFastWaitTimeout,
 		jwtSecret:             jwtSecret,
 		dispatcher:            dispatcher,
@@ -240,8 +240,17 @@ func NewServer(
 				r.Get("/failures", srv.handleListFailures)
 				r.Delete("/failures", srv.handleClearFailures)
 
-				// Ollama backend pool stats
-				r.Get("/ollama/backends", srv.handleOllamaBackends)
+				// Ollama backend management
+				r.Get("/ollama/backends", srv.handleListOllamaBackends)
+				r.Post("/ollama/backends", srv.handleCreateOllamaBackend)
+				r.Put("/ollama/backends/{id}", srv.handleUpdateOllamaBackend)
+				r.Delete("/ollama/backends/{id}", srv.handleDeleteOllamaBackend)
+				r.Post("/ollama/backends/{id}/enable", srv.handleEnableOllamaBackend)
+				r.Post("/ollama/backends/{id}/disable", srv.handleDisableOllamaBackend)
+				// Pipeline-backend assignments
+				r.Get("/pipelines/{id}/backends", srv.handleListPipelineBackends)
+				r.Put("/pipelines/{id}/backends", srv.handleSetPipelineBackends)
+				r.Delete("/pipelines/{id}/backends/{backend_id}", srv.handleRemovePipelineBackend)
 
 				// Queue management
 				r.Delete("/queue", srv.handleFlushQueue)
@@ -489,7 +498,7 @@ func NewServerWithConcreteRules(
 	rules *stream.RuleManager,
 	sc *stream.Client,
 	tier string,
-	ollamaBackends []inference.BackendConfig,
+	backendPool *inference.BackendPool,
 	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -500,5 +509,5 @@ func NewServerWithConcreteRules(
 	lister queue.FailureLister,
 	modelsDir string,
 ) *Server {
-	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister, modelsDir)
+	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, backendPool, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister, modelsDir)
 }

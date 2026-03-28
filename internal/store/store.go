@@ -87,11 +87,11 @@ type ActionChainFilter struct {
 
 // MapPin is a geo-event pin derived from action_execution_metadata.
 type MapPin struct {
-	TweetID        string `json:"tweet_id"`
-	TweetCreatedAt string `json:"tweet_created_at"`
-	ModelName      string `json:"model_name"`
-	Description    string `json:"description,omitempty"`
-	LocationsJSON  string `json:"-"` // raw JSON, parsed by handler
+	TweetID          string `json:"tweet_id"`
+	TweetCreatedAt   string `json:"tweet_created_at"`
+	ModelName        string `json:"model_name"`
+	Description      string `json:"description,omitempty"`
+	CoordinatesJSON  string `json:"-"` // raw JSON [[lat,lon],...], parsed by handler
 }
 
 // ExecutionFilter defines optional filters for listing action executions.
@@ -228,12 +228,28 @@ type Store interface {
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
 	ListActionExecutions(ctx context.Context, filter ExecutionFilter) ([]*model.ActionExecution, error)
 	ListActionExecutionMetadata(ctx context.Context, execID int64) (map[string]string, error)
+	MergeActionExecutionMetadata(ctx context.Context, actionID int64, tweetID string) (map[string]string, error)
 	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
 
 	// TwitterCredentials
 	SaveTwitterCredentials(ctx context.Context, c *model.TwitterCredentials) error
 	GetTwitterCredentials(ctx context.Context) (*model.TwitterCredentials, error)
 	DeleteTwitterCredentials(ctx context.Context) error
+
+	// OllamaBackends
+	ListOllamaBackends(ctx context.Context) ([]model.OllamaBackend, error)
+	GetOllamaBackend(ctx context.Context, id int64) (model.OllamaBackend, error)
+	CreateOllamaBackend(ctx context.Context, name, url string) (model.OllamaBackend, error)
+	UpdateOllamaBackend(ctx context.Context, id int64, name, url string) error
+	DeleteOllamaBackend(ctx context.Context, id int64) error
+	SetOllamaBackendEnabled(ctx context.Context, id int64, enabled bool) error
+
+	// PipelineBackends
+	ListPipelineBackends(ctx context.Context, pipelineID int64) ([]model.PipelineBackend, error)
+	SetPipelineBackends(ctx context.Context, pipelineID int64, assignments []model.PipelineBackend) error
+	RemovePipelineBackend(ctx context.Context, pipelineID, backendID int64) error
+	// ListAllPipelineBackendIDs returns pipelineID → []backendID in priority order (for ActionCache.Load).
+	ListAllPipelineBackendIDs(ctx context.Context) (map[int64][]int64, error)
 
 	Close() error
 }
