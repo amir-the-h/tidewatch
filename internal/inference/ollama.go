@@ -65,6 +65,7 @@ type ollamaBackend struct {
 	name         string    // display name; defaults to baseURL if empty
 	baseURL      string
 	client       *http.Client
+	enabled      bool      // false means the backend is disabled and should not be used
 	healthy      bool      // managed by health checker and request-time failures
 	inUse        bool      // true while a request holds this backend
 	score        float64   // tokens/sec, exponential moving average; 0 = not yet measured

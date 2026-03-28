@@ -88,8 +88,10 @@ type BackendConfig struct {
 
 // BackendStat is a runtime snapshot of one Ollama backend.
 type BackendStat struct {
+	ID           int64      `json:"id"`
 	Name         string     `json:"name"`
 	URL          string     `json:"url"`
+	Enabled      bool       `json:"enabled"`
 	Healthy      bool       `json:"healthy"`
 	InUse        bool       `json:"in_use"`
 	Score        float64    `json:"score"`
