@@ -39,6 +39,13 @@ func (s *Server) handleCreatePipeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name and type are required")
 		return
 	}
+	switch p.Type {
+	case model.PipelineTypeONNX, model.PipelineTypeOllama, model.PipelineTypeInternal:
+		// valid
+	default:
+		writeError(w, http.StatusBadRequest, "invalid type: must be onnx, ollama, or internal")
+		return
+	}
 	if err := s.store.SavePipeline(r.Context(), &p); err != nil {
 		writeError(w, http.StatusInternalServerError, "save pipeline: "+err.Error())
 		return
@@ -107,6 +114,10 @@ func (s *Server) handleDeactivatePipeline(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleListPipelineHandlers(w http.ResponseWriter, r *http.Request) {
+	if s.pipelineRegistry == nil {
+		writeJSON(w, http.StatusOK, []string{})
+		return
+	}
 	handlers := s.pipelineRegistry.Handlers()
 	writeJSON(w, http.StatusOK, handlers)
 }

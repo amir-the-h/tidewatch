@@ -167,6 +167,10 @@ func NewServer(
 			r.Get("/tracked-entities/{id}/alias-suggestions", srv.handleListEntityAliasSuggestions)
 			r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
 
+			// Action chains (read) and triggers — all authenticated users.
+			r.Get("/actions/{id}/chains", srv.handleListChains)
+			r.Get("/triggers", srv.handleListTriggers)
+
 			// Admin-only routes.
 			r.Group(func(r chi.Router) {
 				r.Use(adminMw)
@@ -198,14 +202,10 @@ func NewServer(
 				r.Post("/pipelines/{id}/activate", srv.handleActivatePipeline)
 				r.Post("/pipelines/{id}/deactivate", srv.handleDeactivatePipeline)
 
-				// Action chains
-				r.Get("/actions/{id}/chains", srv.handleListChains)
+				// Action chains (mutations only — GET is in the authed group above)
 				r.Post("/actions/{id}/chains", srv.handleCreateChain)
 				r.Put("/actions/{id}/chains/{chain_id}", srv.handleUpdateChain)
 				r.Delete("/actions/{id}/chains/{chain_id}", srv.handleDeleteChain)
-
-				// Triggers
-				r.Get("/triggers", srv.handleListTriggers)
 
 				// Stream control
 				r.Post("/stream/connect", srv.handleStreamConnect)
@@ -325,6 +325,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // reloadCache reloads the action cache from the store.
 // Called after any change that affects pipeline or action configuration.
 func (s *Server) reloadCache(ctx context.Context) {
+	if s.actionCache == nil {
+		return
+	}
 	if err := s.actionCache.Load(ctx); err != nil && s.logger != nil {
 		s.logger.Warn("api: reload action cache", "error", err)
 	}

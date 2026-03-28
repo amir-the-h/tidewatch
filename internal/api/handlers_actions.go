@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -339,6 +338,3 @@ func (s *Server) reloadActionCache(ctx context.Context) error {
 	return s.actionCache.Load(ctx)
 }
 
-func errorf(format string, args ...any) error {
-	return fmt.Errorf(format, args...)
-}
