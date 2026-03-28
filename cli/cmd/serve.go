@@ -87,18 +87,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	infReg := inference.NewRegistry()
 
-	ollamaBackends := ollamaBackendConfigs(cfg.OllamaBackends())
-
-	// Build a BackendPool from config backends.
-	backendPool := inference.NewBackendPool()
-	{
-		cfgBacks := cfg.OllamaBackends()
-		records := make([]inference.BackendRecord, len(cfgBacks))
-		for i, b := range cfgBacks {
-			records[i] = inference.BackendRecord{ID: int64(i + 1), Name: b.Name, URL: b.URL, Enabled: true}
-		}
-		backendPool.Load(records)
+	// Load Ollama backends from DB.
+	rawBackends, err := s.ListOllamaBackends(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load ollama backends: %w", err)
 	}
+	pool := inference.NewBackendPool()
+	pool.Load(toBackendRecords(rawBackends))
+	defer pool.Close()
 
 	// Optional Twitter client — only created when credentials are configured.
 	var twitterClient *twitter.Client
@@ -142,7 +138,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Build ActionCache.
-	cache := worker.NewActionCache(s, infReg, pipeReg, backendPool, logger)
+	cache := worker.NewActionCache(s, infReg, pipeReg, pool, logger)
 	if err := cache.Load(ctx); err != nil {
 		return fmt.Errorf("failed to load action cache: %w", err)
 	}
@@ -193,7 +189,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, ollamaBackends, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir)
+	// TODO(Task 7): pass pool instead of nil once api.NewServerWithConcreteRules accepts *inference.BackendPool.
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, nil, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -261,12 +258,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// ollamaBackendConfigs converts config.OllamaBackendConfig slice to
-// inference.BackendConfig slice for use with NewOllamaPipeline.
-func ollamaBackendConfigs(cfgBackends []config.OllamaBackendConfig) []inference.BackendConfig {
-	out := make([]inference.BackendConfig, len(cfgBackends))
-	for i, b := range cfgBackends {
-		out[i] = inference.BackendConfig{URL: b.URL, Name: b.Name}
+func toBackendRecords(backends []model.OllamaBackend) []inference.BackendRecord {
+	out := make([]inference.BackendRecord, len(backends))
+	for i, b := range backends {
+		out[i] = inference.BackendRecord{ID: b.ID, Name: b.Name, URL: b.URL, Enabled: b.Enabled}
 	}
 	return out
 }
