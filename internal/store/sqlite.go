@@ -233,10 +233,9 @@ func (s *sqliteStore) DeleteTweets(ctx context.Context, ids []string) (int64, er
 	}
 	defer tx.Rollback()
 
-	for _, table := range []string{"categorizations", "tweet_rules"} {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE tweet_id IN (`+placeholders+`)`, args...); err != nil {
-			return 0, fmt.Errorf("store: delete tweets: clear %s: %w", table, err)
-		}
+	// Clean up tweet_rules (categorizations table was dropped in migration 018)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tweet_rules WHERE tweet_id IN (`+placeholders+`)`, args...); err != nil {
+		return 0, fmt.Errorf("store: delete tweets: clear tweet_rules: %w", err)
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM tweets WHERE id IN (`+placeholders+`)`, args...)
 	if err != nil {
