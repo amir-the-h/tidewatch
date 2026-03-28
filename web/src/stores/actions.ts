@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api/actions'
-import type { Action, TwitterCredentials, ActionType, ExecutionFilter } from '../api/actions'
+import type { Action, TwitterCredentials, TriggerType, ExecutionFilter } from '../api/actions'
 
 export const useActionsStore = defineStore('actions', () => {
   const actions = ref<Action[]>([])
@@ -11,20 +11,20 @@ export const useActionsStore = defineStore('actions', () => {
   const twitterStatus = ref<TwitterCredentials | null>(null)
   const twitterLoading = ref(false)
 
-  async function fetchActions(filter: { type?: ActionType; active?: boolean } = {}) {
+  async function fetchActions(filter: { trigger_type?: TriggerType; active?: boolean } = {}) {
     loading.value = true; error.value = null
     try { actions.value = await api.listActions(filter) }
     catch (e: any) { error.value = e.message }
     finally { loading.value = false }
   }
 
-  async function createAction(body: { name: string; type: ActionType; rule_ids?: number[]; config?: Record<string, any> }) {
+  async function createAction(body: { name: string; trigger_type: TriggerType; pipeline_id: number; rule_ids?: number[] }) {
     const a = await api.createAction(body)
     actions.value.push(a)
     return a
   }
 
-  async function updateAction(id: number, body: { name?: string; rule_ids?: number[]; config?: Record<string, any> }) {
+  async function updateAction(id: number, body: { name?: string; pipeline_id?: number; rule_ids?: number[] }) {
     const a = await api.updateAction(id, body)
     const idx = actions.value.findIndex(x => x.id === id)
     if (idx !== -1) actions.value[idx] = a
@@ -66,7 +66,6 @@ export const useActionsStore = defineStore('actions', () => {
     try {
       twitterStatus.value = await api.twitterAuthStatus()
     } catch (e: any) {
-      // 404 means not connected — that's fine
       if (e.status === 404) {
         twitterStatus.value = null
       } else {

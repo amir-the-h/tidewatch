@@ -3,7 +3,7 @@ import { darkTheme } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { apiFetch } from './api/client'
-import { listModels } from './api/models'
+import { listPipelines } from './api/pipelines'
 import { useAuthStore } from './stores/auth'
 import { useStreamStore } from './stores/stream'
 import { WifiOutline, LogOutOutline, TrashBinOutline } from '@vicons/ionicons5'
@@ -21,7 +21,7 @@ const adminMenuOptions = [
   { label: 'Search',           key: '/search' },
   { label: 'Rules',            key: '/rules' },
   { label: 'Sources',          key: '/sources' },
-  { label: 'Models',           key: '/models' },
+  { label: 'Pipelines',        key: '/pipelines' },
   { label: 'Ollama Backends',  key: '/ollama' },
   { label: 'Categorizations',  key: '/categorizations' },
   { label: 'Notifications',    key: '/notifications' },
@@ -51,8 +51,8 @@ const menuOptions = computed(() => {
 async function checkSummarizer() {
   if (!auth.isAdmin) return
   try {
-    const models = await listModels()
-    hasSummarizer.value = models.some(m => m.active && (m.type === 'digest' || m.type === 'extraction' || m.type === 'summarizer'))
+    const pipelines = await listPipelines({ active: true, type: 'ollama' })
+    hasSummarizer.value = pipelines.length > 0
   } catch { /* server unreachable */ }
 }
 

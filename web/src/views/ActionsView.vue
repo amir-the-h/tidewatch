@@ -10,22 +10,25 @@ import {
 import {
   CreateOutline, TrashOutline, PauseCircleOutline, PlayOutline,
   CheckmarkCircleOutline, ListOutline, LogoTwitter, LinkOutline,
-  UnlinkOutline,
+  UnlinkOutline, AddOutline, ChevronDownOutline, ChevronForwardOutline,
 } from '@vicons/ionicons5'
 import PageHeader from '../components/PageHeader.vue'
 import FormDrawer from '../components/FormDrawer.vue'
 import { useActionsStore } from '../stores/actions'
 import { iconBtn, iconBtnConfirm, activeTag } from '../utils/renderActions'
 import { listRules, type Rule } from '../api/rules'
-import { listModels, type Model } from '../api/models'
-import type { Action, ActionType, ActionExecution } from '../api/actions'
+import {
+  listPipelines, listTriggers, listActionChains, createActionChain, deleteActionChain,
+  type Pipeline, type TriggerInfo, type ActionChain, type ChainCondition,
+} from '../api/pipelines'
+import type { Action, TriggerType, ActionExecution } from '../api/actions'
 
 const store = useActionsStore()
 const msg = useMessage()
 
 // Filter state
 const filterText = ref('')
-const filterType = ref<ActionType | null>(null)
+const filterTrigger = ref<TriggerType | null>(null)
 const filterActiveOnly = ref(false)
 
 // Form state
@@ -33,9 +36,9 @@ const showForm = ref(false)
 const saving = ref(false)
 const editingId = ref<number | null>(null)
 const formName = ref('')
-const formType = ref<ActionType>('pipeline')
+const formTriggerType = ref<TriggerType>('new_tweet')
+const formPipelineId = ref<number | null>(null)
 const formRuleIds = ref<number[]>([])
-const formConfig = ref<Record<string, any>>({})
 
 // Run state
 const runningIds = ref(new Set<number>())
@@ -48,23 +51,49 @@ const executions = ref<ActionExecution[]>([])
 const execsLoading = ref(false)
 const execsPage = ref(1)
 
+// Chains state
+const expandedId = ref<number | null>(null)
+const chainsMap = ref<Record<number, ActionChain[]>>({})
+const chainsLoading = ref(false)
+
+// Add-chain form state
+const showAddChain = ref(false)
+const addChainActionId = ref<number | null>(null)
+const addChainTargetId = ref<number | null>(null)
+const addChainConditions = ref<ChainCondition[]>([{ key: '', op: '==', value: '' }])
+const savingChain = ref(false)
+
 // Select options data
 const rules = ref<Rule[]>([])
-const models = ref<Model[]>([])
+const pipelines = ref<Pipeline[]>([])
+const triggerInfos = ref<TriggerInfo[]>([])
 
-const typeOptions = [
-  { label: 'Pipeline', value: 'pipeline' },
-  { label: 'Retweet', value: 'retweet' },
-  { label: 'Like', value: 'like' },
-  { label: 'Quote', value: 'quote' },
+const triggerOptions = computed(() =>
+  triggerInfos.value.map(t => ({ label: t.type, value: t.type as TriggerType }))
+)
+
+const pipelineOptions = computed(() =>
+  pipelines.value.map(p => ({ label: `${p.name} [${p.type}]`, value: p.id }))
+)
+
+const ruleOptions = computed(() =>
+  rules.value.filter(r => !r.local).map(r => ({ label: `${r.name} (#${r.id})`, value: r.id }))
+)
+
+const allActionOptions = computed(() =>
+  store.actions.map(a => ({ label: `${a.name} (#${a.id})`, value: a.id }))
+)
+
+const filterTriggerOptions = computed(() => triggerOptions.value)
+
+const conditionOpOptions = [
+  { label: '==', value: '==' },
+  { label: '!=', value: '!=' },
+  { label: 'is_empty', value: 'is_empty' },
+  { label: 'not_empty', value: 'not_empty' },
+  { label: 'contains', value: 'contains' },
+  { label: 'not_contains', value: 'not_contains' },
 ]
-
-const typeTagProps: Record<ActionType, { type: 'default' | 'info' | 'success' | 'warning' }> = {
-  pipeline: { type: 'default' },
-  retweet: { type: 'info' },
-  like: { type: 'success' },
-  quote: { type: 'warning' },
-}
 
 const filteredActions = computed(() => {
   let list = store.actions
@@ -72,62 +101,58 @@ const filteredActions = computed(() => {
     const q = filterText.value.toLowerCase()
     list = list.filter(a => a.name.toLowerCase().includes(q))
   }
-  if (filterType.value) list = list.filter(a => a.type === filterType.value)
+  if (filterTrigger.value) list = list.filter(a => a.trigger_type === filterTrigger.value)
   if (filterActiveOnly.value) list = list.filter(a => a.active)
   return list
 })
-
-const ruleOptions = computed(() =>
-  rules.value.filter(r => !r.local).map(r => ({ label: `${r.name} (#${r.id})`, value: r.id }))
-)
-
-const modelOptions = computed(() =>
-  models.value.filter(m => m.active).map(m => ({ label: `${m.name} (#${m.id})`, value: m.id }))
-)
 
 onMounted(async () => {
   store.fetchActions()
   store.fetchTwitterStatus().catch(() => {})
   try { rules.value = await listRules() } catch {}
-  try { models.value = await listModels() } catch {}
+  try { pipelines.value = await listPipelines({ active: true }) } catch {}
+  try { triggerInfos.value = await listTriggers() } catch {}
 })
 
 // Form helpers
 function openCreate() {
   editingId.value = null
   formName.value = ''
-  formType.value = 'pipeline'
+  formTriggerType.value = 'new_tweet'
+  formPipelineId.value = null
   formRuleIds.value = []
-  formConfig.value = {}
   showForm.value = true
 }
 
 function openEdit(action: Action) {
   editingId.value = action.id
   formName.value = action.name
-  formType.value = action.type
+  formTriggerType.value = action.trigger_type
+  formPipelineId.value = action.pipeline_id
   formRuleIds.value = [...(action.rule_ids ?? [])]
-  formConfig.value = { ...action.config }
   showForm.value = true
 }
 
 async function onSave() {
+  if (!formPipelineId.value) {
+    msg.error('Pipeline is required')
+    return
+  }
   saving.value = true
   try {
-    const config = buildConfig()
     if (editingId.value) {
       await store.updateAction(editingId.value, {
         name: formName.value,
+        pipeline_id: formPipelineId.value,
         rule_ids: formRuleIds.value,
-        config,
       })
       msg.success('Action updated')
     } else {
       await store.createAction({
         name: formName.value,
-        type: formType.value,
+        trigger_type: formTriggerType.value,
+        pipeline_id: formPipelineId.value,
         rule_ids: formRuleIds.value,
-        config,
       })
       msg.success('Action created')
     }
@@ -137,16 +162,6 @@ async function onSave() {
   } finally {
     saving.value = false
   }
-}
-
-function buildConfig(): Record<string, any> {
-  if (formType.value === 'pipeline') {
-    return { model_id: formConfig.value.model_id ?? 0 }
-  }
-  if (formType.value === 'quote') {
-    return { template: formConfig.value.template ?? '' }
-  }
-  return {}
 }
 
 async function onRun(action: Action) {
@@ -190,14 +205,108 @@ function onExecsPageChange(page: number) {
   loadExecutions()
 }
 
+// Chains
+async function toggleExpand(actionId: number) {
+  if (expandedId.value === actionId) {
+    expandedId.value = null
+    return
+  }
+  expandedId.value = actionId
+  await loadChains(actionId)
+}
+
+async function loadChains(actionId: number) {
+  chainsLoading.value = true
+  try {
+    const chains = await listActionChains(actionId)
+    chainsMap.value = { ...chainsMap.value, [actionId]: chains ?? [] }
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    chainsLoading.value = false
+  }
+}
+
+function openAddChain(actionId: number) {
+  addChainActionId.value = actionId
+  addChainTargetId.value = null
+  addChainConditions.value = [{ key: '', op: '==', value: '' }]
+  showAddChain.value = true
+}
+
+function addConditionRow() {
+  addChainConditions.value = [...addChainConditions.value, { key: '', op: '==', value: '' }]
+}
+
+function removeConditionRow(idx: number) {
+  addChainConditions.value = addChainConditions.value.filter((_, i) => i !== idx)
+}
+
+async function onSaveChain() {
+  if (!addChainActionId.value || !addChainTargetId.value) {
+    msg.error('Target action is required')
+    return
+  }
+  savingChain.value = true
+  try {
+    const conditions = addChainConditions.value.filter(c => c.key.trim() !== '')
+    await createActionChain(addChainActionId.value, {
+      target_action_id: addChainTargetId.value,
+      conditions,
+    })
+    msg.success('Chain added')
+    showAddChain.value = false
+    await loadChains(addChainActionId.value)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    savingChain.value = false
+  }
+}
+
+async function onRemoveChain(actionId: number, chainId: number) {
+  try {
+    await deleteActionChain(actionId, chainId)
+    chainsMap.value = {
+      ...chainsMap.value,
+      [actionId]: (chainsMap.value[actionId] ?? []).filter(c => c.id !== chainId),
+    }
+    msg.success('Chain removed')
+  } catch (e: any) {
+    msg.error(e.message)
+  }
+}
+
+function formatConditions(conditions: ChainCondition[]): string {
+  if (!conditions || !conditions.length) return '(no conditions)'
+  return conditions.map(c => {
+    if (c.op === 'is_empty' || c.op === 'not_empty') return `${c.key} ${c.op}`
+    return `${c.key} ${c.op} "${c.value}"`
+  }).join(', ')
+}
+
 // Table columns
 const columns: DataTableColumns<Action> = [
+  {
+    title: '', key: 'expand', width: 32,
+    render: (row) => h(NButton, {
+      size: 'tiny', text: true,
+      onClick: () => toggleExpand(row.id),
+    }, {
+      icon: () => h(NIcon, null, {
+        default: () => h(expandedId.value === row.id ? ChevronDownOutline : ChevronForwardOutline),
+      }),
+    }),
+  },
   { title: 'ID', key: 'id', width: 60, sorter: 'default' },
   { title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true } },
   {
-    title: 'Type', key: 'type', width: 100, sorter: 'default',
-    render: (row) => h(NTag, { size: 'small', type: typeTagProps[row.type]?.type ?? 'default' },
-      { default: () => row.type }),
+    title: 'Trigger', key: 'trigger_type', width: 160, sorter: 'default',
+    render: (row) => h(NTag, { size: 'small', type: 'info' }, { default: () => row.trigger_type }),
+  },
+  {
+    title: 'Pipeline', key: 'pipeline_id', width: 80,
+    render: (row) => h(NTag, { size: 'small', round: true }, { default: () => `#${row.pipeline_id}` }),
   },
   {
     title: 'Active', key: 'active', width: 80,
@@ -292,11 +401,11 @@ const execColumns: DataTableColumns<ActionExecution> = [
   <n-flex style="margin-bottom: 12px" :size="12" align="center">
     <n-input v-model:value="filterText" placeholder="Filter by name…" clearable style="width: 200px" />
     <n-select
-      v-model:value="filterType"
-      :options="typeOptions"
-      placeholder="Type"
+      v-model:value="filterTrigger"
+      :options="filterTriggerOptions"
+      placeholder="Trigger type"
       clearable
-      style="width: 140px"
+      style="width: 180px"
     />
     <n-switch v-model:value="filterActiveOnly" size="small" />
     <n-text depth="3" style="font-size: 13px">Active only</n-text>
@@ -312,6 +421,46 @@ const execColumns: DataTableColumns<ActionExecution> = [
     size="small"
   />
 
+  <!-- Expanded chains section -->
+  <template v-for="action in filteredActions" :key="`chains-${action.id}`">
+    <n-card
+      v-if="expandedId === action.id"
+      size="small"
+      style="margin: 4px 0 8px 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);"
+    >
+      <n-flex align="center" justify="space-between" style="margin-bottom: 8px">
+        <n-text depth="3" style="font-size: 13px">Chains from {{ action.name }}</n-text>
+        <n-button size="tiny" type="primary" ghost @click="openAddChain(action.id)">
+          <template #icon><n-icon><AddOutline /></n-icon></template>
+          Add Chain
+        </n-button>
+      </n-flex>
+      <n-spin v-if="chainsLoading" size="small" />
+      <template v-else>
+        <n-text v-if="!chainsMap[action.id]?.length" depth="3" style="font-size: 12px">No chains defined.</n-text>
+        <div
+          v-for="chain in chainsMap[action.id]"
+          :key="chain.id"
+          style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px;"
+        >
+          <n-text>→ Action #{{ chain.target_action_id }}</n-text>
+          <n-tag size="small" :bordered="false" style="font-size: 11px; font-family: monospace;">
+            {{ formatConditions(chain.conditions) }}
+          </n-tag>
+          <n-button
+            size="tiny"
+            type="error"
+            ghost
+            style="margin-left: auto"
+            @click="onRemoveChain(action.id, chain.id)"
+          >
+            Remove
+          </n-button>
+        </div>
+      </template>
+    </n-card>
+  </template>
+
   <!-- Create/Edit Drawer -->
   <FormDrawer
     v-model:show="showForm"
@@ -322,11 +471,20 @@ const execColumns: DataTableColumns<ActionExecution> = [
     <n-form-item label="Name">
       <n-input v-model:value="formName" placeholder="Action name" />
     </n-form-item>
-    <n-form-item label="Type">
+    <n-form-item label="Trigger Type">
       <n-select
-        v-model:value="formType"
-        :options="typeOptions"
+        v-model:value="formTriggerType"
+        :options="triggerOptions"
         :disabled="!!editingId"
+        placeholder="Select trigger"
+      />
+    </n-form-item>
+    <n-form-item label="Pipeline">
+      <n-select
+        v-model:value="formPipelineId"
+        :options="pipelineOptions"
+        placeholder="Select pipeline"
+        clearable
       />
     </n-form-item>
     <n-form-item label="Rule Filters">
@@ -338,34 +496,60 @@ const execColumns: DataTableColumns<ActionExecution> = [
         placeholder="All rules (no filter)"
       />
     </n-form-item>
+  </FormDrawer>
 
-    <n-divider style="margin: 8px 0" />
-
-    <!-- Pipeline config -->
-    <n-form-item v-if="formType === 'pipeline'" label="Model">
+  <!-- Add Chain Drawer -->
+  <FormDrawer
+    v-model:show="showAddChain"
+    title="Add Chain"
+    save-label="Add Chain"
+    :loading="savingChain"
+    @save="onSaveChain"
+  >
+    <n-form-item label="Target Action">
       <n-select
-        :value="formConfig.model_id ?? null"
-        @update:value="(v: number) => formConfig.model_id = v"
-        :options="modelOptions"
-        placeholder="Select model"
+        v-model:value="addChainTargetId"
+        :options="allActionOptions.filter(o => o.value !== addChainActionId)"
+        placeholder="Select action to trigger next"
+        clearable
       />
     </n-form-item>
 
-    <!-- Quote config -->
-    <n-form-item v-if="formType === 'quote'" label="Quote Text Template">
+    <n-divider style="margin: 8px 0">
+      <n-text depth="3" style="font-size: 12px">Conditions (all must pass)</n-text>
+    </n-divider>
+
+    <div
+      v-for="(cond, idx) in addChainConditions"
+      :key="idx"
+      style="display: flex; gap: 6px; margin-bottom: 6px; align-items: flex-start;"
+    >
+      <n-input v-model:value="cond.key" placeholder="key" style="flex: 2" size="small" />
+      <n-select
+        v-model:value="cond.op"
+        :options="conditionOpOptions"
+        style="flex: 1.5; min-width: 110px"
+        size="small"
+      />
       <n-input
-        :value="formConfig.template ?? ''"
-        @update:value="(v: string) => formConfig.template = v"
-        type="textarea"
-        placeholder="Quote text…"
-        :rows="3"
+        v-if="cond.op !== 'is_empty' && cond.op !== 'not_empty'"
+        v-model:value="cond.value"
+        placeholder="value"
+        style="flex: 2"
+        size="small"
       />
-    </n-form-item>
-
-    <!-- Retweet / Like: no extra config -->
-    <n-text v-if="formType === 'retweet' || formType === 'like'" depth="3" style="font-size: 13px">
-      No additional configuration needed for {{ formType }} actions.
-    </n-text>
+      <div v-else style="flex: 2" />
+      <n-button
+        size="small"
+        type="error"
+        ghost
+        :disabled="addChainConditions.length <= 1"
+        @click="removeConditionRow(idx)"
+      >×</n-button>
+    </div>
+    <n-button size="small" dashed style="width: 100%; margin-top: 4px" @click="addConditionRow">
+      + Add condition
+    </n-button>
   </FormDrawer>
 
   <!-- Executions Drawer -->

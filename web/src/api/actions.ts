@@ -1,15 +1,19 @@
 import { apiFetch } from './client'
 
-export type ActionType = 'pipeline' | 'retweet' | 'like' | 'quote'
+export type TriggerType = 'new_tweet' | 'new_categorization' | 'entity_matched'
+
+// Keep ActionType as alias for backward-compat with any callers using ActionType
+export type ActionType = TriggerType
 
 export interface Action {
   id: number
   name: string
-  type: ActionType
+  trigger_type: TriggerType
+  pipeline_id: number
   active: boolean
   rule_ids: number[]
-  config: Record<string, any>
   created_at: string
+  updated_at: string
 }
 
 export interface ActionExecution {
@@ -40,18 +44,18 @@ export interface ExecutionFilter {
 }
 
 // Actions CRUD
-export const listActions = (filter: { type?: ActionType; active?: boolean } = {}) => {
+export const listActions = (filter: { trigger_type?: TriggerType; active?: boolean } = {}) => {
   const params = new URLSearchParams()
-  if (filter.type !== undefined) params.set('type', filter.type)
+  if (filter.trigger_type !== undefined) params.set('trigger_type', filter.trigger_type)
   if (filter.active !== undefined) params.set('active', String(filter.active))
   const qs = params.toString() ? `?${params}` : ''
   return apiFetch<Action[]>(`/api/actions${qs}`)
 }
 
-export const createAction = (body: { name: string; type: ActionType; rule_ids?: number[]; config?: Record<string, any> }) =>
+export const createAction = (body: { name: string; trigger_type: TriggerType; pipeline_id: number; rule_ids?: number[] }) =>
   apiFetch<Action>('/api/actions', { method: 'POST', body: JSON.stringify(body) })
 
-export const updateAction = (id: number, body: { name?: string; rule_ids?: number[]; config?: Record<string, any> }) =>
+export const updateAction = (id: number, body: { name?: string; pipeline_id?: number; rule_ids?: number[] }) =>
   apiFetch<Action>(`/api/actions/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 
 export const deleteAction = (id: number) =>
