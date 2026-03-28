@@ -2,11 +2,76 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 )
+
+// NotificationPipeline delivers a rendered notification message via a Provider.
+// It performs ${key} substitution on channel.MessageTemplate using the input context map.
+type NotificationPipeline struct {
+	name     string
+	channel  *model.NotificationChannel
+	provider notifier.Provider
+}
+
+// NewNotificationPipeline constructs a NotificationPipeline.
+func NewNotificationPipeline(name string, channel *model.NotificationChannel, provider notifier.Provider) *NotificationPipeline {
+	return &NotificationPipeline{
+		name:     name,
+		channel:  channel,
+		provider: provider,
+	}
+}
+
+// Name implements inference.Pipeline.
+func (p *NotificationPipeline) Name() string { return p.name }
+
+// Type implements inference.Pipeline.
+func (p *NotificationPipeline) Type() inference.PipelineType { return inference.PipelineTypeNotification }
+
+// Close implements inference.Pipeline.
+func (p *NotificationPipeline) Close() error { return nil }
+
+// Run substitutes template variables, parses channel config, and delivers the message.
+// Returns {"sent": true, "provider": name} on success.
+func (p *NotificationPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
+	text := substituteVars(p.channel.MessageTemplate, input.Context)
+
+	var cfg map[string]any
+	if len(p.channel.Config) > 0 && string(p.channel.Config) != "null" {
+		if err := json.Unmarshal(p.channel.Config, &cfg); err != nil {
+			return nil, fmt.Errorf("notification pipeline: parse channel config: %w", err)
+		}
+	}
+
+	if err := p.provider.Deliver(ctx, text, cfg); err != nil {
+		return nil, fmt.Errorf("notification pipeline: deliver: %w", err)
+	}
+
+	return map[string]any{
+		"sent":     true,
+		"provider": p.name,
+	}, nil
+}
+
+// substituteVars replaces ${key} placeholders in tmpl with values from ctx.
+// Unknown keys are left as-is.
+func substituteVars(tmpl string, ctx map[string]any) string {
+	for k, v := range ctx {
+		tmpl = strings.ReplaceAll(tmpl, "${"+k+"}", fmt.Sprintf("%v", v))
+	}
+	return tmpl
+}
+
+// Ensure NotificationPipeline satisfies inference.Pipeline at compile time.
+var _ inference.Pipeline = (*NotificationPipeline)(nil)
+
+// Legacy pipeline factories for backward compatibility with existing infrastructure.
 
 // PushoverPipeline sends a Pushover push notification when run.
 // The notification message is taken from input.Text.
