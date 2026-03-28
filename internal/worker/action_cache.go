@@ -159,10 +159,11 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64) (in
 		if p := c.infReg.Get(row.Name); p != nil {
 			return p, nil
 		}
-		p, err := inference.NewONNXPipelineFromConfig(row.Name, cfg)
+		onnx, err := inference.NewONNXPipelineFromConfig(row.Name, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("onnx: %w", err)
 		}
+		var p inference.Pipeline = onnx
 		labels, _ := c.store.ListPipelineLabels(ctx, pipelineID)
 		if len(labels) > 0 {
 			if lp, ok := p.(inference.LabeledPipeline); ok {
