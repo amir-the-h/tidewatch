@@ -2,8 +2,8 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { listCategorizations } from '../api/categorizations'
-import type { Categorization, ExtractionLocation } from '../api/categorizations'
+import { listMapPins } from '../api/map'
+import type { MapPin, MapLocation } from '../api/map'
 
 // Fix Leaflet's default icon paths broken by Vite bundling
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -12,9 +12,9 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
 
-interface MapPin {
-  cat: Categorization
-  loc: ExtractionLocation
+interface PinWithLoc {
+  pin: MapPin
+  loc: MapLocation
 }
 
 const mapEl    = ref<HTMLDivElement | null>(null)
@@ -29,7 +29,6 @@ let map: L.Map | null = null
 // Maps a normalized t ∈ [0,1] (0=oldest, 1=newest) to a hex color
 // Spectrum: blue → cyan → green → yellow → red
 function tToColor(t: number): string {
-  // Hue 240° (blue) → 0° (red), using HSL
   const hue = Math.round((1 - t) * 240)
   return `hsl(${hue},90%,60%)`
 }
@@ -48,35 +47,35 @@ onMounted(async () => {
   }).addTo(map)
 
   try {
-    const cats = await listCategorizations()
-    const pins: MapPin[] = []
+    const pins = await listMapPins()
+    const items: PinWithLoc[] = []
 
-    for (const cat of cats ?? []) {
-      for (const loc of cat.results.locations ?? []) {
-        if (loc.coordinates?.length === 2) pins.push({ cat, loc })
+    for (const pin of pins ?? []) {
+      for (const loc of pin.locations ?? []) {
+        if (loc.coordinates?.length === 2) items.push({ pin, loc })
       }
     }
 
-    pinCount.value = pins.length
+    pinCount.value = items.length
 
     // Compute date range for the spectrum using the tweet's own created_at
     let minMs = Infinity
     let maxMs = -Infinity
-    for (const { cat } of pins) {
-      const ms = new Date(cat.tweet_created_at).getTime()
+    for (const { pin } of items) {
+      const ms = new Date(pin.tweet_created_at).getTime()
       if (ms < minMs) minMs = ms
       if (ms > maxMs) maxMs = ms
     }
     const range = maxMs - minMs
 
-    if (pins.length > 0) {
+    if (items.length > 0) {
       oldestDate.value = fmtDate(new Date(minMs))
       newestDate.value = fmtDate(new Date(maxMs))
     }
 
-    for (const { cat, loc } of pins) {
+    for (const { pin, loc } of items) {
       const [lat, lon] = loc.coordinates
-      const ms = new Date(cat.tweet_created_at).getTime()
+      const ms = new Date(pin.tweet_created_at).getTime()
       const t = range === 0 ? 0.5 : (ms - minMs) / range
       const color = tToColor(t)
 
@@ -91,10 +90,10 @@ onMounted(async () => {
       const lines: string[] = []
       if (loc.label) lines.push(`<b>${escHtml(loc.label)}</b>`)
       if (loc.place) lines.push(escHtml(loc.place))
-      if (cat.results.description) lines.push(escHtml(cat.results.description))
-      lines.push(`<a href="/tweets?tweet=${cat.tweet_id}" style="color:${color}">Tweet ${cat.tweet_id}</a>`)
-      lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(cat.tweet_created_at))}</span>`)
-      lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(cat.model_name)}</span>`)
+      if (pin.description) lines.push(escHtml(pin.description))
+      lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
+      lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
+      lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
 
       marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })
       marker.addTo(map!)
