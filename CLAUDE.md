@@ -4,7 +4,7 @@ X (Twitter) Filtered Stream monitor for Iran-related news. Stores tweets in SQLi
 
 ## Architecture
 
-Single binary, fair-share worker manager. Stream listener → Redis queue → Dispatcher → per-pipeline task channels → fair scheduler → N workers → SQLite. REST API + CLI for management.
+Single binary, event-driven action system. Stream listener → `ActionCache` lookup → per-action `Task` push to Redis → N worker goroutines BRPOP tasks → run pipeline → save outputs → evaluate chain conditions → push downstream tasks. REST API + CLI for management.
 
 See [design spec](docs/superpowers/specs/2026-03-18-iran-watcher-design.md) for full architecture details.
 
@@ -17,10 +17,10 @@ internal/stream/        → X Filtered Stream client (SSE)
 internal/store/         → SQLite repository layer
 internal/queue/         → Redis list-based producer/consumer
 internal/inference/     → ONNX runtime wrapper, Pipeline interface
-internal/action/        → Action interface, ActionRegistry, PipelineAction, TwitterAction
+internal/pipeline/      → Internal pipeline registry + entity_matcher, twitter, notification pipelines
 internal/twitter/       → Twitter OAuth 2.0 PKCE client + API calls (Retweet/Like/Quote)
 internal/api/           → REST API (net/http or chi)
-internal/worker/        → Fair-share worker manager (Manager), legacy pool
+internal/worker/        → Simplified worker manager (Manager) + ActionCache
 internal/model/         → Domain types (Tweet, Source, Notification, Action, etc.)
 internal/notifier/      → Async push notifications (Pushover + Telegram)
 internal/search/        → X search API backfill scheduler
@@ -93,16 +93,16 @@ go test -tags integration ./...      # unit + integration tests
 ## Key Design Decisions
 
 - **At-most-once delivery** for the Redis queue — acceptable because tweets are persisted to SQLite before queueing
-- **Fair-share worker manager** (`internal/worker.Manager`) — N workers are distributed fairly across active pipelines using a round-robin scheduler; each pipeline gets its own in-memory task channel (`pipelineChanBuf=512`); a Dispatcher goroutine fans each tweet out to per-pipeline channels, a Scheduler goroutine cycles through channels in round-robin order feeding a shared work channel; when a pipeline's channel drains, its capacity flows to remaining pipelines automatically; a `completionTracker` per tweet coordinates entity matching and dead-letter push after all pipelines finish
+- **Simplified event-driven worker** (`internal/worker.Manager`) — N worker goroutines each independently BRPOP from `iran-watcher:tasks`; no dispatcher goroutine, no per-action channels, no round-robin scheduler; workers are stateless and block on BRPOP when idle; `ActionCache` (`internal/worker.ActionCache`) is a hot-reloadable in-memory map of `action_id → (Action row + resolved Pipeline)` shared by the stream listener and all workers; on activate/deactivate the cache is fully rebuilt from DB
 - **tweet_sources junction table** — tweets can match multiple stream rules
-- **Dead-letter queue** (`iran-watcher:failed`) — annotates which models failed; partial successes still written
-- **Model hot-reload** — activate/deactivate via API without restart
+- **Dead-letter queue** (`iran-watcher:failed`) — pipeline execution errors dead-lettered here; task queue is `iran-watcher:tasks` (replaces `iran-watcher:raw`)
+- **Pipeline hot-reload** — activate/deactivate pipeline or action via API triggers full `ActionCache` rebuild; workers pick up the new config on their next task
 - **API is localhost-only** by default, no auth
 - **Reprocess endpoint** queries SQLite for missing categorizations, not the dead-letter queue
 - **Notifications** — runtime-configured push alerts via Pushover or Telegram; async buffered channel dispatch; `provider` field selects backend per notification
 - **Digest jobs** — background async jobs that generate LLM digests over a filtered tweet window; stored in `digest_jobs` table with status tracking
 - **Search jobs** — async background jobs for X search backfill; POST `/api/search/run` returns a job immediately (202), client polls GET `/api/search/{id}` until `done`/`error`; stored in `search_jobs` table; the periodic scheduler (`search.enabled: true`) tracks the newest tweet ID (from `meta.newest_id`) returned by each rule's last run and injects it as `since_id` on subsequent runs, so only genuinely new tweets are re-queued — the map is in-memory and resets on restart (first run after restart re-fetches from `StartTime` or the 7-day default)
-- **Actions system** — every unit of work triggered by an incoming tweet is an **action**; `internal/action/` defines the `Action` interface, `PipelineAction` (wraps inference.Pipeline + categorization + entity matching + dead-letter), `TwitterAction` (retweet/like/quote via Twitter v2 API), and `ActionRegistry` (fair-share dispatch, hot-reload signal); the worker manager dispatches to per-action channels; a one-time startup migration auto-creates pipeline actions for all existing active models (idempotent); new tables: `actions`, `action_executions`, `action_execution_metadata`, `twitter_credentials`; REST API: `GET|POST /api/actions`, `PUT|DELETE /api/actions/{id}`, `POST /api/actions/{id}/{activate,deactivate}`, `GET /api/actions/{id}/executions`, `GET /api/executions`, `GET|DELETE /api/twitter/auth`, `GET /api/twitter/auth/start`, `GET /api/twitter/auth/callback`, `GET /api/twitter/auth/status`
+- **Event-driven actions system** — every unit of work is a `(trigger_type, action_id, context)` `Task` in Redis (`iran-watcher:tasks`); an **Action** subscribes to a trigger type (`new_tweet`, `new_categorization`, `entity_matched`) and references a **Pipeline** (onnx, ollama, or internal); the stream listener pushes one Task per matching action per incoming tweet; workers run the pipeline, save outputs to `action_execution_metadata`, and evaluate **ActionChain** conditions to push downstream tasks; DB tables: `pipelines` (replaces `models`), `actions` (`trigger_type` + `pipeline_id`), `action_chains`, `action_executions`, `action_execution_metadata`, `twitter_credentials`; internal pipelines (`entity_matcher`, `twitter_retweet`, `twitter_like`, `twitter_quote`, `notification_push`, `notification_tg`) are registered at startup via `internal/pipeline.Registry`; REST API: `GET|POST /api/pipelines`, `PUT|DELETE /api/pipelines/{id}`, `POST /api/pipelines/{id}/{activate,deactivate}`, `GET /api/pipelines/handlers`, `GET|POST /api/actions`, `PUT|DELETE /api/actions/{id}`, `POST /api/actions/{id}/{activate,deactivate}`, `GET|POST /api/actions/{id}/chains`, `PUT|DELETE /api/actions/{id}/chains/{chain_id}`, `GET /api/triggers`, `GET /api/actions/{id}/executions`, `GET /api/executions`, `GET|DELETE /api/twitter/auth`, `GET /api/twitter/auth/start`, `GET /api/twitter/auth/callback`, `GET /api/twitter/auth/status`
 - **Twitter OAuth 2.0 PKCE** — `internal/twitter/` handles the full OAuth 2.0 PKCE flow; state tokens are in-memory with 10-min TTL; connected account credentials stored in `twitter_credentials` table; token refresh is transparent; configured via `twitter.client_id` / `twitter.callback_url` (or env vars `IRAN_WATCHER_TWITTER_CLIENT_ID` / `IRAN_WATCHER_TWITTER_CALLBACK_URL`)
 - **Authentication** — JWT-based (HS256 via stdlib); tokens issued at `POST /api/auth/login`, carried as `Authorization: Bearer <token>`; two roles: `admin` (full access) and `viewer` (read-only: map, tweets with filtering, tracked entities); users stored in `users` SQLite table; admin account seeded on first startup from config (`auth.admin_username` / `auth.admin_password`, env: `IRAN_WATCHER_AUTH_JWT_SECRET`/`ADMIN_USERNAME`/`ADMIN_PASSWORD`); user management at `GET|POST /api/users`, `PUT|DELETE /api/users/{id}` (admin only); `internal/auth` package handles token signing/verification and role-enforcement middleware; frontend route guard redirects unauthenticated users to `/login` and viewers to `/tweets` for admin-only routes; `/` redirects to `/map`
 - **Map date-heat coloring** — geo-event pins on `/map` are colored on a blue→cyan→green→yellow→red spectrum based on `tweet.created_at` (the actual tweet publish time, not the categorization processing time); `GET /api/categorizations` returns a `tweet_created_at` field (joined from the `tweets` table via LEFT JOIN, falls back to `categorization.created_at` if tweet row is missing); oldest pins are blue (cold), newest are red (hot); a gradient legend in the header shows the date range

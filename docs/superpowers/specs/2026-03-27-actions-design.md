@@ -1,7 +1,11 @@
 # Actions System Design
 
 **Date:** 2026-03-27
-**Status:** Implemented
+**Status:** Superseded
+
+> **Superseded by:** [Event-Driven Pipeline Refactor Design](./2026-03-28-event-driven-refactor-design.md) (2026-03-28)
+>
+> This spec described the initial actions system with `internal/action/` package, `ActionRegistry`, `PipelineAction`, and `TwitterAction`. That implementation has been replaced by the event-driven refactor: `internal/action/` is deleted, all work goes through `iran-watcher:tasks` Redis queue, pipelines are stored in the `pipelines` table, and `ActionCache` replaces `ActionRegistry`.
 
 ## Overview
 
