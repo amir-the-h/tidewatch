@@ -42,13 +42,6 @@ type RuleFilter struct {
 	Local  *bool
 }
 
-// NotificationFilter defines optional filters for listing notifications.
-type NotificationFilter struct {
-	EventType *string
-	Active    *bool
-	RuleID    *int64
-}
-
 // TrackedEntityFilter defines optional filters for listing tracked entities.
 type TrackedEntityFilter struct {
 	Type   *string
@@ -162,13 +155,21 @@ type Store interface {
 	// TweetRuleIDs (kept — used by stream listener rule matching)
 	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
 
-	// Notifications
-	SaveNotification(ctx context.Context, n *model.Notification) error
-	GetNotification(ctx context.Context, id int64) (*model.Notification, error)
-	ListNotifications(ctx context.Context, filter NotificationFilter) ([]*model.Notification, error)
-	UpdateNotification(ctx context.Context, n *model.Notification) error
-	DeleteNotification(ctx context.Context, id int64) error
-	SetNotificationActive(ctx context.Context, id int64, active bool) error
+	// NotificationProviders
+	SaveNotificationProvider(ctx context.Context, p *model.NotificationProvider) error
+	GetNotificationProvider(ctx context.Context, id int64) (*model.NotificationProvider, error)
+	ListNotificationProviders(ctx context.Context) ([]*model.NotificationProvider, error)
+	UpdateNotificationProvider(ctx context.Context, p *model.NotificationProvider) error
+	DeleteNotificationProvider(ctx context.Context, id int64) error
+	SetNotificationProviderActive(ctx context.Context, id int64, active bool) error
+
+	// NotificationChannels
+	SaveNotificationChannel(ctx context.Context, c *model.NotificationChannel) error
+	GetNotificationChannel(ctx context.Context, id int64) (*model.NotificationChannel, error)
+	ListNotificationChannels(ctx context.Context, providerID *int64) ([]*model.NotificationChannel, error)
+	UpdateNotificationChannel(ctx context.Context, c *model.NotificationChannel) error
+	DeleteNotificationChannel(ctx context.Context, id int64) error
+	SetNotificationChannelActive(ctx context.Context, id int64, active bool) error
 
 	// TrackedEntities
 	SaveTrackedEntity(ctx context.Context, e *model.TrackedEntity) error
