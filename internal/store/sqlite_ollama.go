@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -35,8 +36,8 @@ func (s *sqliteStore) GetOllamaBackend(ctx context.Context, id int64) (model.Oll
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, name, url, enabled, created_at FROM ollama_backends WHERE id = ?`, id).
 		Scan(&b.ID, &b.Name, &b.URL, &enabledInt, &b.CreatedAt)
-	if err == sql.ErrNoRows {
-		return b, fmt.Errorf("store: ollama backend %d not found", id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return b, fmt.Errorf("store: get ollama backend: not found: %w", err)
 	}
 	if err != nil {
 		return b, fmt.Errorf("store: get ollama backend: %w", err)
