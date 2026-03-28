@@ -19,20 +19,18 @@ func (s *sqliteStore) SaveAction(ctx context.Context, a *model.Action) error {
 	if err != nil {
 		return fmt.Errorf("store: save action: marshal rule_ids: %w", err)
 	}
-	cfg := a.Config
-	if len(cfg) == 0 {
-		cfg = []byte("{}")
-	}
+	now := time.Now().UTC().Format(time.RFC3339)
 
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO actions (name, type, active, rule_ids, config, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO actions (name, trigger_type, pipeline_id, active, rule_ids, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		a.Name,
-		string(a.Type),
+		string(a.TriggerType),
+		a.PipelineID,
 		boolToInt(a.Active),
 		string(ruleIDsJSON),
-		string(cfg),
-		a.CreatedAt.UTC().Format(time.RFC3339),
+		now,
+		now,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save action: %w", err)
@@ -47,7 +45,7 @@ func (s *sqliteStore) SaveAction(ctx context.Context, a *model.Action) error {
 
 func (s *sqliteStore) GetAction(ctx context.Context, id int64) (*model.Action, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, type, active, rule_ids, config, created_at FROM actions WHERE id = ?`, id)
+		`SELECT id, name, trigger_type, pipeline_id, active, rule_ids, created_at, updated_at FROM actions WHERE id = ?`, id)
 	a, err := scanAction(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -62,16 +60,20 @@ func (s *sqliteStore) ListActions(ctx context.Context, filter ActionFilter) ([]*
 	var where []string
 	var args []any
 
-	if filter.Type != nil {
-		where = append(where, "type = ?")
-		args = append(args, string(*filter.Type))
+	if filter.TriggerType != nil {
+		where = append(where, "trigger_type = ?")
+		args = append(args, string(*filter.TriggerType))
+	}
+	if filter.PipelineID != nil {
+		where = append(where, "pipeline_id = ?")
+		args = append(args, *filter.PipelineID)
 	}
 	if filter.Active != nil {
 		where = append(where, "active = ?")
 		args = append(args, boolToInt(*filter.Active))
 	}
 
-	q := "SELECT id, name, type, active, rule_ids, config, created_at FROM actions"
+	q := "SELECT id, name, trigger_type, pipeline_id, active, rule_ids, created_at, updated_at FROM actions"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -99,13 +101,10 @@ func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
 	if err != nil {
 		return fmt.Errorf("store: update action: marshal rule_ids: %w", err)
 	}
-	cfg := a.Config
-	if len(cfg) == 0 {
-		cfg = []byte("{}")
-	}
+	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE actions SET name = ?, rule_ids = ?, config = ? WHERE id = ?`,
-		a.Name, string(ruleIDsJSON), string(cfg), a.ID,
+		`UPDATE actions SET name = ?, trigger_type = ?, pipeline_id = ?, rule_ids = ?, updated_at = ? WHERE id = ?`,
+		a.Name, string(a.TriggerType), a.PipelineID, string(ruleIDsJSON), now, a.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update action: %w", err)
@@ -132,8 +131,9 @@ func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
 }
 
 func (s *sqliteStore) SetActionActive(ctx context.Context, id int64, active bool) error {
+	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE actions SET active = ? WHERE id = ?`, boolToInt(active), id)
+		`UPDATE actions SET active = ?, updated_at = ? WHERE id = ?`, boolToInt(active), now, id)
 	if err != nil {
 		return fmt.Errorf("store: set action active: %w", err)
 	}
@@ -312,17 +312,19 @@ type actionScanner interface {
 func scanAction(r actionScanner) (*model.Action, error) {
 	a := &model.Action{}
 	var activeInt int
-	var ruleIDsStr, configStr, createdAt string
-	if err := r.Scan(&a.ID, &a.Name, &a.Type, &activeInt, &ruleIDsStr, &configStr, &createdAt); err != nil {
+	var ruleIDsStr, createdAt, updatedAt string
+	if err := r.Scan(&a.ID, &a.Name, &a.TriggerType, &a.PipelineID, &activeInt, &ruleIDsStr, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	a.Active = activeInt != 0
 	if err := json.Unmarshal([]byte(ruleIDsStr), &a.RuleIDs); err != nil || a.RuleIDs == nil {
 		a.RuleIDs = []int64{}
 	}
-	a.Config = []byte(configStr)
 	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
 		a.CreatedAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+		a.UpdatedAt = t
 	}
 	return a, nil
 }

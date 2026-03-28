@@ -25,7 +25,6 @@ type mockStore struct {
 	sources         map[int64]*model.Source
 	rules           map[int64]*model.Rule
 	tweets          map[string]*model.Tweet
-	models          map[int64]*model.Model
 	notifications   map[int64]*model.Notification
 	categorizations []*model.Categorization
 	tweetRules      []*model.TweetRule
@@ -37,7 +36,6 @@ func newMockStore() *mockStore {
 		sources: make(map[int64]*model.Source),
 		rules:   make(map[int64]*model.Rule),
 		tweets:  make(map[string]*model.Tweet),
-		models:  make(map[int64]*model.Model),
 	}
 }
 
@@ -143,36 +141,27 @@ func (m *mockStore) SaveTweetRule(_ context.Context, tr *model.TweetRule) error 
 	return nil
 }
 
-func (m *mockStore) SaveModel(_ context.Context, mdl *model.Model) error {
-	m.nextID++
-	mdl.ID = m.nextID
-	m.models[mdl.ID] = mdl
-	return nil
+func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error          { return nil }
+func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error)  { return nil, nil }
+func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) {
+	return nil, nil
 }
-func (m *mockStore) GetModel(_ context.Context, id int64) (*model.Model, error) {
-	mdl, ok := m.models[id]
-	if !ok {
-		return nil, fmt.Errorf("model not found: %d", id)
-	}
-	return mdl, nil
+func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error             { return nil }
+func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error                       { return nil }
+func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error            { return nil }
+func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error)       { return nil, nil }
+func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error           { return nil }
+func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error        { return nil }
+
+func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
+func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) {
+	return nil, fmt.Errorf("not found")
 }
-func (m *mockStore) ListModels(_ context.Context) ([]*model.Model, error) {
-	out := make([]*model.Model, 0, len(m.models))
-	for _, mdl := range m.models {
-		out = append(out, mdl)
-	}
-	return out, nil
+func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilter) ([]*model.ActionChain, error) {
+	return nil, nil
 }
-func (m *mockStore) DeleteModel(_ context.Context, id int64) error {
-	delete(m.models, id)
-	return nil
-}
-func (m *mockStore) SetModelActive(_ context.Context, id int64, active bool) error {
-	if mdl, ok := m.models[id]; ok {
-		mdl.Active = active
-	}
-	return nil
-}
+func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
+func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
 
 func (m *mockStore) SaveCategorization(_ context.Context, c *model.Categorization) error {
 	m.categorizations = append(m.categorizations, c)
@@ -252,11 +241,6 @@ func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error      
 func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
 	return nil, nil
 }
-func (m *mockStore) ListModelLabels(_ context.Context, _ string) ([]string, error) { return nil, nil }
-func (m *mockStore) AddModelLabel(_ context.Context, _, _ string) error             { return nil }
-func (m *mockStore) RemoveModelLabel(_ context.Context, _, _ string) error          { return nil }
-func (m *mockStore) AddModelRule(_ context.Context, _, _ int64) error               { return nil }
-func (m *mockStore) RemoveModelRule(_ context.Context, _, _ int64) error            { return nil }
 func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)  { return nil, nil }
 func (m *mockStore) SaveTrackedEntity(_ context.Context, _ *model.TrackedEntity) error { return nil }
 func (m *mockStore) GetTrackedEntity(_ context.Context, _ int64) (*model.TrackedEntity, error) {

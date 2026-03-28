@@ -617,138 +617,6 @@ func (s *sqliteStore) SaveTweetRule(ctx context.Context, tr *model.TweetRule) er
 	return nil
 }
 
-// ── Models ────────────────────────────────────────────────────────────────────
-
-func (s *sqliteStore) SaveModel(ctx context.Context, m *model.Model) error {
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO models (name, version, path, type, active, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		m.Name, m.Version, m.Path, string(m.Type), boolToInt(m.Active),
-		m.CreatedAt.UTC().Format(time.RFC3339),
-	)
-	if err != nil {
-		return fmt.Errorf("store: save model: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("store: save model: last insert id: %w", err)
-	}
-	m.ID = id
-	return nil
-}
-
-func (s *sqliteStore) GetModel(ctx context.Context, id int64) (*model.Model, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, version, path, type, active, created_at FROM models WHERE id = ?`, id)
-	m, err := scanModel(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("store: get model: not found: %w", err)
-		}
-		return nil, fmt.Errorf("store: get model: %w", err)
-	}
-	if err := s.populateModelRuleIDs(ctx, []*model.Model{m}); err != nil {
-		return nil, fmt.Errorf("store: get model: rule ids: %w", err)
-	}
-	return m, nil
-}
-
-func (s *sqliteStore) ListModels(ctx context.Context) ([]*model.Model, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, version, path, type, active, created_at FROM models ORDER BY id ASC`)
-	if err != nil {
-		return nil, fmt.Errorf("store: list models: %w", err)
-	}
-	defer rows.Close()
-
-	models := make([]*model.Model, 0)
-	for rows.Next() {
-		m, err := scanModel(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: list models: scan: %w", err)
-		}
-		models = append(models, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if err := s.populateModelRuleIDs(ctx, models); err != nil {
-		return nil, fmt.Errorf("store: list models: rule ids: %w", err)
-	}
-	return models, nil
-}
-
-func (s *sqliteStore) DeleteModel(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM models WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("store: delete model: %w", err)
-	}
-	return nil
-}
-
-func (s *sqliteStore) SetModelActive(ctx context.Context, id int64, active bool) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE models SET active = ? WHERE id = ?`, boolToInt(active), id)
-	if err != nil {
-		return fmt.Errorf("store: set model active: %w", err)
-	}
-	return nil
-}
-
-func (s *sqliteStore) ListModelLabels(ctx context.Context, modelName string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT label FROM model_labels WHERE model_name = ? ORDER BY created_at ASC`, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("store: list model labels: %w", err)
-	}
-	defer rows.Close()
-	var labels []string
-	for rows.Next() {
-		var l string
-		if err := rows.Scan(&l); err != nil {
-			return nil, fmt.Errorf("store: list model labels: scan: %w", err)
-		}
-		labels = append(labels, l)
-	}
-	return labels, rows.Err()
-}
-
-func (s *sqliteStore) AddModelLabel(ctx context.Context, modelName, label string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO model_labels (model_name, label) VALUES (?, ?)`, modelName, label)
-	if err != nil {
-		return fmt.Errorf("store: add model label: %w", err)
-	}
-	return nil
-}
-
-func (s *sqliteStore) RemoveModelLabel(ctx context.Context, modelName, label string) error {
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM model_labels WHERE model_name = ? AND label = ?`, modelName, label)
-	if err != nil {
-		return fmt.Errorf("store: remove model label: %w", err)
-	}
-	return nil
-}
-
-func (s *sqliteStore) AddModelRule(ctx context.Context, modelID, ruleID int64) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO rule_models (rule_id, model_id) VALUES (?, ?)`, ruleID, modelID)
-	if err != nil {
-		return fmt.Errorf("store: add model rule: %w", err)
-	}
-	return nil
-}
-
-func (s *sqliteStore) RemoveModelRule(ctx context.Context, modelID, ruleID int64) error {
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM rule_models WHERE model_id = ? AND rule_id = ?`, modelID, ruleID)
-	if err != nil {
-		return fmt.Errorf("store: remove model rule: %w", err)
-	}
-	return nil
-}
-
 func (s *sqliteStore) ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT rule_id FROM tweet_rules WHERE tweet_id = ?`, tweetID)
@@ -767,38 +635,6 @@ func (s *sqliteStore) ListTweetRuleIDs(ctx context.Context, tweetID string) ([]i
 	return ids, rows.Err()
 }
 
-// populateModelRuleIDs fills in RuleIDs for each model from the rule_models table.
-func (s *sqliteStore) populateModelRuleIDs(ctx context.Context, models []*model.Model) error {
-	if len(models) == 0 {
-		return nil
-	}
-	// Build index by model ID.
-	idx := make(map[int64]*model.Model, len(models))
-	placeholders := make([]string, len(models))
-	args := make([]any, len(models))
-	for i, m := range models {
-		idx[m.ID] = m
-		placeholders[i] = "?"
-		args[i] = m.ID
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT model_id, rule_id FROM rule_models WHERE model_id IN (`+strings.Join(placeholders, ",")+`)`,
-		args...)
-	if err != nil {
-		return fmt.Errorf("store: populate model rule ids: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var modelID, ruleID int64
-		if err := rows.Scan(&modelID, &ruleID); err != nil {
-			return fmt.Errorf("store: populate model rule ids: scan: %w", err)
-		}
-		if m, ok := idx[modelID]; ok {
-			m.RuleIDs = append(m.RuleIDs, ruleID)
-		}
-	}
-	return rows.Err()
-}
 
 // ── Categorizations ───────────────────────────────────────────────────────────
 
@@ -1165,21 +1001,6 @@ func scanRule(s scanner) (*model.Rule, error) {
 	return &r, nil
 }
 
-func scanModel(s scanner) (*model.Model, error) {
-	var m model.Model
-	var active int
-	var createdAt string
-	if err := s.Scan(&m.ID, &m.Name, &m.Version, &m.Path, &m.Type, &active, &createdAt); err != nil {
-		return nil, err
-	}
-	m.Active = active != 0
-	var err error
-	m.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse model created_at: %w", err)
-	}
-	return &m, nil
-}
 
 func scanCategorization(s scanner) (*model.Categorization, error) {
 	var c model.Categorization
