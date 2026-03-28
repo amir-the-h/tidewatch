@@ -14,7 +14,6 @@ export default createRouter({
     { path: '/search', component: () => import('../views/SearchView.vue') },
     { path: '/rules', component: () => import('../views/RulesView.vue') },
     { path: '/sources', component: () => import('../views/SourcesView.vue') },
-    { path: '/models', component: () => import('../views/ModelsView.vue') },
     { path: '/pipelines', component: () => import('../views/PipelinesView.vue') },
     { path: '/categorizations', component: () => import('../views/CategorizationsView.vue') },
     { path: '/notifications', component: () => import('../views/NotificationsView.vue') },
