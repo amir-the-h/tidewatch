@@ -1465,7 +1465,7 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
               FROM tweets t
               JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
               JOIN actions a ON a.id = ae.action_id
-              JOIN pipelines p ON p.id = a.pipeline_id
+              JOIN pipelines p ON p.id = a.pipeline_id AND p.type = 'ollama'
               JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause +
 		` ORDER BY ae.executed_at DESC LIMIT ? OFFSET ?`
@@ -1510,7 +1510,7 @@ func (s *sqliteStore) CountSummaries(ctx context.Context, filter SummaryFilter) 
 	query := `SELECT COUNT(*) FROM tweets t
               JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
               JOIN actions a ON a.id = ae.action_id
-              JOIN pipelines p ON p.id = a.pipeline_id
+              JOIN pipelines p ON p.id = a.pipeline_id AND p.type = 'ollama' -- scopes to summarizer pipelines
               JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause
 
