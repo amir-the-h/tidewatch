@@ -97,3 +97,27 @@ func (c *TelegramClient) Send(ctx context.Context, msg TelegramMessage) error {
 
 	return nil
 }
+
+// Deliver implements notifier.Provider for TelegramClient.
+// config keys: "chat_id", "parse_mode", "disable_web_page_preview", "disable_notification", "message_thread_id"
+func (c *TelegramClient) Deliver(ctx context.Context, text string, config map[string]any) error {
+	msg := TelegramMessage{
+		Text: text,
+	}
+	if v, ok := config["chat_id"].(string); ok {
+		msg.ChatID = v
+	}
+	if v, ok := config["parse_mode"].(string); ok {
+		msg.ParseMode = v
+	}
+	if v, ok := config["disable_web_page_preview"].(bool); ok {
+		msg.DisableWebPagePreview = v
+	}
+	if v, ok := config["disable_notification"].(bool); ok {
+		msg.DisableNotification = v
+	}
+	if v, ok := config["message_thread_id"].(float64); ok {
+		msg.MessageThreadID = int64(v)
+	}
+	return c.Send(ctx, msg)
+}
