@@ -18,13 +18,14 @@ import (
 
 // Manager launches N worker goroutines that pop Tasks from Redis.
 type Manager struct {
-	totalWorkers int
-	consumer     queue.Consumer
-	producer     queue.Producer
-	store        store.Store
-	cache        *ActionCache
-	logger       *slog.Logger
-	active       atomic.Int32
+	totalWorkers  int
+	consumer      queue.Consumer
+	producer      queue.Producer
+	store         store.Store
+	cache         *ActionCache
+	logger        *slog.Logger
+	active        atomic.Int32
+	workerActions sync.Map // key: int (worker ID), value: string (action name)
 }
 
 func NewManager(
@@ -52,7 +53,22 @@ func (m *Manager) Stats() PoolStats {
 	if idle < 0 {
 		idle = 0
 	}
-	return PoolStats{Total: m.totalWorkers, Active: active, Idle: idle}
+
+	var activeWorkers []WorkerInfo
+	m.workerActions.Range(func(k, v any) bool {
+		activeWorkers = append(activeWorkers, WorkerInfo{
+			ID:     k.(int),
+			Action: v.(string),
+		})
+		return true
+	})
+
+	return PoolStats{
+		Total:         m.totalWorkers,
+		Active:        active,
+		Idle:          idle,
+		ActiveWorkers: activeWorkers,
+	}
 }
 
 // Start launches N worker goroutines. Blocks until ctx is cancelled.
@@ -103,6 +119,10 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		}
 		return
 	}
+
+	// Track which action this worker is executing.
+	m.workerActions.Store(workerID, entry.Action.Name)
+	defer m.workerActions.Delete(workerID)
 
 	var ev queue.TweetEvent
 	_ = json.Unmarshal(task.Event, &ev)
@@ -215,5 +235,5 @@ func evalCondition(op, actual, expected string) bool {
 }
 
 // Flush and FlushPipeline are no-ops in the simplified model.
-func (m *Manager) Flush() int             { return 0 }
+func (m *Manager) Flush() int                 { return 0 }
 func (m *Manager) FlushPipeline(_ string) int { return 0 }
