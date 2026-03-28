@@ -64,25 +64,6 @@ func isBackendError(err error) bool {
 	return false
 }
 
-// ExtractionLocation holds a single geographic location extracted from a tweet.
-type ExtractionLocation struct {
-	Label       string     `json:"label,omitempty"`
-	Coordinates [2]float64 `json:"coordinates"` // [latitude, longitude]
-	Place       string     `json:"place,omitempty"`
-}
-
-// ExtractionResult is the structured output of the geo-event extraction pipeline.
-type ExtractionResult struct {
-	Description     string               `json:"description"`
-	Locations       []ExtractionLocation `json:"locations"`
-	GeolocatedBy    []string             `json:"geolocated_by"`
-	GeolocationURLs []string             `json:"geolocation_urls"`
-	ProofURLs       []string             `json:"proof_urls"`
-	LocationURL     string               `json:"location_url"`
-	SourceURLs      []string             `json:"source_urls"`
-	Truncated       bool                 `json:"truncated,omitempty"`
-}
-
 // flexStrings unmarshals a JSON value that may be either a string or an array
 // of strings. LLMs occasionally return a bare string instead of a one-element
 // array, so we coerce it silently.

@@ -2,58 +2,67 @@ package inference
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"time"
 )
 
-// Pipeline is the interface every ONNX model integration must implement.
-// Each Pipeline handles its own tokenization and pre/post-processing internally.
+// PipelineType mirrors model.PipelineType but lives in inference to avoid
+// circular imports.
+type PipelineType string
+
+const (
+	PipelineTypeONNX     PipelineType = "onnx"
+	PipelineTypeOllama   PipelineType = "ollama"
+	PipelineTypeInternal PipelineType = "internal"
+)
+
+// PipelineInput carries all data a pipeline needs to run.
+type PipelineInput struct {
+	// Text is the primary text to process (tweet body).
+	Text string
+	// Context is the accumulated flat map of outputs from upstream actions in a chain.
+	Context map[string]any
+	// Config is the pipeline-specific configuration from the DB pipeline row.
+	Config map[string]any
+}
+
+// Pipeline is the interface every execution unit must implement.
 type Pipeline interface {
-	// Name returns the model name as registered in the models table.
+	// Name returns the pipeline name as stored in the pipelines table.
 	Name() string
-	// Load initializes the model from the given local .onnx file path.
-	Load(modelPath string) error
-	// Run takes raw tweet text (UTF-8 bytes) and returns model-specific JSON output.
-	Run(text []byte) (json.RawMessage, error)
-	// RunBatch runs inference on multiple texts. Default implementations loop over Run().
-	RunBatch(texts [][]byte) ([]json.RawMessage, error)
-	// Close releases ONNX Runtime resources.
+	// Type returns the pipeline type (onnx, ollama, internal).
+	Type() PipelineType
+	// Run executes the pipeline and returns structured outputs.
+	Run(ctx context.Context, input PipelineInput) (map[string]any, error)
+	// Close releases any held resources.
 	Close() error
 }
 
-// LabeledPipeline is implemented by pipelines that support dynamic candidate labels
-// (e.g. zero-shot classification). Labels can be updated without reloading the model.
+// LabeledPipeline is implemented by zero-shot pipelines with dynamic labels.
 type LabeledPipeline interface {
 	Pipeline
 	SetLabels(labels []string)
 }
 
-// SummarizationPipeline is implemented by seq2seq pipelines that generate text summaries.
-// Workers use this interface to populate the summary field on entity tracks.
+// SummarizationPipeline is implemented by seq2seq pipelines.
 type SummarizationPipeline interface {
 	Pipeline
-	Summarize(text string) (string, error)
+	Summarize(ctx context.Context, text string) (string, error)
 }
 
-// ExtractionPipeline is implemented by pipelines that extract structured fields
-// from tweet text (e.g. coordinates, URLs, attribution) into an ExtractionResult.
+// ExtractionPipeline is implemented by geo-extraction pipelines.
 type ExtractionPipeline interface {
 	Pipeline
-	Extract(text string) (*ExtractionResult, error)
+	Extract(ctx context.Context, text string) (*ExtractionResult, error)
 }
 
-// DigestPipeline is implemented by pipelines that can produce a single
-// briefing/summary from a collection of pre-formatted tweet strings.
+// DigestPipeline is implemented by digest-capable pipelines.
 type DigestPipeline interface {
 	Pipeline
-	Digest(tweets []string) (string, error)
+	Digest(ctx context.Context, tweets []string) (string, error)
 }
 
-// ConcurrencyLimiter is optionally implemented by pipelines that want to cap
-// how many workers process them simultaneously. The manager skips a pipeline's
-// channel when activePipelines already equals MaxConcurrency(), preventing
-// idle workers from piling up behind a serialised backend (e.g. Ollama).
+// ConcurrencyLimiter is optionally implemented by pipelines that cap concurrency.
 type ConcurrencyLimiter interface {
 	MaxConcurrency() int
 }
@@ -64,28 +73,20 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
-// ChatPipeline is implemented by pipelines that support streaming interactive
-// chat over a fixed tweet context window. OllamaPipeline satisfies this interface.
+// ChatPipeline is implemented by pipelines that support streaming chat.
 type ChatPipeline interface {
 	Pipeline
-	// ChatStream sends a multi-turn conversation with tweet context to the model
-	// and writes SSE-formatted chunks ("data: <json>\n\n") to w as they arrive,
-	// ending with "data: [DONE]\n\n". The caller must set SSE response headers
-	// before invoking this method.
 	ChatStream(ctx context.Context, tweetContext []string, messages []ChatMessage, w io.Writer) error
-	// EstimateTokens returns the approximate token count for the given texts and
-	// the model's context-window limit.
 	EstimateTokens(ctx context.Context, texts []string) (estimated int, contextLimit int, err error)
 }
 
-// BackendConfig holds the URL and optional display name for an Ollama backend.
-// The inference package uses this type so it does not need to import config.
+// BackendConfig holds URL and optional display name for an Ollama backend.
 type BackendConfig struct {
 	URL  string
-	Name string // display name; if empty, URL is used
+	Name string
 }
 
-// BackendStat holds a snapshot of a single Ollama backend's runtime state.
+// BackendStat is a runtime snapshot of one Ollama backend.
 type BackendStat struct {
 	Name         string     `json:"name"`
 	URL          string     `json:"url"`
@@ -93,10 +94,29 @@ type BackendStat struct {
 	InUse        bool       `json:"in_use"`
 	Score        float64    `json:"score"`
 	RequestCount int64      `json:"request_count"`
-	LastActiveAt *time.Time `json:"last_active_at,omitempty"` // nil if never used
+	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
 }
 
-// BackendStatter is implemented by pipelines that manage a backend pool.
+// BackendStatter is implemented by pipelines managing a backend pool.
 type BackendStatter interface {
 	BackendStats() []BackendStat
+}
+
+// ExtractionResult is the structured output of the geo-event extraction pipeline.
+type ExtractionResult struct {
+	Description     string               `json:"description"`
+	Locations       []ExtractionLocation `json:"locations"`
+	GeolocatedBy    []string             `json:"geolocated_by"`
+	GeolocationURLs []string             `json:"geolocation_urls"`
+	ProofURLs       []string             `json:"proof_urls"`
+	LocationURL     string               `json:"location_url"`
+	SourceURLs      []string             `json:"source_urls"`
+	Truncated       bool                 `json:"truncated,omitempty"`
+}
+
+// ExtractionLocation holds a single geographic location.
+type ExtractionLocation struct {
+	Label       string     `json:"label,omitempty"`
+	Coordinates [2]float64 `json:"coordinates"`
+	Place       string     `json:"place,omitempty"`
 }
