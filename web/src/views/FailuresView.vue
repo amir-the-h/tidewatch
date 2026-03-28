@@ -8,23 +8,8 @@ import type { FailedTweet } from '../api/failures'
 import { flushQueue } from '../api/failures'
 import { apiFetch } from '../api/client'
 import { formatDateTime } from '../utils/format'
-import { InformationCircleOutline, TrashBinOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
+import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
-
-const flushingPipeline = ref<string | null>(null)
-
-async function onFlushPipeline(name: string) {
-  if (flushingPipeline.value) return
-  flushingPipeline.value = name
-  try {
-    await apiFetch(`/api/workers/buffer/${encodeURIComponent(name)}`, { method: 'DELETE' })
-    await fetchStats()
-  } catch (e: any) {
-    msg.error(e.message)
-  } finally {
-    flushingPipeline.value = null
-  }
-}
 
 const store = useFailuresStore()
 const msg   = useMessage()
@@ -33,11 +18,10 @@ const msg   = useMessage()
 
 interface QueueStats  { pending: number; failed: number }
 interface WorkerStats {
-  total: number; active: number; idle: number
-  queued: number
-  pipelines?: Record<string, number>
-  pipeline_active?: Record<string, number>
-  pipeline_rate?: Record<string, number>
+  total: number
+  active: number
+  idle: number
+  active_workers?: Array<{ id: number; action: string }>
 }
 
 const queueStats  = ref<QueueStats | null>(null)
@@ -91,34 +75,6 @@ async function onFlush() {
     flushing.value = false
   }
 }
-
-// ── Pipeline table rows ───────────────────────────────────────────────────────
-
-interface PipelineRow { name: string; workers: number; buffered: number; eta: string }
-
-function formatEta(buffered: number, rate: number): string {
-  if (buffered === 0) return '—'
-  if (rate <= 0) return '?'
-  const secs = Math.ceil(buffered / rate)
-  if (secs < 60) return `${secs}s`
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`
-  const h = Math.floor(m / 60)
-  const rm = m % 60
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`
-}
-
-const pipelineRows = computed<PipelineRow[]>(() => {
-  const ps = workerStats.value?.pipelines
-  if (!ps) return []
-  return Object.entries(ps).map(([name, buffered]) => ({
-    name,
-    workers:  workerStats.value?.pipeline_active?.[name] ?? 0,
-    buffered,
-    eta: formatEta(buffered, workerStats.value?.pipeline_rate?.[name] ?? 0),
-  }))
-})
 
 // ── Failures table ────────────────────────────────────────────────────────────
 
@@ -231,8 +187,8 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
     </n-space>
 
     <!-- Stats cards -->
-    <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
-      <n-gi span="4 s:2 m:1">
+    <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
+      <n-gi span="3 s:1">
         <n-card size="small" embedded>
           <n-statistic label="Redis Pending">
             <template #default>
@@ -243,18 +199,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
           </n-statistic>
         </n-card>
       </n-gi>
-      <n-gi span="4 s:2 m:1">
-        <n-card size="small" embedded>
-          <n-statistic label="In-Memory Buffered">
-            <template #default>
-              <span :style="{ color: (workerStats?.queued ?? 0) > 0 ? '#f9e2af' : '#cdd6f4' }">
-                {{ workerStats?.queued ?? '—' }}
-              </span>
-            </template>
-          </n-statistic>
-        </n-card>
-      </n-gi>
-      <n-gi span="4 s:2 m:1">
+      <n-gi span="3 s:1">
         <n-card size="small" embedded>
           <n-statistic label="Dead-Letter">
             <template #default>
@@ -265,7 +210,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
           </n-statistic>
         </n-card>
       </n-gi>
-      <n-gi span="4 s:2 m:1">
+      <n-gi span="3 s:1">
         <n-card size="small" embedded>
           <n-statistic label="Workers">
             <template #default>
@@ -273,6 +218,11 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
                 {{ workerStats?.active ?? '—' }}
               </span>
               <span style="color: #585b70; font-size: 14px;"> / {{ workerStats?.total ?? '—' }}</span>
+            </template>
+            <template #suffix>
+              <span v-if="workerStats" style="color: #585b70; font-size: 12px; margin-left: 8px;">
+                {{ workerStats.idle }} idle
+              </span>
             </template>
           </n-statistic>
           <div v-if="workerStats" style="margin-top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
@@ -287,55 +237,26 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
       </n-gi>
     </n-grid>
 
-    <!-- Per-pipeline breakdown -->
-    <n-card v-if="pipelineRows.length > 0" size="small" title="Pipelines">
+    <!-- Active workers -->
+    <n-card v-if="workerStats" size="small" title="Workers">
+      <n-empty
+        v-if="!workerStats.active_workers || workerStats.active_workers.length === 0"
+        :description="`All ${workerStats.total} workers idle`"
+        style="padding: 16px 0;"
+      />
       <n-data-table
+        v-else
         :columns="[
-          { title: 'Pipeline', key: 'name' },
-          {
-            title: 'Workers Active',
-            key: 'workers',
-            width: 140,
-            render: (row: PipelineRow) => h('span', {
-              style: { color: row.workers > 0 ? '#a6e3a1' : '#585b70' }
-            }, row.workers),
+          { title: 'Worker', key: 'id', width: 90,
+            render: (row: { id: number; action: string }) =>
+              h('span', { style: { color: '#585b70', fontVariantNumeric: 'tabular-nums' } }, `#${row.id}`)
           },
-          {
-            title: 'Buffered',
-            key: 'buffered',
-            width: 120,
-            render: (row: PipelineRow) => h('span', {
-              style: { color: row.buffered > 0 ? '#f9e2af' : '#585b70' }
-            }, row.buffered),
-          },
-          {
-            title: 'ETA',
-            key: 'eta',
-            width: 100,
-            render: (row: PipelineRow) => h('span', {
-              style: {
-                color: row.eta === '—' ? '#585b70'
-                  : row.eta === '?' ? '#f38ba8'
-                  : '#cdd6f4',
-                fontVariantNumeric: 'tabular-nums',
-              }
-            }, row.eta),
-          },
-          {
-            title: '',
-            key: 'flush',
-            width: 50,
-            render: (row: PipelineRow) => row.buffered > 0
-              ? iconBtn(TrashBinOutline, 'Flush pipeline buffer', () => onFlushPipeline(row.name), {
-                  type: 'error',
-                  ghost: true,
-                  loading: flushingPipeline === row.name,
-                  disabled: flushingPipeline !== null,
-                })
-              : null,
+          { title: 'Action', key: 'action',
+            render: (row: { id: number; action: string }) =>
+              h('span', { style: { color: '#a6e3a1' } }, row.action)
           },
         ]"
-        :data="pipelineRows"
+        :data="workerStats.active_workers"
         :pagination="false"
         size="small"
       />
