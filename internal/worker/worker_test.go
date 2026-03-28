@@ -474,6 +474,9 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 	if stats.ActiveWorkers[0].Action != "slow-action" {
 		t.Errorf("expected action 'slow-action', got %q", stats.ActiveWorkers[0].Action)
 	}
+	if stats.ActiveWorkers[0].Pipeline != "slow-action" {
+		t.Errorf("expected pipeline 'slow-action', got %q", stats.ActiveWorkers[0].Pipeline)
+	}
 
 	// Unblock and verify workers clear.
 	close(unblock)
