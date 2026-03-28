@@ -1,6 +1,7 @@
 package inference
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -336,8 +337,24 @@ func NewONNXPipeline(name string) *ONNXPipeline {
 	return &ONNXPipeline{name: name}
 }
 
+// NewONNXPipelineFromConfig creates and loads an ONNX pipeline from DB pipeline config.
+func NewONNXPipelineFromConfig(name string, config map[string]any) (*ONNXPipeline, error) {
+	path, _ := config["path"].(string)
+	if path == "" {
+		return nil, fmt.Errorf("inference: onnx: config missing 'path'")
+	}
+	p := &ONNXPipeline{name: name}
+	if err := p.load(path); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // Name returns the model name as registered in the models table.
 func (p *ONNXPipeline) Name() string { return p.name }
+
+// Type returns the pipeline type.
+func (p *ONNXPipeline) Type() PipelineType { return PipelineTypeONNX }
 
 // SetLabels updates the candidate labels used by zero-shot classification.
 // Safe to call concurrently with Run.
@@ -349,9 +366,9 @@ func (p *ONNXPipeline) SetLabels(labels []string) {
 	p.labelsMu.Unlock()
 }
 
-// Load acquires the shared ONNX session for modelPath, loading it from disk
+// load acquires the shared ONNX session for modelPath, loading it from disk
 // if no other pipeline has done so yet.
-func (p *ONNXPipeline) Load(modelPath string) error {
+func (p *ONNXPipeline) load(modelPath string) error {
 	sess, err := acquireSession(modelPath)
 	if err != nil {
 		return err
@@ -360,10 +377,10 @@ func (p *ONNXPipeline) Load(modelPath string) error {
 	return nil
 }
 
-// Run tokenizes text, runs inference on GPU (falling back to CPU), and returns
+// runRaw tokenizes text, runs inference on GPU (falling back to CPU), and returns
 // a JSON result. Concurrent calls on pipelines sharing the same model file are
 // serialized through the shared session mutex.
-func (p *ONNXPipeline) Run(text []byte) (json.RawMessage, error) {
+func (p *ONNXPipeline) runRaw(text []byte) (json.RawMessage, error) {
 	if p.shared == nil {
 		return nil, fmt.Errorf("inference: onnx: model not loaded")
 	}
@@ -401,6 +418,22 @@ func (p *ONNXPipeline) Run(text []byte) (json.RawMessage, error) {
 		return postProcessNER(logits, s.id2label, s.numLabels, seqLen, tokens)
 	}
 	return postProcessClassification(logits, s.id2label)
+}
+
+// Run executes the ONNX model on input.Text and returns structured outputs.
+func (p *ONNXPipeline) Run(_ context.Context, input PipelineInput) (map[string]any, error) {
+	if labels, ok := input.Config["labels"].([]string); ok && len(labels) > 0 {
+		p.SetLabels(labels)
+	}
+	raw, err := p.runRaw([]byte(input.Text))
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]any{"raw": string(raw)}, nil
+	}
+	return out, nil
 }
 
 // runZeroShot performs zero-shot classification using NLI: for each candidate
@@ -460,19 +493,6 @@ func (p *ONNXPipeline) runZeroShot(s *sharedONNXSession, text []byte) (json.RawM
 		sortedScores[i] = kv.score
 	}
 	return json.Marshal(zeroShotResult{Labels: sortedLabels, Scores: sortedScores})
-}
-
-// RunBatch runs inference on multiple texts, looping over Run.
-func (p *ONNXPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
-	results := make([]json.RawMessage, len(texts))
-	for i, t := range texts {
-		r, err := p.Run(t)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = r
-	}
-	return results, nil
 }
 
 // Close releases this pipeline's reference to the shared session. The session

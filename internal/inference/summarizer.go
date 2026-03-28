@@ -1,6 +1,7 @@
 package inference
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -59,14 +60,30 @@ func NewSeq2SeqPipeline(name string) *Seq2SeqPipeline {
 	return &Seq2SeqPipeline{name: name, maxNewTokens: defaultMaxNewTokens}
 }
 
+// NewSeq2SeqPipelineFromConfig creates a Seq2Seq pipeline from DB pipeline config.
+func NewSeq2SeqPipelineFromConfig(name string, config map[string]any) (*Seq2SeqPipeline, error) {
+	path, _ := config["path"].(string)
+	if path == "" {
+		return nil, fmt.Errorf("inference: seq2seq: config missing 'path'")
+	}
+	p := NewSeq2SeqPipeline(name)
+	if err := p.load(path); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // Name returns the model name as registered in the models table.
 func (p *Seq2SeqPipeline) Name() string { return p.name }
 
-// Load initialises the encoder and decoder ONNX sessions.
+// Type returns the pipeline type.
+func (p *Seq2SeqPipeline) Type() PipelineType { return PipelineTypeONNX }
+
+// load initialises the encoder and decoder ONNX sessions.
 // modelPath should point to encoder_model.onnx; decoder_model.onnx must be
 // in the same directory.  The tokenizer.json / config.json may sit in the
 // same directory or one level up (e.g. when ONNX files live in an onnx/ subdir).
-func (p *Seq2SeqPipeline) Load(modelPath string) error {
+func (p *Seq2SeqPipeline) load(modelPath string) error {
 	dir := filepath.Dir(modelPath)
 	base := filepath.Base(modelPath)
 
@@ -159,19 +176,17 @@ func (p *Seq2SeqPipeline) Load(modelPath string) error {
 	return nil
 }
 
-// Run generates a summary and returns {"summary": "..."}.
-func (p *Seq2SeqPipeline) Run(text []byte) (json.RawMessage, error) {
-	summary, err := p.Summarize(string(text))
+// Run executes the pipeline on input.Text and returns {"summary": "..."}.
+func (p *Seq2SeqPipeline) Run(ctx context.Context, input PipelineInput) (map[string]any, error) {
+	s, err := p.Summarize(ctx, input.Text)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(struct {
-		Summary string `json:"summary"`
-	}{Summary: summary})
+	return map[string]any{"summary": s}, nil
 }
 
 // Summarize generates a text summary using greedy decoding.
-func (p *Seq2SeqPipeline) Summarize(text string) (string, error) {
+func (p *Seq2SeqPipeline) Summarize(_ context.Context, text string) (string, error) {
 	if p.encoderSess == nil || p.decoderSess == nil {
 		return "", fmt.Errorf("inference: seq2seq: model not loaded")
 	}
@@ -339,19 +354,6 @@ func (p *Seq2SeqPipeline) Summarize(text string) (string, error) {
 		outputUint32[i] = uint32(id)
 	}
 	return p.tokenizer.Decode(outputUint32, true), nil
-}
-
-// RunBatch loops over Run for each text.
-func (p *Seq2SeqPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
-	results := make([]json.RawMessage, len(texts))
-	for i, t := range texts {
-		r, err := p.Run(t)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = r
-	}
-	return results, nil
 }
 
 // Close releases ONNX sessions and the tokenizer.
