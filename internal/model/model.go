@@ -2,6 +2,8 @@ package model
 
 import "time"
 
+// Deprecated: Model and ModelType are replaced by Pipeline and PipelineType.
+// Will be removed in Task 14 once all callers are migrated.
 type ModelType string
 
 const (
