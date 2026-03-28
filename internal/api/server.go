@@ -83,6 +83,7 @@ type Server struct {
 	sizer                   queueSizer
 	failureLister           queue.FailureLister
 	logger                  *slog.Logger
+	modelsDir               string
 	router                  chi.Router
 	http                    *http.Server
 	ctx                     context.Context
@@ -109,6 +110,7 @@ func NewServer(
 	pool workerPoolStatsProvider,
 	sizer queueSizer,
 	lister queue.FailureLister,
+	modelsDir string,
 ) *Server {
 	srv := &Server{
 		store:                 s,
@@ -129,6 +131,7 @@ func NewServer(
 		sizer:                 sizer,
 		failureLister:         lister,
 		logger:                logger,
+		modelsDir:             modelsDir,
 	}
 
 	authMw := auth.Middleware(jwtSecret)
@@ -197,6 +200,7 @@ func NewServer(
 				r.Get("/pipelines", srv.handleListPipelines)
 				r.Post("/pipelines", srv.handleCreatePipeline)
 				r.Get("/pipelines/handlers", srv.handleListPipelineHandlers)
+				r.Get("/models", srv.handleListModels)
 				r.Put("/pipelines/{id}", srv.handleUpdatePipeline)
 				r.Delete("/pipelines/{id}", srv.handleDeletePipeline)
 				r.Post("/pipelines/{id}/activate", srv.handleActivatePipeline)
@@ -494,6 +498,7 @@ func NewServerWithConcreteRules(
 	pool workerPoolStatsProvider,
 	sizer queueSizer,
 	lister queue.FailureLister,
+	modelsDir string,
 ) *Server {
-	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister, modelsDir)
 }

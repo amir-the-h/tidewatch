@@ -31,10 +31,11 @@ export interface ChainCondition {
   value: string
 }
 
-export const listPipelines = (filter: { active?: boolean; type?: PipelineType } = {}) => {
+export const listPipelines = (filter: { active?: boolean; type?: PipelineType; usecase?: string } = {}) => {
   const params = new URLSearchParams()
   if (filter.active !== undefined) params.set('active', String(filter.active))
   if (filter.type !== undefined) params.set('type', filter.type)
+  if (filter.usecase !== undefined) params.set('usecase', filter.usecase)
   const qs = params.toString() ? `?${params}` : ''
   return apiFetch<Pipeline[]>(`/api/pipelines${qs}`)
 }
@@ -59,6 +60,13 @@ export const listPipelineHandlers = () =>
 
 export const listTriggers = () =>
   apiFetch<TriggerInfo[]>('/api/triggers')
+
+export interface ModelFile {
+  name: string
+  path: string
+}
+
+export const listModels = () => apiFetch<ModelFile[]>('/api/models')
 
 // Action chains
 export const listActionChains = (actionId: number) =>
