@@ -240,6 +240,9 @@ func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFil
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) {
+	return nil, nil
+}
 
 // TwitterCredentials
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error {
@@ -429,4 +432,74 @@ func TestManager_Start_RespectsCtxCancel(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("Manager.Start did not return within 1 second after immediate ctx cancel")
 	}
+}
+
+func TestManager_Stats_ActiveWorkers(t *testing.T) {
+	unblock := make(chan struct{})
+	started := make(chan struct{}, 1)
+
+	stub := &stubPipeline{name: "slow-action", pType: inference.PipelineTypeONNX}
+	pipe := &blockPipeline{stub: stub, started: started, unblock: unblock}
+
+	action := &model.Action{ID: 1, Name: "slow-action", TriggerType: model.TriggerTypeNewTweet, Active: true}
+	cache := buildCacheWithEntries(map[int64]*CacheEntry{
+		1: {Action: action, Pipeline: pipe},
+	})
+
+	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, "tweet-stats")}}
+	producer := &mockProducer{}
+	storeImpl := &mockStore{}
+
+	mgr := NewManager(2, consumer, producer, storeImpl, cache, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = mgr.Start(ctx) }()
+
+	// Wait until the pipeline has started executing.
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pipeline did not start within 2s")
+	}
+
+	stats := mgr.Stats()
+	if stats.Active != 1 {
+		t.Errorf("expected 1 active worker, got %d", stats.Active)
+	}
+	if len(stats.ActiveWorkers) != 1 {
+		t.Fatalf("expected 1 entry in ActiveWorkers, got %d", len(stats.ActiveWorkers))
+	}
+	if stats.ActiveWorkers[0].Action != "slow-action" {
+		t.Errorf("expected action 'slow-action', got %q", stats.ActiveWorkers[0].Action)
+	}
+
+	// Unblock and verify workers clear.
+	close(unblock)
+	time.Sleep(50 * time.Millisecond)
+
+	stats = mgr.Stats()
+	if len(stats.ActiveWorkers) != 0 {
+		t.Errorf("expected 0 active workers after completion, got %d", len(stats.ActiveWorkers))
+	}
+}
+
+// blockPipeline is a Pipeline that signals started and blocks until unblock is closed.
+type blockPipeline struct {
+	stub    *stubPipeline
+	started chan struct{}
+	unblock chan struct{}
+}
+
+func (b *blockPipeline) Name() string                 { return b.stub.Name() }
+func (b *blockPipeline) Type() inference.PipelineType { return b.stub.Type() }
+func (b *blockPipeline) Load(s string) error          { return b.stub.Load(s) }
+func (b *blockPipeline) Close() error                 { return b.stub.Close() }
+func (b *blockPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[string]any, error) {
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	<-b.unblock
+	return map[string]any{"label": "test"}, nil
 }
