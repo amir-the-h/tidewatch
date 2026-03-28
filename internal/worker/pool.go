@@ -12,15 +12,18 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
+// WorkerInfo describes a single worker currently processing a task.
+type WorkerInfo struct {
+	ID     int    `json:"id"`
+	Action string `json:"action"`
+}
+
 // PoolStats holds a snapshot of worker pool activity.
 type PoolStats struct {
-	Total          int                `json:"total"`
-	Active         int                `json:"active"`
-	Idle           int                `json:"idle"`
-	Queued         int                `json:"queued,omitempty"`          // tasks buffered in in-memory pipeline channels
-	Pipelines      map[string]int     `json:"pipelines,omitempty"`       // per-pipeline in-memory buffer depth
-	PipelineActive map[string]int     `json:"pipeline_active,omitempty"` // workers currently executing each pipeline
-	PipelineRate   map[string]float64 `json:"pipeline_rate,omitempty"`   // per-pipeline task throughput (tasks/sec)
+	Total         int          `json:"total"`
+	Active        int          `json:"active"`
+	Idle          int          `json:"idle"`
+	ActiveWorkers []WorkerInfo `json:"active_workers"`
 }
 
 // Pool manages N worker goroutines that process tweets from the queue.
