@@ -250,6 +250,22 @@ func NewOllamaPipeline(name string, backendConfigs []BackendConfig, systemPrompt
 	return p
 }
 
+// NewOllamaPipelineFromConfig creates an Ollama pipeline from DB pipeline config.
+// config must contain a "model" key (Ollama model name) and optionally a
+// "system_prompt" key. The model is set immediately; call Load to ping backends
+// and start the health checker.
+func NewOllamaPipelineFromConfig(name string, config map[string]any, backends []BackendConfig, fastWaitTimeout time.Duration) *OllamaPipeline {
+	systemPrompt, _ := config["system_prompt"].(string)
+	if systemPrompt == "" {
+		systemPrompt = OllamaGenericSystem
+	}
+	p := NewOllamaPipeline(name, backends, systemPrompt, fastWaitTimeout)
+	if model, ok := config["model"].(string); ok {
+		p.model = model
+	}
+	return p
+}
+
 // acquire blocks until a healthy, idle backend is available or ctx is cancelled.
 func (p *OllamaPipeline) acquire(ctx context.Context) (*ollamaBackend, error) {
 	stop := context.AfterFunc(ctx, func() { p.cond.Broadcast() })
@@ -590,26 +606,29 @@ func (p *OllamaPipeline) probeHealthy() {
 	}
 }
 
-// Run sends the tweet text to Ollama and returns the ExtractionResult as JSON.
-func (p *OllamaPipeline) Run(text []byte) (json.RawMessage, error) {
-	result, err := p.Extract(string(text))
+// Type returns PipelineTypeOllama.
+func (p *OllamaPipeline) Type() PipelineType { return PipelineTypeOllama }
+
+// runRaw sends text to Ollama's Extract and returns the result as raw JSON.
+func (p *OllamaPipeline) runRaw(ctx context.Context, text []byte) (json.RawMessage, error) {
+	result, err := p.Extract(ctx, string(text))
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(result)
 }
 
-// RunBatch loops Run over each text sequentially.
-func (p *OllamaPipeline) RunBatch(texts [][]byte) ([]json.RawMessage, error) {
-	results := make([]json.RawMessage, len(texts))
-	for i, t := range texts {
-		r, err := p.Run(t)
-		if err != nil {
-			return nil, err
-		}
-		results[i] = r
+// Run executes the Ollama pipeline on input.Text and returns structured outputs.
+func (p *OllamaPipeline) Run(ctx context.Context, input PipelineInput) (map[string]any, error) {
+	raw, err := p.runRaw(ctx, []byte(input.Text))
+	if err != nil {
+		return nil, err
 	}
-	return results, nil
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]any{"raw": string(raw)}, nil
+	}
+	return out, nil
 }
 
 // ensureLoaded checks /api/ps on the given backend to see if the model is
@@ -707,7 +726,7 @@ func isTruncated(text string) bool {
 // Extract calls Ollama's chat endpoint and unmarshals the structured result.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries
 // on another backend.
-func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
+func (p *OllamaPipeline) Extract(ctx context.Context, text string) (*ExtractionResult, error) {
 	if isTruncated(text) {
 		return &ExtractionResult{Truncated: true}, nil
 	}
@@ -741,7 +760,7 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 	}
 
 	for {
-		b, err := p.acquire(context.Background())
+		b, err := p.acquire(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("inference: ollama: acquire: %w", err)
 		}
@@ -756,8 +775,8 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 			return nil, fmt.Errorf("inference: ollama: ensure loaded: %w", err)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), ollamaRequestTimeout)
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
+		reqCtx, cancel := context.WithTimeout(ctx, ollamaRequestTimeout)
+		req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
 		if reqErr != nil {
 			cancel()
 			p.release(b)
@@ -831,7 +850,7 @@ func (p *OllamaPipeline) Extract(text string) (*ExtractionResult, error) {
 // Digest calls Ollama with the OllamaDigestSystem prompt and a numbered list of
 // pre-formatted tweet strings, returning a single plain-text briefing.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries.
-func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
+func (p *OllamaPipeline) Digest(ctx context.Context, tweets []string) (string, error) {
 	var sb strings.Builder
 	for i, t := range tweets {
 		fmt.Fprintf(&sb, "[%d] %s\n\n", i+1, t)
@@ -865,7 +884,7 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 	}
 
 	for {
-		b, err := p.acquireFastest(context.Background())
+		b, err := p.acquireFastest(ctx)
 		if err != nil {
 			return "", fmt.Errorf("inference: ollama: digest: acquire: %w", err)
 		}
@@ -879,8 +898,8 @@ func (p *OllamaPipeline) Digest(tweets []string) (string, error) {
 			return "", fmt.Errorf("inference: ollama: digest: ensure loaded: %w", err)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), ollamaDigestTimeout)
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
+		reqCtx, cancel := context.WithTimeout(ctx, ollamaDigestTimeout)
+		req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
 		if reqErr != nil {
 			cancel()
 			p.release(b)
