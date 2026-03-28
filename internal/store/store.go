@@ -73,10 +73,23 @@ type EntityTrackFilter struct {
 	PerPage  int
 }
 
+// PipelineFilter defines optional filters for listing pipelines.
+type PipelineFilter struct {
+	Type   *model.PipelineType
+	Active *bool
+}
+
 // ActionFilter defines optional filters for listing actions.
 type ActionFilter struct {
-	Type   *model.ActionType
-	Active *bool
+	TriggerType *model.TriggerType
+	PipelineID  *int64
+	Active      *bool
+}
+
+// ActionChainFilter defines optional filters for listing action chains.
+type ActionChainFilter struct {
+	SourceActionID *int64
+	TargetActionID *int64
 }
 
 // ExecutionFilter defines optional filters for listing action executions.
@@ -126,19 +139,25 @@ type Store interface {
 	// TweetRules
 	SaveTweetRule(ctx context.Context, tr *model.TweetRule) error
 
-	// Models
-	SaveModel(ctx context.Context, m *model.Model) error
-	GetModel(ctx context.Context, id int64) (*model.Model, error)
-	ListModels(ctx context.Context) ([]*model.Model, error)
-	DeleteModel(ctx context.Context, id int64) error
-	SetModelActive(ctx context.Context, id int64, active bool) error
-	ListModelLabels(ctx context.Context, modelName string) ([]string, error)
-	AddModelLabel(ctx context.Context, modelName, label string) error
-	RemoveModelLabel(ctx context.Context, modelName, label string) error
+	// Pipelines
+	SavePipeline(ctx context.Context, p *model.Pipeline) error
+	GetPipeline(ctx context.Context, id int64) (*model.Pipeline, error)
+	ListPipelines(ctx context.Context, filter PipelineFilter) ([]*model.Pipeline, error)
+	UpdatePipeline(ctx context.Context, p *model.Pipeline) error
+	DeletePipeline(ctx context.Context, id int64) error
+	SetPipelineActive(ctx context.Context, id int64, active bool) error
+	ListPipelineLabels(ctx context.Context, pipelineID int64) ([]string, error)
+	AddPipelineLabel(ctx context.Context, pipelineID int64, label string) error
+	RemovePipelineLabel(ctx context.Context, pipelineID int64, label string) error
 
-	// Model rules (many-to-many: which rules trigger which models)
-	AddModelRule(ctx context.Context, modelID, ruleID int64) error
-	RemoveModelRule(ctx context.Context, modelID, ruleID int64) error
+	// ActionChains
+	SaveActionChain(ctx context.Context, c *model.ActionChain) error
+	GetActionChain(ctx context.Context, id int64) (*model.ActionChain, error)
+	ListActionChains(ctx context.Context, filter ActionChainFilter) ([]*model.ActionChain, error)
+	UpdateActionChain(ctx context.Context, c *model.ActionChain) error
+	DeleteActionChain(ctx context.Context, id int64) error
+
+	// TweetRuleIDs (kept — used by stream listener rule matching)
 	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
 
 	// Categorizations
