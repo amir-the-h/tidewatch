@@ -1461,12 +1461,14 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 
 	filterClause, args := s.summaryFilterQuery(filter)
 	query := `SELECT t.id, t.author_handle, t.text, t.created_at,
-	                 c.results, c.model_name, c.created_at
-	          FROM tweets t
-	          JOIN categorizations c ON c.tweet_id = t.id
-	          JOIN models m ON m.name = c.model_name AND m.type = 'summarizer'` +
+                     aem.value, p.name, ae.executed_at
+              FROM tweets t
+              JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
+              JOIN actions a ON a.id = ae.action_id
+              JOIN pipelines p ON p.id = a.pipeline_id
+              JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause +
-		` ORDER BY c.created_at DESC LIMIT ? OFFSET ?`
+		` ORDER BY ae.executed_at DESC LIMIT ? OFFSET ?`
 	args = append(args, perPage, offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -1478,10 +1480,10 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 	var items []*model.SummaryItem
 	for rows.Next() {
 		var item model.SummaryItem
-		var resultsJSON, createdAt, summarizedAt string
+		var summaryJSON, createdAt, summarizedAt string
 		if err := rows.Scan(
 			&item.TweetID, &item.AuthorHandle, &item.TweetText, &createdAt,
-			&resultsJSON, &item.ModelName, &summarizedAt,
+			&summaryJSON, &item.ModelName, &summarizedAt,
 		); err != nil {
 			return nil, fmt.Errorf("store: list summaries: scan: %w", err)
 		}
@@ -1491,11 +1493,9 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 		if t, err := time.Parse(time.RFC3339, summarizedAt); err == nil {
 			item.SummarizedAt = t
 		}
-		var results struct {
-			Summary string `json:"summary"`
-		}
-		if err := json.Unmarshal([]byte(resultsJSON), &results); err == nil {
-			item.Summary = results.Summary
+		// summaryJSON is a JSON-encoded string stored by the worker, e.g. `"the summary text"`
+		if err := json.Unmarshal([]byte(summaryJSON), &item.Summary); err != nil {
+			item.Summary = summaryJSON // fallback: store raw value
 		}
 		items = append(items, &item)
 	}
@@ -1508,8 +1508,11 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 func (s *sqliteStore) CountSummaries(ctx context.Context, filter SummaryFilter) (int, error) {
 	filterClause, args := s.summaryFilterQuery(filter)
 	query := `SELECT COUNT(*) FROM tweets t
-	          JOIN categorizations c ON c.tweet_id = t.id
-	          JOIN models m ON m.name = c.model_name AND m.type = 'summarizer'` + filterClause
+              JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
+              JOIN actions a ON a.id = ae.action_id
+              JOIN pipelines p ON p.id = a.pipeline_id
+              JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
+		filterClause
 
 	var count int
 	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {

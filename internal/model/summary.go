@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// SummaryItem pairs a tweet with its summarizer output from the categorizations table.
+// SummaryItem pairs a tweet with its summarizer output from action_execution_metadata.
 type SummaryItem struct {
 	TweetID      string    `json:"tweet_id"`
 	AuthorHandle string    `json:"author_handle"`
