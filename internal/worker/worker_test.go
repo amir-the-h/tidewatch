@@ -437,9 +437,10 @@ func TestManager_Start_RespectsCtxCancel(t *testing.T) {
 func TestManager_Stats_ActiveWorkers(t *testing.T) {
 	unblock := make(chan struct{})
 	started := make(chan struct{}, 1)
+	done := make(chan struct{})
 
 	stub := &stubPipeline{name: "slow-action", pType: inference.PipelineTypeONNX}
-	pipe := &blockPipeline{stub: stub, started: started, unblock: unblock}
+	pipe := &blockPipeline{stub: stub, started: started, unblock: unblock, done: done}
 
 	action := &model.Action{ID: 1, Name: "slow-action", TriggerType: model.TriggerTypeNewTweet, Active: true}
 	cache := buildCacheWithEntries(map[int64]*CacheEntry{
@@ -476,7 +477,13 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 
 	// Unblock and verify workers clear.
 	close(unblock)
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pipeline did not complete within 2s")
+	}
+	// Give the defer in processTask a moment to clean up workerActions.
+	time.Sleep(10 * time.Millisecond)
 
 	stats = mgr.Stats()
 	if len(stats.ActiveWorkers) != 0 {
@@ -489,6 +496,7 @@ type blockPipeline struct {
 	stub    *stubPipeline
 	started chan struct{}
 	unblock chan struct{}
+	done    chan struct{}
 }
 
 func (b *blockPipeline) Name() string                 { return b.stub.Name() }
@@ -501,5 +509,8 @@ func (b *blockPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[s
 	default:
 	}
 	<-b.unblock
+	if b.done != nil {
+		close(b.done)
+	}
 	return map[string]any{"label": "test"}, nil
 }
