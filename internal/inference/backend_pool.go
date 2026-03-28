@@ -96,7 +96,9 @@ func (p *BackendPool) All() []*ollamaBackend {
 // AcquireAny blocks until any healthy idle enabled backend is available or ctx is cancelled.
 // Picks the highest-score backend when multiple are available.
 func (p *BackendPool) AcquireAny(ctx context.Context) (*ollamaBackend, error) {
-	go func() { <-ctx.Done(); p.cond.Broadcast() }()
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	defer watchCancel()
+	go func() { <-watchCtx.Done(); p.cond.Broadcast() }()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -118,7 +120,9 @@ func (p *BackendPool) AcquireAny(ctx context.Context) (*ollamaBackend, error) {
 func (p *BackendPool) AcquireWithTimeout(ctx context.Context, b *ollamaBackend, timeout time.Duration) (bool, error) {
 	timer := time.AfterFunc(timeout, func() { p.cond.Broadcast() })
 	defer timer.Stop()
-	go func() { <-ctx.Done(); p.cond.Broadcast() }()
+	watchCtx, watchCancel := context.WithCancel(ctx)
+	defer watchCancel()
+	go func() { <-watchCtx.Done(); p.cond.Broadcast() }()
 
 	deadline := time.Now().Add(timeout)
 	p.mu.Lock()
