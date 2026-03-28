@@ -66,7 +66,6 @@ func (p *Pool) Start(ctx context.Context) error {
 			consumer: p.consumer,
 			producer: p.producer,
 			store:    p.store,
-			registry: p.registry,
 			logger:   p.logger,
 			emitter:  p.emitter,
 			active:   &p.active,

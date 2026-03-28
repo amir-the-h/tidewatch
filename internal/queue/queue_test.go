@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,17 +14,17 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestFailedTweet_JSONRoundTrip(t *testing.T) {
+	ev, _ := json.Marshal(TweetEvent{
+		TweetID:      "123",
+		Text:         "Hello Iran",
+		AuthorHandle: "testuser",
+		RuleIDs:      []int64{1},
+	})
 	original := &FailedTweet{
-		Tweet: &model.StreamTweet{
-			Tweet: &model.Tweet{
-				ID:           "123",
-				AuthorID:     "456",
-				AuthorHandle: "testuser",
-				Text:         "Hello Iran",
-			},
-			MatchingRules: []model.MatchingRule{
-				{ID: "rule1", Tag: "iran"},
-			},
+		Task: &Task{
+			TriggerType: "new_tweet",
+			Event:       json.RawMessage(ev),
+			ActionID:    42,
 		},
 		FailedModels: []FailedModel{
 			{Name: "sentiment", Error: "model not loaded", Timestamp: time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)},
@@ -42,20 +41,14 @@ func TestFailedTweet_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if got.Tweet == nil || got.Tweet.Tweet == nil {
-		t.Fatal("tweet is nil after round-trip")
+	if got.Task == nil {
+		t.Fatal("task is nil after round-trip")
 	}
-	if got.Tweet.Tweet.ID != original.Tweet.Tweet.ID {
-		t.Errorf("tweet ID: got %q, want %q", got.Tweet.Tweet.ID, original.Tweet.Tweet.ID)
+	if got.Task.ActionID != original.Task.ActionID {
+		t.Errorf("action ID: got %d, want %d", got.Task.ActionID, original.Task.ActionID)
 	}
-	if got.Tweet.Tweet.Text != original.Tweet.Tweet.Text {
-		t.Errorf("tweet text: got %q, want %q", got.Tweet.Tweet.Text, original.Tweet.Tweet.Text)
-	}
-	if len(got.Tweet.MatchingRules) != 1 {
-		t.Fatalf("matching rules: got %d, want 1", len(got.Tweet.MatchingRules))
-	}
-	if got.Tweet.MatchingRules[0].Tag != "iran" {
-		t.Errorf("matching rule tag: got %q, want %q", got.Tweet.MatchingRules[0].Tag, "iran")
+	if got.Task.TriggerType != original.Task.TriggerType {
+		t.Errorf("trigger type: got %q, want %q", got.Task.TriggerType, original.Task.TriggerType)
 	}
 	if len(got.FailedModels) != 1 {
 		t.Fatalf("failed models: got %d, want 1", len(got.FailedModels))
@@ -69,23 +62,23 @@ func TestFailedTweet_JSONRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: StreamTweet JSON round-trip
+// Test 2: Task JSON round-trip
 // ---------------------------------------------------------------------------
 
-func TestStreamTweet_JSONRoundTrip(t *testing.T) {
+func TestTask_JSONRoundTrip(t *testing.T) {
 	now := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
-	original := &model.StreamTweet{
-		Tweet: &model.Tweet{
-			ID:           "789",
-			AuthorID:     "101",
-			AuthorHandle: "newsbot",
-			Text:         "Breaking: Iran nuclear talks",
-			CreatedAt:    now,
-			FetchedAt:    now,
-		},
-		MatchingRules: []model.MatchingRule{
-			{ID: "r1", Tag: "nuclear"},
-			{ID: "r2", Tag: "iran"},
+	ev, _ := json.Marshal(TweetEvent{
+		TweetID:      "789",
+		Text:         "Breaking: Iran nuclear talks",
+		AuthorHandle: "newsbot",
+		RuleIDs:      []int64{1, 2},
+	})
+	original := &Task{
+		TriggerType: "new_tweet",
+		Event:       json.RawMessage(ev),
+		ActionID:    7,
+		Context: map[string]any{
+			"created_at": now.Format(time.RFC3339),
 		},
 	}
 
@@ -94,33 +87,32 @@ func TestStreamTweet_JSONRoundTrip(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	var got model.StreamTweet
+	var got Task
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	if got.Tweet == nil {
-		t.Fatal("tweet is nil after round-trip")
+	if got.ActionID != original.ActionID {
+		t.Errorf("ActionID: got %d, want %d", got.ActionID, original.ActionID)
 	}
-	if got.Tweet.ID != original.Tweet.ID {
-		t.Errorf("ID: got %q, want %q", got.Tweet.ID, original.Tweet.ID)
+	if got.TriggerType != original.TriggerType {
+		t.Errorf("TriggerType: got %q, want %q", got.TriggerType, original.TriggerType)
 	}
-	if got.Tweet.AuthorHandle != original.Tweet.AuthorHandle {
-		t.Errorf("AuthorHandle: got %q, want %q", got.Tweet.AuthorHandle, original.Tweet.AuthorHandle)
+
+	var gotEv TweetEvent
+	if err := json.Unmarshal(got.Event, &gotEv); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
 	}
-	if got.Tweet.Text != original.Tweet.Text {
-		t.Errorf("Text: got %q, want %q", got.Tweet.Text, original.Tweet.Text)
+	if gotEv.TweetID != "789" {
+		t.Errorf("TweetID: got %q, want %q", gotEv.TweetID, "789")
 	}
-	if !got.Tweet.CreatedAt.Equal(original.Tweet.CreatedAt) {
-		t.Errorf("CreatedAt: got %v, want %v", got.Tweet.CreatedAt, original.Tweet.CreatedAt)
-	}
-	if len(got.MatchingRules) != 2 {
-		t.Fatalf("MatchingRules: got %d, want 2", len(got.MatchingRules))
+	if len(gotEv.RuleIDs) != 2 {
+		t.Fatalf("RuleIDs: got %d, want 2", len(gotEv.RuleIDs))
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Test 3: Pop returns (nil, nil) on timeout (redis.Nil error from BRPop)
+// Test 3: PopTask returns (nil, nil) on timeout (redis.Nil error from BRPop)
 // ---------------------------------------------------------------------------
 
 // fakeRedisClient is a minimal redisClient implementation for testing.
@@ -149,19 +141,19 @@ func (f *fakeRedisClient) Del(_ context.Context, _ ...string) *redis.IntCmd {
 	return redis.NewIntResult(0, nil)
 }
 
-func TestPop_ReturnsNilOnTimeout(t *testing.T) {
+func TestPopTask_ReturnsNilOnTimeout(t *testing.T) {
 	fake := &fakeRedisClient{
 		brpopErr:    redis.Nil, // BRPop returns redis.Nil on timeout
 		brpopResult: nil,
 	}
 	q := &RedisQueue{client: fake}
 
-	tweet, err := q.Pop(context.Background(), QueueRaw, 1*time.Second)
+	task, err := q.PopTask(context.Background(), 1*time.Second)
 	if err != nil {
 		t.Fatalf("expected nil error on timeout, got: %v", err)
 	}
-	if tweet != nil {
-		t.Fatalf("expected nil tweet on timeout, got: %+v", tweet)
+	if task != nil {
+		t.Fatalf("expected nil task on timeout, got: %+v", task)
 	}
 }
 
@@ -181,7 +173,7 @@ func TestPopFailed_ReturnsNilOnTimeout(t *testing.T) {
 	}
 }
 
-func TestPop_ReturnsNilOnEmptyResult(t *testing.T) {
+func TestPopTask_ReturnsNilOnEmptyResult(t *testing.T) {
 	// BRPop can also return an empty slice with no error in some edge cases.
 	fake := &fakeRedisClient{
 		brpopErr:    nil,
@@ -189,12 +181,11 @@ func TestPop_ReturnsNilOnEmptyResult(t *testing.T) {
 	}
 	q := &RedisQueue{client: fake}
 
-	tweet, err := q.Pop(context.Background(), QueueRaw, 1*time.Second)
+	task, err := q.PopTask(context.Background(), 1*time.Second)
 	if err != nil {
 		t.Fatalf("expected nil error on empty result, got: %v", err)
 	}
-	if tweet != nil {
-		t.Fatalf("expected nil tweet on empty result, got: %+v", tweet)
+	if task != nil {
+		t.Fatalf("expected nil task on empty result, got: %+v", task)
 	}
 }
-
