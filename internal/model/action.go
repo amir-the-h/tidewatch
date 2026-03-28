@@ -9,6 +9,7 @@ const (
 	TriggerTypeNewTweet          TriggerType = "new_tweet"
 	TriggerTypeNewCategorization TriggerType = "new_categorization"
 	TriggerTypeEntityMatched     TriggerType = "entity_matched"
+	TriggerTypeChainOnly         TriggerType = "chain_only"
 )
 
 // Action subscribes a pipeline to a trigger.

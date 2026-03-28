@@ -49,7 +49,7 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.TriggerType {
-	case model.TriggerTypeNewTweet, model.TriggerTypeNewCategorization, model.TriggerTypeEntityMatched:
+	case model.TriggerTypeNewTweet, model.TriggerTypeNewCategorization, model.TriggerTypeEntityMatched, model.TriggerTypeChainOnly:
 	default:
 		writeError(w, http.StatusBadRequest, "invalid trigger_type")
 		return
@@ -142,7 +142,7 @@ func (s *Server) handleDeleteAction(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.store.DeleteAction(r.Context(), id); err != nil {
 		s.logger.Error("api: delete action", "action_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete action")
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -327,6 +327,22 @@ func (s *Server) tweetsForAction(ctx context.Context, a *model.Action) ([]*model
 		}
 	}
 	return result, nil
+}
+
+// handleGetExecutionMetadata returns the metadata key-value pairs for a single execution.
+func (s *Server) handleGetExecutionMetadata(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid execution ID")
+		return
+	}
+	meta, err := s.store.ListActionExecutionMetadata(r.Context(), id)
+	if err != nil {
+		s.logger.Error("api: get execution metadata", "execution_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to get execution metadata")
+		return
+	}
+	writeJSON(w, http.StatusOK, meta)
 }
 
 // reloadActionCache reloads the action cache from the store.
