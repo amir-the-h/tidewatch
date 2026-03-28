@@ -189,8 +189,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	// TODO(Task 7): pass pool instead of nil once api.NewServerWithConcreteRules accepts *inference.BackendPool.
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, nil, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

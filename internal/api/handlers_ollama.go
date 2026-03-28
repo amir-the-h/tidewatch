@@ -1,88 +1,230 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/go-chi/chi/v5"
 )
 
-func (s *Server) handleOllamaBackends(w http.ResponseWriter, r *http.Request) {
-	// Collect stats from all pipelines that manage a backend pool.
-	type merged struct {
-		stat        inference.BackendStat
-		scoreSum    float64
-		scoreCount  int
-		allHealthy  bool
-		initialized bool
+// handleListOllamaBackends returns all backends merged with live pool stats.
+// GET /api/ollama/backends
+func (s *Server) handleListOllamaBackends(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.store.ListOllamaBackends(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	byURL := make(map[string]*merged)
+	stats := s.backendPool.Stats()
+	statsByID := make(map[int64]inference.BackendStat, len(stats))
+	for _, st := range stats {
+		statsByID[st.ID] = st
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, b := range rows {
+		st := statsByID[b.ID]
+		out = append(out, map[string]any{
+			"id":             b.ID,
+			"name":           b.Name,
+			"url":            b.URL,
+			"enabled":        b.Enabled,
+			"created_at":     b.CreatedAt,
+			"healthy":        st.Healthy,
+			"in_use":         st.InUse,
+			"score":          st.Score,
+			"request_count":  st.RequestCount,
+			"last_active_at": st.LastActiveAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
 
-	for _, p := range s.registry.All() {
-		bs, ok := p.(inference.BackendStatter)
-		if !ok {
-			continue
-		}
-		for _, stat := range bs.BackendStats() {
-			m, exists := byURL[stat.URL]
-			if !exists {
-				m = &merged{allHealthy: true}
-				byURL[stat.URL] = m
-			}
-			if !m.initialized {
-				m.stat.URL = stat.URL
-				m.stat.Name = stat.Name
-				m.initialized = true
-			}
-			// healthy: true only if every pipeline instance is healthy
-			if !stat.Healthy {
-				m.allHealthy = false
-			}
-			// in_use: true if any pipeline instance is in use
-			if stat.InUse {
-				m.stat.InUse = true
-			}
-			// score: accumulate for averaging (skip zero — not yet measured)
-			if stat.Score > 0 {
-				m.scoreSum += stat.Score
-				m.scoreCount++
-			}
-			// request_count: sum
-			m.stat.RequestCount += stat.RequestCount
-			// last_active_at: keep most recent
-			if stat.LastActiveAt != nil {
-				if m.stat.LastActiveAt == nil || stat.LastActiveAt.After(*m.stat.LastActiveAt) {
-					t := *stat.LastActiveAt
-					m.stat.LastActiveAt = &t
-				}
-			}
-		}
+// handleCreateOllamaBackend creates a new backend and reloads the pool.
+// POST /api/ollama/backends
+func (s *Server) handleCreateOllamaBackend(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
 	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.URL == "" {
+		writeError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	if req.Name == "" {
+		req.Name = req.URL
+	}
+	b, err := s.store.CreateOllamaBackend(r.Context(), req.Name, req.URL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.reloadBackendPool(r.Context())
+	writeJSON(w, http.StatusCreated, b)
+}
 
-	// Build result slice ordered by URL for stable output.
-	// Collect URLs first then sort for determinism.
-	urls := make([]string, 0, len(byURL))
-	for u := range byURL {
-		urls = append(urls, u)
+// handleUpdateOllamaBackend updates name and/or URL for a backend.
+// PUT /api/ollama/backends/{id}
+func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
 	}
-	// Simple insertion sort — pool sizes are small.
-	for i := 1; i < len(urls); i++ {
-		for j := i; j > 0 && urls[j] < urls[j-1]; j-- {
-			urls[j], urls[j-1] = urls[j-1], urls[j]
-		}
+	var req struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
 	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	existing, err := s.store.GetOllamaBackend(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if req.Name == "" {
+		req.Name = existing.Name
+	}
+	if req.URL == "" {
+		req.URL = existing.URL
+	}
+	if err := s.store.UpdateOllamaBackend(r.Context(), id, req.Name, req.URL); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.reloadBackendPool(r.Context())
+	b, _ := s.store.GetOllamaBackend(r.Context(), id)
+	writeJSON(w, http.StatusOK, b)
+}
 
-	result := make([]inference.BackendStat, 0, len(urls))
-	for _, u := range urls {
-		m := byURL[u]
-		stat := m.stat
-		stat.Healthy = m.allHealthy
-		if m.scoreCount > 0 {
-			stat.Score = m.scoreSum / float64(m.scoreCount)
-		}
-		result = append(result, stat)
+// handleDeleteOllamaBackend deletes a backend.
+// DELETE /api/ollama/backends/{id}
+func (s *Server) handleDeleteOllamaBackend(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
 	}
+	if err := s.store.DeleteOllamaBackend(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.reloadBackendPool(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+// handleEnableOllamaBackend enables a backend.
+// POST /api/ollama/backends/{id}/enable
+func (s *Server) handleEnableOllamaBackend(w http.ResponseWriter, r *http.Request) {
+	s.setOllamaBackendEnabled(w, r, true)
+}
+
+// handleDisableOllamaBackend disables a backend.
+// POST /api/ollama/backends/{id}/disable
+func (s *Server) handleDisableOllamaBackend(w http.ResponseWriter, r *http.Request) {
+	s.setOllamaBackendEnabled(w, r, false)
+}
+
+func (s *Server) setOllamaBackendEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := s.store.SetOllamaBackendEnabled(r.Context(), id, enabled); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.reloadBackendPool(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleListPipelineBackends returns a pipeline's assigned backends in priority order.
+// GET /api/pipelines/{id}/backends
+func (s *Server) handleListPipelineBackends(w http.ResponseWriter, r *http.Request) {
+	pipelineID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	pbs, err := s.store.ListPipelineBackends(r.Context(), pipelineID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, pbs)
+}
+
+// handleSetPipelineBackends replaces a pipeline's full backend assignment list.
+// PUT /api/pipelines/{id}/backends
+func (s *Server) handleSetPipelineBackends(w http.ResponseWriter, r *http.Request) {
+	pipelineID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req []struct {
+		BackendID int64 `json:"backend_id"`
+		Priority  int   `json:"priority"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	assignments := make([]model.PipelineBackend, len(req))
+	for i, item := range req {
+		assignments[i] = model.PipelineBackend{PipelineID: pipelineID, BackendID: item.BackendID, Priority: item.Priority}
+	}
+	if err := s.store.SetPipelineBackends(r.Context(), pipelineID, assignments); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.reloadCache(r.Context())
+	pbs, _ := s.store.ListPipelineBackends(r.Context(), pipelineID)
+	writeJSON(w, http.StatusOK, pbs)
+}
+
+// handleRemovePipelineBackend removes one backend assignment.
+// DELETE /api/pipelines/{id}/backends/{backend_id}
+func (s *Server) handleRemovePipelineBackend(w http.ResponseWriter, r *http.Request) {
+	pipelineID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	backendID, err := strconv.ParseInt(chi.URLParam(r, "backend_id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid backend_id")
+		return
+	}
+	if err := s.store.RemovePipelineBackend(r.Context(), pipelineID, backendID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.reloadCache(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// reloadBackendPool reloads BackendPool from DB then reloads ActionCache.
+func (s *Server) reloadBackendPool(ctx context.Context) {
+	backends, err := s.store.ListOllamaBackends(ctx)
+	if err != nil {
+		s.logger.Error("api: reload backend pool: list backends", "error", err)
+		return
+	}
+	records := make([]inference.BackendRecord, len(backends))
+	for i, b := range backends {
+		records[i] = inference.BackendRecord{ID: b.ID, Name: b.Name, URL: b.URL, Enabled: b.Enabled}
+	}
+	s.backendPool.Load(records)
+	s.reloadCache(ctx)
 }

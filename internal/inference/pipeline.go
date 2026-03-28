@@ -80,12 +80,6 @@ type ChatPipeline interface {
 	EstimateTokens(ctx context.Context, texts []string) (estimated int, contextLimit int, err error)
 }
 
-// BackendConfig holds URL and optional display name for an Ollama backend.
-type BackendConfig struct {
-	URL  string
-	Name string
-}
-
 // BackendStat is a runtime snapshot of one Ollama backend.
 type BackendStat struct {
 	ID           int64      `json:"id"`
@@ -97,11 +91,6 @@ type BackendStat struct {
 	Score        float64    `json:"score"`
 	RequestCount int64      `json:"request_count"`
 	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
-}
-
-// BackendStatter is implemented by pipelines managing a backend pool.
-type BackendStatter interface {
-	BackendStats() []BackendStat
 }
 
 // ExtractionResult is the structured output of the geo-event extraction pipeline.
