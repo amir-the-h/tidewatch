@@ -21,7 +21,7 @@ interface WorkerStats {
   total: number
   active: number
   idle: number
-  active_workers?: Array<{ id: number; action: string }>
+  active_workers?: Array<{ id: number; action: string; pipeline: string; backend: string }>
 }
 
 const queueStats  = ref<QueueStats | null>(null)
@@ -248,12 +248,24 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
         v-else
         :columns="[
           { title: 'Worker', key: 'id', width: 90,
-            render: (row: { id: number; action: string }) =>
+            render: (row: { id: number; action: string; pipeline: string; backend: string }) =>
               h('span', { style: { color: '#585b70', fontVariantNumeric: 'tabular-nums' } }, `#${row.id}`)
           },
           { title: 'Action', key: 'action',
-            render: (row: { id: number; action: string }) =>
+            render: (row: { id: number; action: string; pipeline: string; backend: string }) =>
               h('span', { style: { color: '#a6e3a1' } }, row.action)
+          },
+          { title: 'Pipeline', key: 'pipeline',
+            render: (row: { id: number; action: string; pipeline: string; backend: string }) =>
+              h('span', { style: { color: '#cdd6f4' } }, row.pipeline || '—')
+          },
+          { title: 'Backend', key: 'backend', width: 180,
+            render: (row: { id: number; action: string; pipeline: string; backend: string }) => {
+              if (!row.backend) return h('span', { style: { color: '#585b70' } }, '—')
+              if (row.backend === 'waiting') return h('span', { style: { color: '#585b70' } }, 'waiting…')
+              const display = row.backend.replace(/^https?:\/\//, '')
+              return h('span', { style: { color: '#cdd6f4', fontVariantNumeric: 'tabular-nums' } }, display)
+            }
           },
         ]"
         :data="workerStats.active_workers"
