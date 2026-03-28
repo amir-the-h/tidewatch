@@ -88,7 +88,7 @@ func defaults() *Config {
 	cfg.Search.Interval = 15 * time.Minute
 	cfg.Search.MaxResults = 100
 	cfg.Search.Limit = 0
-	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text"}
+	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text", "note_tweet"}
 	cfg.Search.UserFields = []string{"username"}
 	cfg.Search.Expansions = []string{"author_id", "referenced_tweets.id"}
 	cfg.Auth.AdminUsername = "admin"

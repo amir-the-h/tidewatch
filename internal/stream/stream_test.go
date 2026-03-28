@@ -254,6 +254,61 @@ func TestNormalize_RetweetExpandsFullText(t *testing.T) {
 	}
 }
 
+func TestNormalize_NoteTweetUsesFullText(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"id": "1001",
+			"text": "This is the first 280 characters of a long note tweet\u2026",
+			"author_id": "111",
+			"created_at": "2026-03-23T12:00:00.000Z",
+			"note_tweet": {"text": "This is the complete full text of a long note tweet that exceeds 280 characters and contains much more detail."}
+		},
+		"includes": {
+			"users": [{"id": "111", "username": "author"}]
+		},
+		"matching_rules": []
+	}`)
+
+	st, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "This is the complete full text of a long note tweet that exceeds 280 characters and contains much more detail."
+	if st.Tweet.Text != want {
+		t.Errorf("expected note_tweet full text, got: %q", st.Tweet.Text)
+	}
+}
+
+func TestNormalize_RetweetOfNoteTweetUsesFullText(t *testing.T) {
+	data := []byte(`{
+		"data": {
+			"id": "1002",
+			"text": "RT @author: This is the first 280 characters\u2026",
+			"author_id": "222",
+			"created_at": "2026-03-23T12:00:00.000Z",
+			"referenced_tweets": [{"id": "1001", "type": "retweeted"}]
+		},
+		"includes": {
+			"users": [{"id": "222", "username": "retweeter"}],
+			"tweets": [{
+				"id": "1001",
+				"text": "This is the first 280 characters\u2026",
+				"note_tweet": {"text": "Full text of the retweeted note tweet with all its details intact."}
+			}]
+		},
+		"matching_rules": []
+	}`)
+
+	st, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "Full text of the retweeted note tweet with all its details intact."
+	if st.Tweet.Text != want {
+		t.Errorf("expected full note_tweet text from retweet, got: %q", st.Tweet.Text)
+	}
+}
+
 func TestNormalize_NonRetweetKeepsText(t *testing.T) {
 	data := []byte(`{
 		"data": {
