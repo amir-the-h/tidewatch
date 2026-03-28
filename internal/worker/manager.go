@@ -25,7 +25,7 @@ type Manager struct {
 	cache         *ActionCache
 	logger        *slog.Logger
 	active        atomic.Int32
-	workerActions sync.Map // key: int (worker ID), value: string (action name)
+	workerActions sync.Map // key: int (worker ID), value: WorkerInfo
 }
 
 func NewManager(
@@ -55,11 +55,8 @@ func (m *Manager) Stats() PoolStats {
 	}
 
 	var activeWorkers []WorkerInfo
-	m.workerActions.Range(func(k, v any) bool {
-		activeWorkers = append(activeWorkers, WorkerInfo{
-			ID:     k.(int),
-			Action: v.(string),
-		})
+	m.workerActions.Range(func(_, v any) bool {
+		activeWorkers = append(activeWorkers, v.(WorkerInfo))
 		return true
 	})
 
@@ -121,7 +118,12 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	}
 
 	// Track which action this worker is executing.
-	m.workerActions.Store(workerID, entry.Action.Name)
+	info := WorkerInfo{
+		ID:       workerID,
+		Action:   entry.Action.Name,
+		Pipeline: entry.Pipeline.Name(),
+	}
+	m.workerActions.Store(workerID, info)
 	defer m.workerActions.Delete(workerID)
 
 	var ev queue.TweetEvent
@@ -139,8 +141,18 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		Context: mergedCtx,
 	}
 
+	// Inject backend callback so Ollama pipelines can report which backend they acquire.
+	inferenceCtx := inference.WithBackendNotify(ctx, func(backend string) {
+		m.workerActions.Store(workerID, WorkerInfo{
+			ID:       workerID,
+			Action:   entry.Action.Name,
+			Pipeline: entry.Pipeline.Name(),
+			Backend:  backend,
+		})
+	})
+
 	startTime := time.Now()
-	outputs, runErr := entry.Pipeline.Run(ctx, input)
+	outputs, runErr := entry.Pipeline.Run(inferenceCtx, input)
 
 	exec := &model.ActionExecution{
 		ActionID:   task.ActionID,
