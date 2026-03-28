@@ -44,9 +44,9 @@ func (s *Server) handleListMapPins(w http.ResponseWriter, r *http.Request) {
 		desc := pin.Description
 		if len(desc) > 0 {
 			// description is stored as a JSON-encoded string: `"text"` → strip quotes
-			var s string
-			if json.Unmarshal([]byte(desc), &s) == nil {
-				desc = s
+			var decoded string
+			if json.Unmarshal([]byte(desc), &decoded) == nil {
+				desc = decoded
 			}
 		}
 
