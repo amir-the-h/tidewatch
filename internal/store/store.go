@@ -42,14 +42,6 @@ type RuleFilter struct {
 	Local  *bool
 }
 
-// CategorizationFilter defines optional filters for listing categorizations.
-type CategorizationFilter struct {
-	TweetID   *string
-	ModelName *string
-	From      *time.Time
-	To        *time.Time
-}
-
 // NotificationFilter defines optional filters for listing notifications.
 type NotificationFilter struct {
 	EventType *string
@@ -169,11 +161,6 @@ type Store interface {
 
 	// TweetRuleIDs (kept — used by stream listener rule matching)
 	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
-
-	// Categorizations
-	SaveCategorization(ctx context.Context, c *model.Categorization) error
-	ListCategorizations(ctx context.Context, filter CategorizationFilter) ([]*model.Categorization, error)
-	ListUncategorizedTweets(ctx context.Context, modelNames []string) ([]*model.Tweet, error)
 
 	// Notifications
 	SaveNotification(ctx context.Context, n *model.Notification) error

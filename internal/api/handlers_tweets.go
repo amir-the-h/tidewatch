@@ -87,18 +87,64 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tweetID := tweet.ID
-	cats, err := s.store.ListCategorizations(r.Context(), store.CategorizationFilter{
-		TweetID: &tweetID,
-	})
+
+	// Load action executions for this tweet, with latest-per-action deduplication.
+	execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{TweetID: &tweetID})
 	if err != nil {
-		s.logger.Error("api: list categorizations for tweet", "tweet_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list categorizations")
+		s.logger.Error("api: list executions for tweet", "tweet_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list executions")
 		return
 	}
 
+	// Keep only the most recent execution per action.
+	type execResult struct {
+		ID         int64          `json:"id"`
+		ActionID   int64          `json:"action_id"`
+		ActionName string         `json:"action_name"`
+		Status     string         `json:"status"`
+		Error      string         `json:"error,omitempty"`
+		ExecutedAt string         `json:"executed_at"`
+		Metadata   map[string]any `json:"metadata"`
+	}
+
+	seen := map[int64]bool{}
+	var execResults []execResult
+	for _, e := range execs {
+		if seen[e.ActionID] {
+			continue
+		}
+		seen[e.ActionID] = true
+
+		actionName := ""
+		if a, err := s.store.GetAction(r.Context(), e.ActionID); err == nil {
+			actionName = a.Name
+		}
+
+		rawMeta, _ := s.store.ListActionExecutionMetadata(r.Context(), e.ID)
+		meta := make(map[string]any, len(rawMeta))
+		for k, v := range rawMeta {
+			var parsed any
+			if json.Unmarshal([]byte(v), &parsed) == nil {
+				meta[k] = parsed
+			} else {
+				meta[k] = v
+			}
+		}
+
+		execResults = append(execResults, execResult{
+			ID:         e.ID,
+			ActionID:   e.ActionID,
+			ActionName: actionName,
+			Status:     e.Status,
+			Error:      e.Error,
+			ExecutedAt: e.ExecutedAt.UTC().Format(time.RFC3339),
+			Metadata:   meta,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tweet":           tweet,
-		"categorizations": cats,
+		"tweet":      tweet,
+		"executions": execResults,
 	})
 }
 
@@ -148,6 +194,11 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 		tweets = append(tweets, tweet)
 	}
 
+	if len(tweets) == 0 {
+		writeError(w, http.StatusNotFound, "tweet not found")
+		return
+	}
+
 	count := 0
 	for _, tweet := range tweets {
 		ev, _ := json.Marshal(queue.TweetEvent{
@@ -158,8 +209,14 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 		pushed := false
 		targetIDs := req.ActionIDs
 		if len(targetIDs) == 0 && s.actionCache != nil {
-			// No specific actions requested — dispatch to all active new-tweet actions.
-			entries := s.actionCache.AllForTrigger(model.TriggerTypeNewTweet, nil)
+			// No specific actions requested — dispatch to all active new-tweet actions
+			// that match the tweet's rules (rule-scoped actions only fire if the tweet
+			// matched one of their rules; global actions always fire).
+			matchedRuleIDs := make([]int64, 0, len(tweet.Rules))
+			for _, r := range tweet.Rules {
+				matchedRuleIDs = append(matchedRuleIDs, r.ID)
+			}
+			entries := s.actionCache.AllForTrigger(model.TriggerTypeNewTweet, matchedRuleIDs)
 			for _, e := range entries {
 				targetIDs = append(targetIDs, e.Action.ID)
 			}

@@ -160,7 +160,6 @@ func NewServer(
 			r.Get("/sources", srv.handleListSources)
 			r.Get("/tweets", srv.handleListTweets)
 			r.Get("/tweets/{id}", srv.handleGetTweet)
-			r.Get("/categorizations", srv.handleListCategorizations)
 			r.Get("/map", srv.handleListMapPins)
 			r.Get("/tracked-entities", srv.handleListTrackedEntities)
 			r.Get("/tracked-entities/{id}", srv.handleGetTrackedEntity)

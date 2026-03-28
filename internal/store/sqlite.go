@@ -636,76 +636,6 @@ func (s *sqliteStore) ListTweetRuleIDs(ctx context.Context, tweetID string) ([]i
 }
 
 
-// ── Categorizations ───────────────────────────────────────────────────────────
-
-func (s *sqliteStore) SaveCategorization(ctx context.Context, c *model.Categorization) error {
-	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO categorizations (tweet_id, model_name, model_version, results, created_at)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(tweet_id, model_name) DO UPDATE SET
-		     model_version = excluded.model_version,
-		     results       = excluded.results,
-		     created_at    = excluded.created_at`,
-		c.TweetID, c.ModelName, c.ModelVersion, string(c.Results),
-		c.CreatedAt.UTC().Format(time.RFC3339),
-	)
-	if err != nil {
-		return fmt.Errorf("store: save categorization: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("store: save categorization: last insert id: %w", err)
-	}
-	c.ID = id
-	return nil
-}
-
-func (s *sqliteStore) ListCategorizations(ctx context.Context, filter CategorizationFilter) ([]*model.Categorization, error) {
-	query := `SELECT c.id, c.tweet_id, c.model_name, c.model_version, c.results, c.created_at,
-	           COALESCE(t.created_at, c.created_at) AS tweet_created_at
-	           FROM categorizations c
-	           LEFT JOIN tweets t ON t.id = c.tweet_id`
-	var args []any
-	var where []string
-
-	if filter.TweetID != nil {
-		where = append(where, "c.tweet_id = ?")
-		args = append(args, *filter.TweetID)
-	}
-	if filter.ModelName != nil {
-		where = append(where, "c.model_name = ?")
-		args = append(args, *filter.ModelName)
-	}
-	if filter.From != nil {
-		where = append(where, "c.created_at >= ?")
-		args = append(args, filter.From.UTC().Format(time.RFC3339))
-	}
-	if filter.To != nil {
-		where = append(where, "c.created_at <= ?")
-		args = append(args, filter.To.UTC().Format(time.RFC3339))
-	}
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	query += " ORDER BY c.id ASC"
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("store: list categorizations: %w", err)
-	}
-	defer rows.Close()
-
-	cats := make([]*model.Categorization, 0)
-	for rows.Next() {
-		c, err := scanCategorization(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: list categorizations: scan: %w", err)
-		}
-		cats = append(cats, c)
-	}
-	return cats, rows.Err()
-}
-
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 const notificationColumns = `id, name, event_type, active, provider, filter_rule_id, filter_model_name,
@@ -884,53 +814,6 @@ func (s *sqliteStore) SetNotificationActive(ctx context.Context, id int64, activ
 	return nil
 }
 
-func (s *sqliteStore) ListUncategorizedTweets(ctx context.Context, modelNames []string) ([]*model.Tweet, error) {
-	var query string
-	var args []any
-
-	if len(modelNames) == 0 {
-		query = `SELECT t.id, t.author_id, t.author_handle, t.text, t.raw_json, t.created_at, t.fetched_at
-		         FROM tweets t
-		         LEFT JOIN categorizations c ON c.tweet_id = t.id
-		         WHERE c.id IS NULL
-		         ORDER BY t.created_at DESC`
-	} else {
-		placeholders := strings.Repeat("?,", len(modelNames))
-		placeholders = placeholders[:len(placeholders)-1]
-
-		query = fmt.Sprintf(`
-		SELECT DISTINCT t.id, t.author_id, t.author_handle, t.text, t.raw_json, t.created_at, t.fetched_at
-		FROM tweets t
-		WHERE (
-		    SELECT COUNT(DISTINCT c.model_name)
-		    FROM categorizations c
-		    WHERE c.tweet_id = t.id AND c.model_name IN (%s)
-		) < ?
-		ORDER BY t.created_at DESC`, placeholders)
-
-		for _, name := range modelNames {
-			args = append(args, name)
-		}
-		args = append(args, len(modelNames))
-	}
-
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("store: list uncategorized tweets: %w", err)
-	}
-	defer rows.Close()
-
-	tweets := make([]*model.Tweet, 0)
-	for rows.Next() {
-		t, err := scanTweet(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: list uncategorized tweets: scan: %w", err)
-		}
-		tweets = append(tweets, t)
-	}
-	return tweets, rows.Err()
-}
-
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 type scanner interface {
@@ -1001,26 +884,6 @@ func scanRule(s scanner) (*model.Rule, error) {
 	return &r, nil
 }
 
-
-func scanCategorization(s scanner) (*model.Categorization, error) {
-	var c model.Categorization
-	var results, createdAt, tweetCreatedAt string
-	if err := s.Scan(&c.ID, &c.TweetID, &c.ModelName, &c.ModelVersion, &results, &createdAt, &tweetCreatedAt); err != nil {
-		return nil, err
-	}
-	c.Results = json.RawMessage(results)
-	var err error
-	c.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse categorization created_at: %w", err)
-	}
-	c.TweetCreatedAt, err = time.Parse(time.RFC3339, tweetCreatedAt)
-	if err != nil {
-		// Fall back to categorization time if tweet timestamp is unparseable.
-		c.TweetCreatedAt = c.CreatedAt
-	}
-	return &c, nil
-}
 
 func scanNotification(s scanner) (*model.Notification, error) {
 	var n model.Notification

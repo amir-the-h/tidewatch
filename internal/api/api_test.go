@@ -22,13 +22,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	sources         map[int64]*model.Source
-	rules           map[int64]*model.Rule
-	tweets          map[string]*model.Tweet
-	notifications   map[int64]*model.Notification
-	categorizations []*model.Categorization
-	tweetRules      []*model.TweetRule
-	nextID          int64
+	sources       map[int64]*model.Source
+	rules         map[int64]*model.Rule
+	tweets        map[string]*model.Tweet
+	notifications map[int64]*model.Notification
+	tweetRules    []*model.TweetRule
+	nextID        int64
 }
 
 func newMockStore() *mockStore {
@@ -163,29 +162,6 @@ func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilte
 func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
 func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
 
-func (m *mockStore) SaveCategorization(_ context.Context, c *model.Categorization) error {
-	m.categorizations = append(m.categorizations, c)
-	return nil
-}
-func (m *mockStore) ListCategorizations(_ context.Context, f store.CategorizationFilter) ([]*model.Categorization, error) {
-	if f.TweetID == nil {
-		return m.categorizations, nil
-	}
-	out := make([]*model.Categorization, 0)
-	for _, c := range m.categorizations {
-		if c.TweetID == *f.TweetID {
-			out = append(out, c)
-		}
-	}
-	return out, nil
-}
-func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
-	out := make([]*model.Tweet, 0, len(m.tweets))
-	for _, t := range m.tweets {
-		out = append(out, t)
-	}
-	return out, nil
-}
 func (m *mockStore) SaveNotification(_ context.Context, n *model.Notification) error {
 	m.nextID++
 	n.ID = m.nextID
@@ -472,7 +448,7 @@ func TestListTweets_Pagination(t *testing.T) {
 	}
 }
 
-func TestGetTweet_WithCategorizations(t *testing.T) {
+func TestGetTweet_ReturnsDetail(t *testing.T) {
 	srv, ms, _, _ := newTestServer(t)
 
 	tw := &model.Tweet{
@@ -481,13 +457,6 @@ func TestGetTweet_WithCategorizations(t *testing.T) {
 		FetchedAt: time.Now(),
 	}
 	_ = ms.SaveTweet(context.Background(), tw)
-
-	cat := &model.Categorization{
-		TweetID:   "t1",
-		ModelName: "classifier",
-		Results:   json.RawMessage(`{"label":"politics","score":0.9}`),
-	}
-	_ = ms.SaveCategorization(context.Background(), cat)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tweets/t1", nil)
 	w := httptest.NewRecorder()
@@ -498,8 +467,7 @@ func TestGetTweet_WithCategorizations(t *testing.T) {
 	}
 
 	var result struct {
-		Tweet           *model.Tweet            `json:"tweet"`
-		Categorizations []*model.Categorization `json:"categorizations"`
+		Tweet *model.Tweet `json:"tweet"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -509,9 +477,6 @@ func TestGetTweet_WithCategorizations(t *testing.T) {
 	}
 	if result.Tweet.ID != "t1" {
 		t.Errorf("expected tweet ID t1, got %s", result.Tweet.ID)
-	}
-	if len(result.Categorizations) != 1 {
-		t.Errorf("expected 1 categorization, got %d", len(result.Categorizations))
 	}
 }
 

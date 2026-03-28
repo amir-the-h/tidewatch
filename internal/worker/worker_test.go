@@ -51,14 +51,9 @@ func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTweet) error
 // --- mockStore ---
 
 type mockStore struct {
-	categorizations []*model.Categorization
-	executions      []*model.ActionExecution
+	executions []*model.ActionExecution
 }
 
-func (m *mockStore) SaveCategorization(_ context.Context, c *model.Categorization) error {
-	m.categorizations = append(m.categorizations, c)
-	return nil
-}
 func (m *mockStore) SaveActionExecution(_ context.Context, e *model.ActionExecution) error {
 	e.ID = int64(len(m.executions) + 1)
 	m.executions = append(m.executions, e)
@@ -138,14 +133,6 @@ func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionCha
 }
 func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
 func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
-
-// Categorizations
-func (m *mockStore) ListCategorizations(_ context.Context, _ store.CategorizationFilter) ([]*model.Categorization, error) {
-	return nil, nil
-}
-func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
-	return nil, nil
-}
 
 // Notifications
 func (m *mockStore) SaveNotification(_ context.Context, _ *model.Notification) error { return nil }
@@ -395,14 +382,11 @@ func TestManager_ProcessesTweet(t *testing.T) {
 	mgr := NewManager(2, consumer, producer, storeImpl, cache, nil)
 	runManagerUntilDrained(t, mgr, consumer)
 
-	if len(storeImpl.categorizations) != 1 {
-		t.Fatalf("expected 1 categorization, got %d", len(storeImpl.categorizations))
+	if len(storeImpl.executions) != 1 {
+		t.Fatalf("expected 1 execution, got %d", len(storeImpl.executions))
 	}
-	if storeImpl.categorizations[0].TweetID != "tweet-m1" {
-		t.Errorf("wrong tweet id: %s", storeImpl.categorizations[0].TweetID)
-	}
-	if storeImpl.categorizations[0].ModelName != "pa" {
-		t.Errorf("wrong model name: %s", storeImpl.categorizations[0].ModelName)
+	if storeImpl.executions[0].TweetID != "tweet-m1" {
+		t.Errorf("wrong tweet id: %s", storeImpl.executions[0].TweetID)
 	}
 }
 
@@ -416,8 +400,8 @@ func TestManager_UnknownActionID_Skipped(t *testing.T) {
 	mgr := NewManager(2, consumer, producer, storeImpl, cache, nil)
 	runManagerUntilDrained(t, mgr, consumer)
 
-	if len(storeImpl.categorizations) != 0 {
-		t.Fatalf("expected 0 categorizations, got %d", len(storeImpl.categorizations))
+	if len(storeImpl.executions) != 0 {
+		t.Fatalf("expected 0 executions, got %d", len(storeImpl.executions))
 	}
 }
 

@@ -64,18 +64,6 @@ func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error          
 func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                          { return nil }
 func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error     { return nil }
 func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)               { return 0, nil }
-func (m *mockStore) SaveModel(_ context.Context, _ *model.Model) error                    { return nil }
-func (m *mockStore) GetModel(_ context.Context, _ int64) (*model.Model, error)            { return nil, nil }
-func (m *mockStore) ListModels(_ context.Context) ([]*model.Model, error)                 { return nil, nil }
-func (m *mockStore) DeleteModel(_ context.Context, _ int64) error                         { return nil }
-func (m *mockStore) SetModelActive(_ context.Context, _ int64, _ bool) error              { return nil }
-func (m *mockStore) SaveCategorization(_ context.Context, _ *model.Categorization) error  { return nil }
-func (m *mockStore) ListCategorizations(_ context.Context, _ store.CategorizationFilter) ([]*model.Categorization, error) {
-	return nil, nil
-}
-func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
-	return nil, nil
-}
 func (m *mockStore) SaveNotification(_ context.Context, _ *model.Notification) error { return nil }
 func (m *mockStore) GetNotification(_ context.Context, _ int64) (*model.Notification, error) {
 	return nil, nil

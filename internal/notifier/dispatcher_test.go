@@ -165,15 +165,6 @@ func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilte
 }
 func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
 func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
-func (m *mockStore) SaveCategorization(_ context.Context, _ *model.Categorization) error {
-	panic("not implemented")
-}
-func (m *mockStore) ListCategorizations(_ context.Context, _ store.CategorizationFilter) ([]*model.Categorization, error) {
-	panic("not implemented")
-}
-func (m *mockStore) ListUncategorizedTweets(_ context.Context, _ []string) ([]*model.Tweet, error) {
-	panic("not implemented")
-}
 func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error) { return nil, nil }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                    { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)            { return nil, nil }
