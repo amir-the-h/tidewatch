@@ -235,5 +235,20 @@ type Store interface {
 	GetTwitterCredentials(ctx context.Context) (*model.TwitterCredentials, error)
 	DeleteTwitterCredentials(ctx context.Context) error
 
+	// OllamaBackends
+	ListOllamaBackends(ctx context.Context) ([]model.OllamaBackend, error)
+	GetOllamaBackend(ctx context.Context, id int64) (model.OllamaBackend, error)
+	CreateOllamaBackend(ctx context.Context, name, url string) (model.OllamaBackend, error)
+	UpdateOllamaBackend(ctx context.Context, id int64, name, url string) error
+	DeleteOllamaBackend(ctx context.Context, id int64) error
+	SetOllamaBackendEnabled(ctx context.Context, id int64, enabled bool) error
+
+	// PipelineBackends
+	ListPipelineBackends(ctx context.Context, pipelineID int64) ([]model.PipelineBackend, error)
+	SetPipelineBackends(ctx context.Context, pipelineID int64, assignments []model.PipelineBackend) error
+	RemovePipelineBackend(ctx context.Context, pipelineID, backendID int64) error
+	// ListAllPipelineBackendIDs returns pipelineID → []backendID in priority order (for ActionCache.Load).
+	ListAllPipelineBackendIDs(ctx context.Context) (map[int64][]int64, error)
+
 	Close() error
 }
