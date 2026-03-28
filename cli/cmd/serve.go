@@ -182,7 +182,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, twitterClient, rules, streamClient, cfg.X.Tier, ollamaBackends, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, ollamaBackends, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

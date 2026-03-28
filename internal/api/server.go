@@ -15,6 +15,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
+	"github.com/amir-the-h/iran-watcher/internal/pipeline"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/search"
 	"github.com/amir-the-h/iran-watcher/internal/store"
@@ -68,6 +69,7 @@ type Server struct {
 	producer                queue.Producer
 	registry                *inference.Registry
 	actionCache             *worker.ActionCache
+	pipelineRegistry        *pipeline.Registry
 	twitterClient           *twitter.Client // nil when Twitter not configured
 	rules                   ruleManagerInterface
 	stream                  streamClientInterface
@@ -93,6 +95,7 @@ func NewServer(
 	q queue.Producer,
 	reg *inference.Registry,
 	cache *worker.ActionCache,
+	pipeReg *pipeline.Registry,
 	tc *twitter.Client,
 	rules ruleManagerInterface,
 	sc streamClientInterface,
@@ -112,6 +115,7 @@ func NewServer(
 		producer:              q,
 		registry:              reg,
 		actionCache:           cache,
+		pipelineRegistry:      pipeReg,
 		twitterClient:         tc,
 		rules:                 rules,
 		stream:                sc,
@@ -185,19 +189,23 @@ func NewServer(
 				r.Post("/tweets/reprocess", srv.handleReprocessTweets)
 				r.Delete("/tweets/noise", srv.handleDeleteNoiseTweets)
 
-				// Models — static routes before parameterized
-				r.Get("/models", srv.handleListModels)
-				r.Post("/models/download", srv.handleDownloadModel)
-				r.Post("/models", srv.handleCreateModel)
-				r.Delete("/models/{id}", srv.handleDeleteModel)
-				r.Post("/models/{id}/activate", srv.handleActivateModel)
-				r.Post("/models/{id}/deactivate", srv.handleDeactivateModel)
-				r.Post("/models/{id}/run", srv.handleRunModelPipeline)
-				r.Get("/models/{id}/labels", srv.handleListModelLabels)
-				r.Post("/models/{id}/labels", srv.handleAddModelLabel)
-				r.Delete("/models/{id}/labels/{label}", srv.handleRemoveModelLabel)
-				r.Post("/models/{id}/rules", srv.handleAddModelRule)
-				r.Delete("/models/{id}/rules/{rule_id}", srv.handleRemoveModelRule)
+				// Pipelines (replaces /models)
+				r.Get("/pipelines", srv.handleListPipelines)
+				r.Post("/pipelines", srv.handleCreatePipeline)
+				r.Get("/pipelines/handlers", srv.handleListPipelineHandlers)
+				r.Put("/pipelines/{id}", srv.handleUpdatePipeline)
+				r.Delete("/pipelines/{id}", srv.handleDeletePipeline)
+				r.Post("/pipelines/{id}/activate", srv.handleActivatePipeline)
+				r.Post("/pipelines/{id}/deactivate", srv.handleDeactivatePipeline)
+
+				// Action chains
+				r.Get("/actions/{id}/chains", srv.handleListChains)
+				r.Post("/actions/{id}/chains", srv.handleCreateChain)
+				r.Put("/actions/{id}/chains/{chain_id}", srv.handleUpdateChain)
+				r.Delete("/actions/{id}/chains/{chain_id}", srv.handleDeleteChain)
+
+				// Triggers
+				r.Get("/triggers", srv.handleListTriggers)
 
 				// Stream control
 				r.Post("/stream/connect", srv.handleStreamConnect)
@@ -312,6 +320,14 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("api: server shutting down")
 	return s.http.Shutdown(ctx)
+}
+
+// reloadCache reloads the action cache from the store.
+// Called after any change that affects pipeline or action configuration.
+func (s *Server) reloadCache(ctx context.Context) {
+	if err := s.actionCache.Load(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("api: reload action cache", "error", err)
+	}
 }
 
 // corsMiddleware sets CORS headers and handles preflight OPTIONS requests.
@@ -460,6 +476,7 @@ func NewServerWithConcreteRules(
 	q queue.Producer,
 	reg *inference.Registry,
 	cache *worker.ActionCache,
+	pipeReg *pipeline.Registry,
 	tc *twitter.Client,
 	rules *stream.RuleManager,
 	sc *stream.Client,
@@ -474,5 +491,5 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 ) *Server {
-	return NewServer(bind, s, q, reg, cache, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
+	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, ollamaBackends, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister)
 }
