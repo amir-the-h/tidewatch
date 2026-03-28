@@ -7,10 +7,11 @@ import {
   type DataTableColumns,
 } from 'naive-ui'
 import {
-  TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline,
+  TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline, ServerOutline,
 } from '@vicons/ionicons5'
 import PageHeader from '../components/PageHeader.vue'
 import FormDrawer from '../components/FormDrawer.vue'
+import PipelineBackendsModal from '../components/PipelineBackendsModal.vue'
 import { iconBtn, iconBtnConfirm, activeTag } from '../utils/renderActions'
 import {
   listPipelines, createPipeline, updatePipeline, deletePipeline, activatePipeline, deactivatePipeline,
@@ -202,6 +203,15 @@ async function onDelete(id: number) {
   }
 }
 
+// ── Backend assignment modal ─────────────────────────────────────────────────
+const backendModalPipeline = ref<Pipeline | null>(null)
+const showBackendModal = ref(false)
+
+function openBackendsModal(row: Pipeline) {
+  backendModalPipeline.value = row
+  showBackendModal.value = true
+}
+
 const columns: DataTableColumns<Pipeline> = [
   { title: 'ID', key: 'id', width: 60, sorter: 'default' },
   { title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true } },
@@ -230,6 +240,9 @@ const columns: DataTableColumns<Pipeline> = [
     title: 'Actions', key: 'actions', width: 160,
     render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
+        ...(row.type === 'ollama'
+          ? [iconBtn(ServerOutline, 'Backends', () => openBackendsModal(row))]
+          : []),
         iconBtn(CreateOutline, 'Edit', () => openEdit(row)),
         row.active
           ? iconBtn(PauseCircleOutline, 'Deactivate', () => onDeactivate(row.id))
@@ -243,96 +256,106 @@ const columns: DataTableColumns<Pipeline> = [
 </script>
 
 <template>
-  <PageHeader title="Pipelines" add-label="New Pipeline" @add="openCreate" />
+  <div>
+    <PageHeader title="Pipelines" add-label="New Pipeline" @add="openCreate" />
 
-  <!-- Filters -->
-  <n-flex style="margin-bottom: 12px" :size="12" align="center">
-    <n-input v-model:value="filterText" placeholder="Filter by name…" clearable style="width: 200px" />
-    <n-switch v-model:value="filterActiveOnly" size="small" />
-    <n-text depth="3" style="font-size: 13px">Active only</n-text>
-  </n-flex>
+    <!-- Filters -->
+    <n-flex style="margin-bottom: 12px" :size="12" align="center">
+      <n-input v-model:value="filterText" placeholder="Filter by name…" clearable style="width: 200px" />
+      <n-switch v-model:value="filterActiveOnly" size="small" />
+      <n-text depth="3" style="font-size: 13px">Active only</n-text>
+    </n-flex>
 
-  <!-- Table -->
-  <n-data-table
-    :columns="columns"
-    :data="filteredPipelines"
-    :loading="loading"
-    :bordered="false"
-    :row-key="(row: Pipeline) => row.id"
-    size="small"
-  />
+    <!-- Table -->
+    <n-data-table
+      :columns="columns"
+      :data="filteredPipelines"
+      :loading="loading"
+      :bordered="false"
+      :row-key="(row: Pipeline) => row.id"
+      size="small"
+    />
 
-  <!-- Create / Edit Drawer -->
-  <FormDrawer
-    v-model:show="showForm"
-    :title="editingId !== null ? 'Edit Pipeline' : 'New Pipeline'"
-    :save-label="editingId !== null ? 'Save' : 'Create'"
-    :loading="saving"
-    @save="onSave"
-  >
-    <n-form-item label="Name">
-      <n-input v-model:value="formName" placeholder="Pipeline name" />
-    </n-form-item>
-    <n-form-item label="Type">
-      <n-select v-model:value="formType" :options="typeOptions" :disabled="editingId !== null" />
-    </n-form-item>
-
-    <!-- Handler dropdown for internal type -->
-    <n-form-item v-if="formType === 'internal'" label="Handler">
-      <n-select
-        v-model:value="formHandler"
-        :options="handlerOptions"
-        placeholder="Select handler"
-        clearable
-      />
-    </n-form-item>
-
-    <!-- Ollama-specific fields -->
-    <template v-if="formType === 'ollama'">
-      <n-form-item label="Model">
-        <n-input v-model:value="formModel" placeholder="e.g. llama3.2, mistral, gemma3" />
+    <!-- Create / Edit Drawer -->
+    <FormDrawer
+      v-model:show="showForm"
+      :title="editingId !== null ? 'Edit Pipeline' : 'New Pipeline'"
+      :save-label="editingId !== null ? 'Save' : 'Create'"
+      :loading="saving"
+      @save="onSave"
+    >
+      <n-form-item label="Name">
+        <n-input v-model:value="formName" placeholder="Pipeline name" />
       </n-form-item>
-      <n-form-item label="Use Case">
+      <n-form-item label="Type">
+        <n-select v-model:value="formType" :options="typeOptions" :disabled="editingId !== null" />
+      </n-form-item>
+
+      <!-- Handler dropdown for internal type -->
+      <n-form-item v-if="formType === 'internal'" label="Handler">
         <n-select
-          v-model:value="formUsecase"
-          :options="[
-            { label: 'Custom (action pipeline)', value: 'custom' },
-            { label: 'Digest', value: 'digest' },
-            { label: 'Chat', value: 'chat' },
-          ]"
-        />
-      </n-form-item>
-      <n-form-item v-if="formUsecase === 'custom'" label="System Prompt">
-        <n-input
-          v-model:value="formSystemPrompt"
-          type="textarea"
-          :rows="4"
-          placeholder="Leave empty to use the default generic extraction prompt"
-          style="font-family: monospace; font-size: 12px"
-        />
-      </n-form-item>
-    </template>
-
-    <!-- Config JSON for non-Ollama types -->
-    <template v-else>
-      <n-form-item v-if="formType === 'onnx'" label="Model">
-        <n-select
-          v-model:value="formPath"
-          :options="modelOptions"
-          placeholder="Select a model file"
-          filterable
+          v-model:value="formHandler"
+          :options="handlerOptions"
+          placeholder="Select handler"
           clearable
         />
       </n-form-item>
-      <n-form-item label="Config (JSON)">
-        <n-input
-          v-model:value="formConfigText"
-          type="textarea"
-          :rows="5"
-          placeholder="{}"
-          style="font-family: monospace; font-size: 12px"
-        />
-      </n-form-item>
-    </template>
-  </FormDrawer>
+
+      <!-- Ollama-specific fields -->
+      <template v-if="formType === 'ollama'">
+        <n-form-item label="Model">
+          <n-input v-model:value="formModel" placeholder="e.g. llama3.2, mistral, gemma3" />
+        </n-form-item>
+        <n-form-item label="Use Case">
+          <n-select
+            v-model:value="formUsecase"
+            :options="[
+              { label: 'Custom (action pipeline)', value: 'custom' },
+              { label: 'Digest', value: 'digest' },
+              { label: 'Chat', value: 'chat' },
+            ]"
+          />
+        </n-form-item>
+        <n-form-item v-if="formUsecase === 'custom'" label="System Prompt">
+          <n-input
+            v-model:value="formSystemPrompt"
+            type="textarea"
+            :rows="4"
+            placeholder="Leave empty to use the default generic extraction prompt"
+            style="font-family: monospace; font-size: 12px"
+          />
+        </n-form-item>
+      </template>
+
+      <!-- Config JSON for non-Ollama types -->
+      <template v-else>
+        <n-form-item v-if="formType === 'onnx'" label="Model">
+          <n-select
+            v-model:value="formPath"
+            :options="modelOptions"
+            placeholder="Select a model file"
+            filterable
+            clearable
+          />
+        </n-form-item>
+        <n-form-item label="Config (JSON)">
+          <n-input
+            v-model:value="formConfigText"
+            type="textarea"
+            :rows="5"
+            placeholder="{}"
+            style="font-family: monospace; font-size: 12px"
+          />
+        </n-form-item>
+      </template>
+    </FormDrawer>
+
+    <PipelineBackendsModal
+      v-if="backendModalPipeline"
+      v-model:show="showBackendModal"
+      :pipeline-id="backendModalPipeline.id"
+      :pipeline-name="backendModalPipeline.name"
+      @saved="fetchPipelines"
+    />
+  </div>
 </template>
