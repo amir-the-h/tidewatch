@@ -5,35 +5,31 @@ import (
 	"time"
 )
 
-// Notification defines a push notification configuration.
-type Notification struct {
-	ID                int64            `json:"id"`
-	Name              string           `json:"name"`
-	EventType         string           `json:"event_type"`
-	Active            bool             `json:"active"`
-	// Provider selects the delivery backend: "pushover" (default) or "telegram".
-	Provider          string           `json:"provider"`
-	FilterRuleID      *int64           `json:"filter_rule_id,omitempty"`
-	FilterModelName   *string          `json:"filter_model_name,omitempty"`
-	FilterModelResult *json.RawMessage `json:"filter_model_result,omitempty"`
-	// Pushover-specific fields.
-	PushoverPriority  int              `json:"pushover_priority"`
-	PushoverSound     *string          `json:"pushover_sound,omitempty"`
-	PushoverDevice    *string          `json:"pushover_device,omitempty"`
-	PushoverTitle     *string          `json:"pushover_title,omitempty"`
-	PushoverURL       *string          `json:"pushover_url,omitempty"`
-	PushoverURLTitle  *string          `json:"pushover_url_title,omitempty"`
-	PushoverTTL       *int             `json:"pushover_ttl,omitempty"`
-	PushoverHTML      bool             `json:"pushover_html"`
-	PushoverRetry     *int             `json:"pushover_retry,omitempty"`
-	PushoverExpire    *int             `json:"pushover_expire,omitempty"`
-	// Telegram-specific fields.
-	TelegramChatID                *string `json:"telegram_chat_id,omitempty"`
-	TelegramParseMode             *string `json:"telegram_parse_mode,omitempty"`
-	TelegramDisableWebPagePreview bool    `json:"telegram_disable_web_page_preview"`
-	TelegramDisableNotification   bool    `json:"telegram_disable_notification"`
-	TelegramMessageThreadID       *int64  `json:"telegram_message_thread_id,omitempty"`
-	MessageTemplate   *string          `json:"message_template,omitempty"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+// NotificationProvider stores credentials for a notification delivery backend.
+type NotificationProvider struct {
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	Type      string          `json:"type"` // "pushover" | "telegram"
+	Config    json.RawMessage `json:"config"`
+	Active    bool            `json:"active"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// NotificationChannel stores delivery configuration and a message template
+// for a specific notification_provider. Multiple channels may share one provider
+// (e.g. two Telegram channels to different chat IDs on the same bot).
+//
+// MessageTemplate supports ${variable} substitution at execution time.
+// Available variables: ${tweet}, ${author}, ${tweet_id}, ${tweet_url},
+// plus any key from the action execution's mergedCtx.
+type NotificationChannel struct {
+	ID              int64           `json:"id"`
+	Name            string          `json:"name"`
+	ProviderID      int64           `json:"provider_id"`
+	MessageTemplate string          `json:"message_template"`
+	Config          json.RawMessage `json:"config"`
+	Active          bool            `json:"active"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }

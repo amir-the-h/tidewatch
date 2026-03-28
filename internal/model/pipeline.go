@@ -9,9 +9,10 @@ import (
 type PipelineType string
 
 const (
-	PipelineTypeONNX     PipelineType = "onnx"
-	PipelineTypeOllama   PipelineType = "ollama"
-	PipelineTypeInternal PipelineType = "internal"
+	PipelineTypeONNX          PipelineType = "onnx"
+	PipelineTypeOllama        PipelineType = "ollama"
+	PipelineTypeInternal      PipelineType = "internal"
+	PipelineTypeNotification  PipelineType = "notification"
 )
 
 // Pipeline is a persistent record of a configured execution unit.
