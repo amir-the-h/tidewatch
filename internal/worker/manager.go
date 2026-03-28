@@ -153,31 +153,11 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		_ = m.store.SaveActionExecutionMetadata(ctx, exec.ID, k, val)
 	}
 
-	if entry.Pipeline.Type() != inference.PipelineTypeInternal && ev.TweetID != "" {
-		m.saveCategorization(ctx, entry.Pipeline.Name(), ev.TweetID, outputs)
-	}
-
 	for k, v := range outputs {
 		mergedCtx[k] = v
 	}
 
 	m.evaluateChains(ctx, task.ActionID, task.TriggerType, task.Event, mergedCtx)
-}
-
-func (m *Manager) saveCategorization(ctx context.Context, pipelineName, tweetID string, outputs map[string]any) {
-	b, err := json.Marshal(outputs)
-	if err != nil {
-		return
-	}
-	c := &model.Categorization{
-		TweetID:   tweetID,
-		ModelName: pipelineName,
-		Results:   b,
-		CreatedAt: time.Now(),
-	}
-	if err := m.store.SaveCategorization(ctx, c); err != nil && m.logger != nil {
-		m.logger.Warn("worker: save categorization", "pipeline", pipelineName, "tweet_id", tweetID, "error", err)
-	}
 }
 
 func (m *Manager) evaluateChains(ctx context.Context, sourceActionID int64, triggerType string, event json.RawMessage, mergedCtx map[string]any) {
