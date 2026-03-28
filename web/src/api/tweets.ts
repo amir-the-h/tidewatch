@@ -1,6 +1,5 @@
 // web/src/api/tweets.ts
 import { apiFetch } from './client'
-import type { CategorizationResults } from './categorizations'
 
 export interface TweetRule {
   id: number
@@ -18,19 +17,19 @@ export interface Tweet {
   rules?: TweetRule[]
 }
 
-export interface TweetDetail {
-  tweet: Tweet
-  categorizations: Categorization[]
+export interface TweetExecution {
+  id: number
+  action_id: number
+  action_name: string
+  status: 'success' | 'error'
+  error?: string
+  executed_at: string
+  metadata: Record<string, any>
 }
 
-export interface Categorization {
-  id: number
-  tweet_id: string
-  model_name: string
-  model_version: string
-  results: CategorizationResults
-  created_at: string
-  tweet_created_at: string
+export interface TweetDetail {
+  tweet: Tweet
+  executions: TweetExecution[]
 }
 
 export interface TweetListFilter {

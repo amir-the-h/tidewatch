@@ -15,7 +15,6 @@ export default createRouter({
     { path: '/rules', component: () => import('../views/RulesView.vue') },
     { path: '/sources', component: () => import('../views/SourcesView.vue') },
     { path: '/pipelines', component: () => import('../views/PipelinesView.vue') },
-    { path: '/categorizations', component: () => import('../views/CategorizationsView.vue') },
     { path: '/notifications', component: () => import('../views/NotificationsView.vue') },
     { path: '/tracked-entities', component: () => import('../views/TrackedEntitiesView.vue') },
     { path: '/failures', component: () => import('../views/FailuresView.vue') },

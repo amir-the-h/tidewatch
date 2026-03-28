@@ -3,7 +3,6 @@ import { darkTheme } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { apiFetch } from './api/client'
-import { listPipelines } from './api/pipelines'
 import { useAuthStore } from './stores/auth'
 import { useStreamStore } from './stores/stream'
 import { WifiOutline, LogOutOutline, TrashBinOutline } from '@vicons/ionicons5'
@@ -13,8 +12,6 @@ const router = useRouter()
 const auth   = useAuthStore()
 const stream = useStreamStore()
 
-const hasSummarizer = ref(false)
-
 const adminMenuOptions = [
   { label: 'Map',              key: '/map' },
   { label: 'Tweets',           key: '/tweets' },
@@ -23,10 +20,11 @@ const adminMenuOptions = [
   { label: 'Sources',          key: '/sources' },
   { label: 'Pipelines',        key: '/pipelines' },
   { label: 'Ollama Backends',  key: '/ollama' },
-  { label: 'Categorizations',  key: '/categorizations' },
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
   { label: 'Actions',          key: '/actions' },
+  { label: 'Digest',           key: '/summarize' },
+  { label: 'Chat',             key: '/chat' },
   { label: 'Queue',            key: '/failures' },
   { label: 'Users',            key: '/users' },
 ]
@@ -37,24 +35,7 @@ const viewerMenuOptions = [
   { label: 'Tracked Entities', key: '/tracked-entities' },
 ]
 
-const menuOptions = computed(() => {
-  if (!auth.isAdmin) return viewerMenuOptions
-  const opts = [...adminMenuOptions]
-  if (hasSummarizer.value) {
-    // Insert Digest and Chat before Users
-    opts.splice(opts.length - 1, 0, { label: 'Digest', key: '/summarize' })
-    opts.splice(opts.length - 1, 0, { label: 'Chat',   key: '/chat'      })
-  }
-  return opts
-})
-
-async function checkSummarizer() {
-  if (!auth.isAdmin) return
-  try {
-    const pipelines = await listPipelines({ active: true, type: 'ollama' })
-    hasSummarizer.value = pipelines.length > 0
-  } catch { /* server unreachable */ }
-}
+const menuOptions = computed(() => auth.isAdmin ? adminMenuOptions : viewerMenuOptions)
 
 const activeKey  = computed(() => route.path)
 const drawerOpen = ref(false)
@@ -111,7 +92,7 @@ async function flushWorkerBuffer() {
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { fetchStats(); checkSummarizer(); pollTimer = setInterval(fetchStats, 3000) })
+onMounted(() => { fetchStats(); pollTimer = setInterval(fetchStats, 3000) })
 onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 </script>
 

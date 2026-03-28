@@ -148,7 +148,7 @@ async function reprocessOne(id: string) {
         detail.value = await store.getTweet(id)
       }, 2000)
     } else {
-      msg.warning('Tweet not found')
+      msg.warning('No active new-tweet actions — configure an action with trigger type "new_tweet" first')
     }
   } catch (e: any) {
     msg.error(e.message)
@@ -353,68 +353,115 @@ const columns: DataTableColumns<Tweet> = [
             </n-tag>
           </n-space>
 
-          <n-h3 style="margin-top: 16px">Categorizations</n-h3>
-          <n-empty v-if="!detail.categorizations.length" description="None" />
-          <n-list v-else>
-            <n-list-item v-for="cat in detail.categorizations" :key="cat.id">
-              <n-space vertical size="small">
-                <n-tag size="small">{{ cat.model_name }}</n-tag>
-                <!-- Summarizer -->
-                <span v-if="cat.results.summary != null">{{ cat.results.summary || '(empty summary)' }}</span>
-                <!-- Extraction (geo-event): truncated retweet -->
-                <span v-else-if="cat.results.truncated" style="color: var(--n-text-color-disabled)">Truncated retweet — full text unavailable</span>
-                <!-- Extraction (geo-event) -->
-                <n-space v-else-if="cat.results.description != null" vertical size="small">
-                  <span v-if="cat.results.description">{{ cat.results.description }}</span>
-                  <n-space v-if="cat.results.locations?.length" wrap>
-                    <n-tag
-                      v-for="(loc, i) in cat.results.locations"
-                      :key="i"
-                      size="small"
-                      type="info"
-                    >
-                      {{ loc.label ? `${loc.label}: ` : '' }}{{ loc.coordinates[0].toFixed(5) }}, {{ loc.coordinates[1].toFixed(5) }}
-                      <template v-if="loc.place"> · {{ loc.place }}</template>
+          <!-- Pipeline Executions -->
+          <template v-if="detail.executions?.length">
+            <n-h3 style="margin-top: 16px">Pipeline Runs</n-h3>
+            <n-list>
+              <n-list-item v-for="exec in detail.executions" :key="exec.id">
+                <n-space vertical size="small" style="width:100%">
+                  <n-space align="center" size="small">
+                    <n-tag size="small" :type="exec.status === 'success' ? 'success' : 'error'">
+                      {{ exec.action_name || `action #${exec.action_id}` }}
                     </n-tag>
+                    <span style="font-size:11px; color: var(--n-text-color-disabled)">{{ formatDateTime(exec.executed_at) }}</span>
                   </n-space>
-                  <n-space v-if="cat.results.geolocated_by?.length" wrap>
-                    <n-tag v-for="h in cat.results.geolocated_by" :key="h" size="small">{{ h }}</n-tag>
-                  </n-space>
-                  <n-space v-if="cat.results.location_url" wrap>
-                    <a :href="cat.results.location_url" target="_blank" rel="noopener noreferrer" style="font-size:12px">
-                      GeoConfirmed ↗
-                    </a>
-                  </n-space>
+
+                  <!-- Error state -->
+                  <span v-if="exec.status === 'error'" style="color: var(--n-error-color); font-size: 12px">{{ exec.error }}</span>
+
+                  <!-- No metadata -->
+                  <span v-else-if="!exec.metadata || !Object.keys(exec.metadata).length" style="color: var(--n-text-color-disabled); font-size: 12px">(no output)</span>
+
+                  <!-- Structured extractor output: has boolean/array fields typical of the extractor -->
+                  <template v-else-if="'casualties' in exec.metadata || 'attackers' in exec.metadata || 'locations' in exec.metadata">
+                    <div class="exec-grid">
+                      <!-- Locations -->
+                      <template v-if="exec.metadata.locations?.length">
+                        <span class="exec-label">Locations</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="loc in exec.metadata.locations" :key="loc" size="small" type="info">{{ loc }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Attackers -->
+                      <template v-if="exec.metadata.attackers?.length">
+                        <span class="exec-label">Attackers</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="a in exec.metadata.attackers" :key="a" size="small" type="error">{{ a }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Defenders -->
+                      <template v-if="exec.metadata.defenders?.length">
+                        <span class="exec-label">Defenders</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="d in exec.metadata.defenders" :key="d" size="small" type="warning">{{ d }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Targets -->
+                      <template v-if="exec.metadata.targets?.length">
+                        <span class="exec-label">Targets</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="t in exec.metadata.targets" :key="t" size="small">{{ t }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Attack types -->
+                      <template v-if="exec.metadata.attack_types?.length">
+                        <span class="exec-label">Attack types</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="at in exec.metadata.attack_types" :key="at" size="small" type="warning">{{ at }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Weapons -->
+                      <template v-if="exec.metadata.weapons?.length">
+                        <span class="exec-label">Weapons</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="w in exec.metadata.weapons" :key="w" size="small">{{ w }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Coordinates -->
+                      <template v-if="exec.metadata.coordinates?.length">
+                        <span class="exec-label">Coordinates</span>
+                        <n-space wrap size="small">
+                          <n-tag v-for="c in exec.metadata.coordinates" :key="c" size="small" type="info">{{ c }}</n-tag>
+                        </n-space>
+                      </template>
+                      <!-- Boolean flags row -->
+                      <span class="exec-label">Flags</span>
+                      <n-space wrap size="small">
+                        <n-tag v-if="exec.metadata.casualties" size="small" type="error">casualties</n-tag>
+                        <n-tag v-if="exec.metadata.confirmed" size="small" type="success">confirmed</n-tag>
+                        <n-tag v-if="exec.metadata.interception" size="small" type="info">interception</n-tag>
+                        <n-tag v-if="exec.metadata.interception_partial" size="small" type="info">interception (partial)</n-tag>
+                        <n-tag v-if="exec.metadata.air_defense_active" size="small" type="warning">air defense active</n-tag>
+                        <n-tag v-if="exec.metadata.damage_reported" size="small">damage reported</n-tag>
+                        <n-tag v-if="exec.metadata.alert" size="small" type="error">alert</n-tag>
+                        <n-tag v-if="exec.metadata.nuclear" size="small" type="error">nuclear</n-tag>
+                        <n-tag v-if="exec.metadata.escalation" size="small" type="warning">escalation</n-tag>
+                        <span
+                          v-if="!exec.metadata.casualties && !exec.metadata.confirmed && !exec.metadata.interception && !exec.metadata.interception_partial && !exec.metadata.air_defense_active && !exec.metadata.damage_reported && !exec.metadata.alert && !exec.metadata.nuclear && !exec.metadata.escalation"
+                          style="color: var(--n-text-color-disabled); font-size: 12px"
+                        >none</span>
+                      </n-space>
+                      <!-- Casualty count -->
+                      <template v-if="exec.metadata.casualty_count != null">
+                        <span class="exec-label">Casualties</span>
+                        <span style="font-size:13px">{{ exec.metadata.casualty_count }}</span>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Generic key-value metadata fallback -->
+                  <div v-else class="exec-grid">
+                    <template v-for="(val, key) in exec.metadata" :key="key">
+                      <span class="exec-label">{{ key }}</span>
+                      <span style="font-size:13px; word-break:break-word">
+                        {{ Array.isArray(val) ? val.join(', ') || '—' : val === null ? '—' : String(val) }}
+                      </span>
+                    </template>
+                  </div>
                 </n-space>
-                <!-- NER: word spans -->
-                <n-space v-else-if="cat.results.entities?.length" wrap>
-                  <n-tag v-for="(e, i) in cat.results.entities" :key="i" size="small" type="success">
-                    {{ e.word ?? `token[${e.token_index}]` }} · {{ e.label }} ({{ (e.score * 100).toFixed(0) }}%)
-                  </n-tag>
-                </n-space>
-                <!-- Zero-shot: ranked label list -->
-                <n-space v-else-if="cat.results.labels?.length" wrap>
-                  <n-tag
-                    v-for="(lbl, i) in cat.results.labels"
-                    :key="lbl"
-                    size="small"
-                    :type="i === 0 ? 'primary' : 'default'"
-                  >
-                    {{ lbl }} ({{ ((cat.results.scores?.[i] ?? 0) * 100).toFixed(1) }}%)
-                  </n-tag>
-                </n-space>
-                <!-- Zero-shot with no confident labels -->
-                <span v-else-if="cat.results.labels != null" style="color: var(--n-text-color-disabled)">(no label above threshold)</span>
-                <!-- Standard classification (label + score) -->
-                <n-space v-else>
-                  <span>{{ cat.results.label ?? '—' }}</span>
-                  <n-tag v-if="cat.results.score != null" size="small" type="info">
-                    {{ (cat.results.score * 100).toFixed(1) }}%
-                  </n-tag>
-                </n-space>
-              </n-space>
-            </n-list-item>
-          </n-list>
+              </n-list-item>
+            </n-list>
+          </template>
 
           <div style="margin-top: 16px">
             <n-space size="small">
@@ -455,3 +502,19 @@ const columns: DataTableColumns<Tweet> = [
     </n-drawer>
   </n-space>
 </template>
+
+<style scoped>
+.exec-grid {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 4px 8px;
+  align-items: start;
+}
+.exec-label {
+  font-size: 11px;
+  color: var(--n-text-color-disabled);
+  padding-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+</style>
