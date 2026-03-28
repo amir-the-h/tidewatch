@@ -33,7 +33,11 @@ const availableOptions = computed(() =>
 )
 
 watch(() => props.show, async (open) => {
-  if (!open) return
+  if (!open) {
+    assigned.value = []
+    allBackends.value = []
+    return
+  }
   loading.value = true
   addTarget.value = null
   try {
