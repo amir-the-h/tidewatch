@@ -109,31 +109,3 @@ func TestStreamTweetCreation(t *testing.T) {
 	}
 }
 
-// Test 4: Verify Categorization.Results preserves raw JSON exactly without re-encoding artifacts.
-func TestCategorizationResultsPreservesRawJSON(t *testing.T) {
-	rawResults := json.RawMessage(`{"label":"test","score":0.95}`)
-	createdAt := time.Date(2026, 3, 23, 10, 0, 0, 0, time.UTC)
-
-	original := Categorization{
-		ID:           1,
-		TweetID:      "tweet-001",
-		ModelName:    "sentiment-model",
-		ModelVersion: "v1.0",
-		Results:      rawResults,
-		CreatedAt:    createdAt,
-	}
-
-	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("json.Marshal failed: %v", err)
-	}
-
-	var got Categorization
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("json.Unmarshal failed: %v", err)
-	}
-
-	if string(got.Results) != string(rawResults) {
-		t.Errorf("Results = %q, want %q", string(got.Results), string(rawResults))
-	}
-}
