@@ -28,8 +28,8 @@ type ActionCache struct {
 	store    store.Store
 	infReg   *inference.Registry
 	pipeReg  *pipeline.Registry
-	backends []inference.BackendConfig
-	logger   *slog.Logger
+	pool    *inference.BackendPool
+	logger  *slog.Logger
 }
 
 // NewActionCache creates a new ActionCache with the given dependencies.
@@ -37,16 +37,16 @@ func NewActionCache(
 	st store.Store,
 	infReg *inference.Registry,
 	pipeReg *pipeline.Registry,
-	backends []inference.BackendConfig,
+	pool *inference.BackendPool,
 	logger *slog.Logger,
 ) *ActionCache {
 	return &ActionCache{
-		entries:  make(map[int64]*CacheEntry),
-		store:    st,
-		infReg:   infReg,
-		pipeReg:  pipeReg,
-		backends: backends,
-		logger:   logger,
+		entries: make(map[int64]*CacheEntry),
+		store:   st,
+		infReg:  infReg,
+		pipeReg: pipeReg,
+		pool:    pool,
+		logger:  logger,
 	}
 }
 
@@ -177,7 +177,7 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64) (in
 		if p := c.infReg.Get(row.Name); p != nil {
 			return p, nil
 		}
-		p := inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.backends, 0)
+		p := inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.pool, nil, 0)
 		c.infReg.Register(p)
 		return p, nil
 

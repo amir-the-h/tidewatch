@@ -89,6 +89,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	ollamaBackends := ollamaBackendConfigs(cfg.OllamaBackends())
 
+	// Build a BackendPool from config backends.
+	backendPool := inference.NewBackendPool()
+	{
+		cfgBacks := cfg.OllamaBackends()
+		records := make([]inference.BackendRecord, len(cfgBacks))
+		for i, b := range cfgBacks {
+			records[i] = inference.BackendRecord{ID: int64(i + 1), Name: b.Name, URL: b.URL, Enabled: true}
+		}
+		backendPool.Load(records)
+	}
+
 	// Optional Twitter client — only created when credentials are configured.
 	var twitterClient *twitter.Client
 	if cfg.Twitter.ClientID != "" {
@@ -131,7 +142,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Build ActionCache.
-	cache := worker.NewActionCache(s, infReg, pipeReg, ollamaBackends, logger)
+	cache := worker.NewActionCache(s, infReg, pipeReg, backendPool, logger)
 	if err := cache.Load(ctx); err != nil {
 		return fmt.Errorf("failed to load action cache: %w", err)
 	}
