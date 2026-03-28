@@ -1936,3 +1936,44 @@ func scanUser(s userScanner) (*model.User, error) {
 	}
 	return &u, nil
 }
+
+// ── Map ───────────────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) ListMapPins(ctx context.Context) ([]*MapPin, error) {
+	query := `
+        SELECT ae.tweet_id,
+               COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
+               p.name AS model_name,
+               COALESCE(aem_desc.value, '') AS description,
+               aem_loc.value AS locations_json
+        FROM action_execution_metadata aem_loc
+        JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
+        JOIN actions a ON a.id = ae.action_id
+        JOIN pipelines p ON p.id = a.pipeline_id
+        LEFT JOIN tweets t ON t.id = ae.tweet_id
+        LEFT JOIN action_execution_metadata aem_desc
+               ON aem_desc.execution_id = ae.id AND aem_desc.key = 'description'
+        WHERE aem_loc.key = 'locations'
+          AND aem_loc.value != 'null'
+          AND aem_loc.value != '[]'
+        ORDER BY tweet_created_at DESC`
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("store: list map pins: %w", err)
+	}
+	defer rows.Close()
+
+	var pins []*MapPin
+	for rows.Next() {
+		var pin MapPin
+		if err := rows.Scan(
+			&pin.TweetID, &pin.TweetCreatedAt, &pin.ModelName,
+			&pin.Description, &pin.LocationsJSON,
+		); err != nil {
+			return nil, fmt.Errorf("store: list map pins: scan: %w", err)
+		}
+		pins = append(pins, &pin)
+	}
+	return pins, rows.Err()
+}

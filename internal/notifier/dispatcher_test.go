@@ -224,6 +224,7 @@ func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error { return nil }
 func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCredentials, error) { return nil, fmt.Errorf("not found") }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
+func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error) { return nil, nil }
 func (m *mockStore) Close() error { return nil }
 
 // --- test helpers --------------------------------------------------------

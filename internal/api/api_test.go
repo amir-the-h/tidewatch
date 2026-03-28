@@ -342,6 +342,8 @@ func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCred
 }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
 
+func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error) { return nil, nil }
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------

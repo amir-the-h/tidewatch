@@ -161,6 +161,7 @@ func NewServer(
 			r.Get("/tweets", srv.handleListTweets)
 			r.Get("/tweets/{id}", srv.handleGetTweet)
 			r.Get("/categorizations", srv.handleListCategorizations)
+			r.Get("/map", srv.handleListMapPins)
 			r.Get("/tracked-entities", srv.handleListTrackedEntities)
 			r.Get("/tracked-entities/{id}", srv.handleGetTrackedEntity)
 			r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
@@ -278,6 +279,7 @@ func NewServer(
 				// Action execution log
 				r.Get("/actions/{id}/executions", srv.handleListActionExecutions)
 				r.Get("/executions", srv.handleListAllExecutions)
+				r.Get("/executions/{id}/metadata", srv.handleGetExecutionMetadata)
 
 				// Twitter OAuth (callback is public — registered above)
 				r.Get("/twitter/auth/start", srv.handleTwitterAuthStart)

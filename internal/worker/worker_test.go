@@ -80,37 +80,39 @@ func (m *mockStore) ListTweets(_ context.Context, _ store.TweetFilter) ([]*model
 	return nil, nil
 }
 func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error) { return 0, nil }
-func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)        { return 0, nil }
-func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)               { return 0, nil }
+func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)       { return 0, nil }
+func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)              { return 0, nil }
 
 // Sources
 func (m *mockStore) SaveSource(_ context.Context, _ *model.Source) error         { return nil }
-func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error        { return nil }
-func (m *mockStore) GetSource(_ context.Context, _ int64) (*model.Source, error)  { return nil, nil }
+func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error       { return nil }
+func (m *mockStore) GetSource(_ context.Context, _ int64) (*model.Source, error) { return nil, nil }
 func (m *mockStore) ListSources(_ context.Context, _ store.SourceFilter) ([]*model.Source, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteSource(_ context.Context, _ int64) error                { return nil }
-func (m *mockStore) SetSourceActive(_ context.Context, _ int64, _ bool) error     { return nil }
-func (m *mockStore) ActiveRuleRefCount(_ context.Context, _ int64) (int, error)   { return 0, nil }
-func (m *mockStore) RuleRefCount(_ context.Context, _ int64) (int, error)         { return 0, nil }
+func (m *mockStore) DeleteSource(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) SetSourceActive(_ context.Context, _ int64, _ bool) error   { return nil }
+func (m *mockStore) ActiveRuleRefCount(_ context.Context, _ int64) (int, error) { return 0, nil }
+func (m *mockStore) RuleRefCount(_ context.Context, _ int64) (int, error)       { return 0, nil }
 
 // Rules
-func (m *mockStore) SaveRule(_ context.Context, _ *model.Rule) error                   { return nil }
-func (m *mockStore) GetRule(_ context.Context, _ int64) (*model.Rule, error)           { return nil, nil }
-func (m *mockStore) GetRuleByXRuleID(_ context.Context, _ string) (*model.Rule, error) { return nil, nil }
+func (m *mockStore) SaveRule(_ context.Context, _ *model.Rule) error         { return nil }
+func (m *mockStore) GetRule(_ context.Context, _ int64) (*model.Rule, error) { return nil, nil }
+func (m *mockStore) GetRuleByXRuleID(_ context.Context, _ string) (*model.Rule, error) {
+	return nil, nil
+}
 func (m *mockStore) ListRules(_ context.Context, _ store.RuleFilter) ([]*model.Rule, error) {
 	return nil, nil
 }
 func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error                    { return nil }
-func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                          { return nil }
-func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error     { return nil }
-func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)               { return 0, nil }
-func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error            { return nil }
-func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)        { return nil, nil }
+func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error                { return nil }
+func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                      { return nil }
+func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error { return nil }
+func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)           { return 0, nil }
+func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error        { return nil }
+func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)    { return nil, nil }
 
 // Pipelines
 func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error { return nil }
@@ -120,9 +122,9 @@ func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, er
 func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error    { return nil }
-func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error              { return nil }
-func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error   { return nil }
+func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error  { return nil }
+func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error { return nil }
 func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }
@@ -260,6 +262,8 @@ func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCred
 	return nil, fmt.Errorf("not found")
 }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
+
+func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error) { return nil, nil }
 
 func (m *mockStore) Close() error { return nil }
 

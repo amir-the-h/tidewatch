@@ -75,8 +75,9 @@ type EntityTrackFilter struct {
 
 // PipelineFilter defines optional filters for listing pipelines.
 type PipelineFilter struct {
-	Type   *model.PipelineType
-	Active *bool
+	Type    *model.PipelineType
+	Active  *bool
+	Usecase *string // filters by config->$.usecase (ollama pipelines)
 }
 
 // ActionFilter defines optional filters for listing actions.
@@ -90,6 +91,15 @@ type ActionFilter struct {
 type ActionChainFilter struct {
 	SourceActionID *int64
 	TargetActionID *int64
+}
+
+// MapPin is a geo-event pin derived from action_execution_metadata.
+type MapPin struct {
+	TweetID        string `json:"tweet_id"`
+	TweetCreatedAt string `json:"tweet_created_at"`
+	ModelName      string `json:"model_name"`
+	Description    string `json:"description,omitempty"`
+	LocationsJSON  string `json:"-"` // raw JSON, parsed by handler
 }
 
 // ExecutionFilter defines optional filters for listing action executions.
@@ -192,6 +202,9 @@ type Store interface {
 	// Summaries
 	ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error)
 	CountSummaries(ctx context.Context, filter SummaryFilter) (int, error)
+
+	// Map
+	ListMapPins(ctx context.Context) ([]*MapPin, error)
 
 	// DigestJobs
 	SaveDigestJob(ctx context.Context, job *model.DigestJob) error
