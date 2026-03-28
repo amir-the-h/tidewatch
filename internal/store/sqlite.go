@@ -254,7 +254,7 @@ func (s *sqliteStore) DeleteNoiseTweets(ctx context.Context) (int64, error) {
 	//   (b) every rule it matches has local=true
 	//
 	// We identify them with a single query, then delete in a transaction that
-	// also cleans up categorizations and tweet_rules (same as DeleteTweets).
+	// also cleans up tweet_rules (same as DeleteTweets).
 	const noiseQuery = `
 		SELECT t.id FROM tweets t
 		WHERE NOT EXISTS (
