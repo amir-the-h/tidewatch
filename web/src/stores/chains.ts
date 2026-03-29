@@ -8,7 +8,7 @@ export const useChainsStore = defineStore('chains', () => {
 
   async function fetchChains() {
     loading.value = true
-    try { chains.value = await listChains() }
+    try { chains.value = (await listChains()) ?? [] }
     finally { loading.value = false }
   }
 

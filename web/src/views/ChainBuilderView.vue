@@ -261,7 +261,7 @@ const actionOptions = computed(() =>
       padding: 0 16px; background: #1e1e2e;
       border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
     ">
-      <n-button text @click="router.push('/chains')">
+      <n-button text @click="router.push('/actions?tab=chains')">
         <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
         Chains
       </n-button>

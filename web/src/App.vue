@@ -23,8 +23,6 @@ const adminMenuOptions = [
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracked Entities', key: '/tracked-entities' },
   { label: 'Actions',          key: '/actions' },
-  { label: 'Chains',           key: '/chains' },
-  { label: 'Triggers',         key: '/triggers' },
   { label: 'Digest',           key: '/summarize' },
   { label: 'Chat',             key: '/chat' },
   { label: 'Queue',            key: '/failures' },

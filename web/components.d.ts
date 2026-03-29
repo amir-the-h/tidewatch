@@ -11,6 +11,8 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ActionNode: typeof import('./src/components/chain/ActionNode.vue')['default']
+    ConditionNode: typeof import('./src/components/chain/ConditionNode.vue')['default']
     FormDrawer: typeof import('./src/components/FormDrawer.vue')['default']
     IconButton: typeof import('./src/components/IconButton.vue')['default']
     NAlert: typeof import('naive-ui')['NAlert']
@@ -65,5 +67,6 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     RuleExprBuilder: typeof import('./src/components/RuleExprBuilder.vue')['default']
+    StartNode: typeof import('./src/components/chain/StartNode.vue')['default']
   }
 }

@@ -347,6 +347,9 @@ func NewONNXPipelineFromConfig(name string, config map[string]any) (*ONNXPipelin
 	if err := p.load(path); err != nil {
 		return nil, err
 	}
+	if labels := labelsFromConfig(config); len(labels) > 0 {
+		p.SetLabels(labels)
+	}
 	return p, nil
 }
 
@@ -422,7 +425,7 @@ func (p *ONNXPipeline) runRaw(text []byte) (json.RawMessage, error) {
 
 // Run executes the ONNX model on input.Text and returns structured outputs.
 func (p *ONNXPipeline) Run(_ context.Context, input PipelineInput) (map[string]any, error) {
-	if labels, ok := input.Config["labels"].([]string); ok && len(labels) > 0 {
+	if labels := labelsFromConfig(input.Config); len(labels) > 0 {
 		p.SetLabels(labels)
 	}
 	raw, err := p.runRaw([]byte(input.Text))
@@ -434,6 +437,24 @@ func (p *ONNXPipeline) Run(_ context.Context, input PipelineInput) (map[string]a
 		return map[string]any{"raw": string(raw)}, nil
 	}
 	return out, nil
+}
+
+// labelsFromConfig extracts a []string from config["labels"], handling both
+// []string (direct) and []interface{} (from JSON unmarshalling into map[string]any).
+func labelsFromConfig(config map[string]any) []string {
+	switch v := config["labels"].(type) {
+	case []string:
+		return v
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // runZeroShot performs zero-shot classification using NLI: for each candidate

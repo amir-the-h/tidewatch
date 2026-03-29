@@ -30,9 +30,9 @@ const savingLink   = ref(false)
 onMounted(async () => {
   try {
     const [t, l, c] = await Promise.all([listTriggers(), listTriggerChainLinks(), listChains()])
-    triggers.value = t
-    links.value    = l
-    chains.value   = c
+    triggers.value = t ?? []
+    links.value    = l ?? []
+    chains.value   = c ?? []
   } catch (e: any) { msg.error(e.message) }
   finally { loading.value = false }
 })

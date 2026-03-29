@@ -16,6 +16,9 @@ func (s *Server) handleListChains(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if chains == nil {
+		chains = []*model.Chain{}
+	}
 	writeJSON(w, http.StatusOK, chains)
 }
 

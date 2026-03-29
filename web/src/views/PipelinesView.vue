@@ -2,12 +2,12 @@
 import { ref, computed, onMounted, h } from 'vue'
 import {
   NFlex, NTag, NSelect, NInput, NSwitch, NFormItem, NInputNumber, NDivider,
-  NText, NSpace, NDataTable,
+  NText, NSpace, NDataTable, NDynamicTags, NButton, NCard, NIcon,
   useMessage,
   type DataTableColumns, type SelectOption,
 } from 'naive-ui'
 import {
-  TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline, ServerOutline,
+  TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline, ServerOutline, AddOutline,
 } from '@vicons/ionicons5'
 import PageHeader from '../components/PageHeader.vue'
 import FormDrawer from '../components/FormDrawer.vue'
@@ -49,6 +49,43 @@ const formSystemPrompt = ref('')
 const formConfigText = ref('{}')
 const formHandler = ref<string | null>(null)
 const formPath = ref('')
+const formLabels = ref<string[]>([])
+
+// Transformers (all pipeline types)
+interface TransformerSpec {
+  type: string
+  // zip_arrays
+  keys_field: string
+  values_field: string
+  // normalize
+  method: string
+  fields: string[]
+  range_min: number | null
+  range_max: number | null
+  // multiply
+  factor: number | null
+  // group_entities
+  source: string
+  min_score: number | null
+  label_field: string
+  word_field: string
+  score_field: string
+}
+const formTransformers = ref<TransformerSpec[]>([])
+const transformerTypeOptions = [
+  { label: 'Zip Arrays',     value: 'zip_arrays'     },
+  { label: 'Normalize',      value: 'normalize'      },
+  { label: 'Multiply',       value: 'multiply'       },
+  { label: 'Group Entities', value: 'group_entities' },
+]
+const normalizeMethodOptions = [
+  { label: 'Sum (probabilities)',  value: 'sum'     },
+  { label: 'Min-Max ([0, 1])',     value: 'minmax'  },
+  { label: 'Softmax',              value: 'softmax' },
+]
+function addTransformer() {
+  formTransformers.value.push({ type: 'zip_arrays', keys_field: '', values_field: '', method: 'sum', fields: [], range_min: null, range_max: null, factor: null, source: '', min_score: null, label_field: '', word_field: '', score_field: '' })
+}
 
 // Handlers (for internal type)
 const handlers = ref<string[]>([])
@@ -146,6 +183,8 @@ function openCreate() {
   formConfigText.value = '{}'
   formHandler.value = null
   formPath.value = ''
+  formLabels.value = []
+  formTransformers.value = []
   formChannelId.value = null
   formMessageTemplate.value = '${tweet}'
   formPushPriority.value = 0; formPushTitle.value = null; formPushSound.value = null
@@ -169,6 +208,25 @@ function openEdit(row: Pipeline) {
   formHandler.value = row.config?.handler ?? null
   // ONNX-specific
   formPath.value = row.config?.path ?? ''
+  formLabels.value = Array.isArray(row.config?.labels) ? [...row.config.labels] : []
+  // Transformers (all types)
+  formTransformers.value = Array.isArray(row.config?.transformers)
+    ? row.config.transformers.map((t: any) => ({
+        type: t.type ?? 'zip_arrays',
+        keys_field: t.keys_field ?? '',
+        values_field: t.values_field ?? '',
+        method: t.method ?? 'sum',
+        fields: Array.isArray(t.fields) ? t.fields : [],
+        range_min: t.range_min ?? null,
+        range_max: t.range_max ?? null,
+        factor: t.factor ?? null,
+        source: t.source ?? '',
+        min_score: t.min_score ?? null,
+        label_field: t.label_field ?? '',
+        word_field: t.word_field ?? '',
+        score_field: t.score_field ?? '',
+      }))
+    : []
   // Notification-specific
   formChannelId.value = row.config?.channel_id ?? null
   formMessageTemplate.value = row.config?.message_template ?? '${tweet}'
@@ -261,10 +319,42 @@ async function onSave() {
         return
       }
       config.path = formPath.value.trim()
+      if (formLabels.value.length > 0) {
+        config.labels = formLabels.value
+      }
     }
     if (formType.value === 'internal' && formHandler.value) {
       config.handler = formHandler.value
     }
+  }
+
+  if (formTransformers.value.length > 0) {
+    config.transformers = formTransformers.value
+      .filter(t => t.type)
+      .map(t => {
+        const spec: Record<string, any> = { type: t.type }
+        if (t.type === 'zip_arrays') {
+          if (t.keys_field)   spec.keys_field   = t.keys_field
+          if (t.values_field) spec.values_field = t.values_field
+        } else if (t.type === 'normalize') {
+          if (t.method && t.method !== 'sum') spec.method = t.method
+          if (t.fields.length > 0)           spec.fields = t.fields
+          if (t.method === 'minmax') {
+            if (t.range_min !== null) spec.range_min = t.range_min
+            if (t.range_max !== null) spec.range_max = t.range_max
+          }
+        } else if (t.type === 'multiply') {
+          if (t.factor !== null) spec.factor = t.factor
+          if (t.fields.length > 0) spec.fields = t.fields
+        } else if (t.type === 'group_entities') {
+          if (t.source)      spec.source      = t.source
+          if (t.min_score !== null) spec.min_score = t.min_score
+          if (t.label_field) spec.label_field = t.label_field
+          if (t.word_field)  spec.word_field  = t.word_field
+          if (t.score_field) spec.score_field = t.score_field
+        }
+        return spec
+      })
   }
 
   saving.value = true
@@ -523,6 +613,9 @@ const columns: DataTableColumns<Pipeline> = [
             clearable
           />
         </n-form-item>
+        <n-form-item v-if="formType === 'onnx'" label="Labels">
+          <n-dynamic-tags v-model:value="formLabels" />
+        </n-form-item>
         <n-form-item label="Config (JSON)">
           <n-input
             v-model:value="formConfigText"
@@ -533,6 +626,93 @@ const columns: DataTableColumns<Pipeline> = [
           />
         </n-form-item>
       </template>
+
+      <!-- Transformers — available for all pipeline types -->
+      <n-divider style="margin: 4px 0" />
+      <n-form-item label="Transformers">
+        <n-flex vertical style="width: 100%; gap: 8px">
+          <n-card
+            v-for="(t, i) in formTransformers"
+            :key="i"
+            size="small"
+            style="background: var(--n-color-embedded)"
+          >
+            <n-flex align="center" style="margin-bottom: 8px">
+              <n-select
+                v-model:value="t.type"
+                :options="transformerTypeOptions"
+                style="flex: 1"
+              />
+              <n-button text type="error" @click="formTransformers.splice(i, 1)">
+                <template #icon><n-icon><TrashOutline /></n-icon></template>
+              </n-button>
+            </n-flex>
+            <template v-if="t.type === 'zip_arrays'">
+              <n-flex>
+                <n-form-item label="Keys field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.keys_field" placeholder="labels" />
+                </n-form-item>
+                <n-form-item label="Values field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.values_field" placeholder="scores" />
+                </n-form-item>
+              </n-flex>
+            </template>
+            <template v-else-if="t.type === 'multiply'">
+              <n-flex>
+                <n-form-item label="Factor" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.factor" placeholder="e.g. 100" style="width: 100%" />
+                </n-form-item>
+                <n-form-item label="Fields (empty = all numeric)" style="flex: 2; margin-bottom: 0">
+                  <n-dynamic-tags v-model:value="t.fields" />
+                </n-form-item>
+              </n-flex>
+            </template>
+            <template v-else-if="t.type === 'normalize'">
+              <n-flex>
+                <n-form-item label="Method" style="flex: 1; margin-bottom: 0">
+                  <n-select v-model:value="t.method" :options="normalizeMethodOptions" />
+                </n-form-item>
+                <n-form-item label="Fields (empty = all numeric)" style="flex: 2; margin-bottom: 0">
+                  <n-dynamic-tags v-model:value="t.fields" />
+                </n-form-item>
+              </n-flex>
+              <n-flex v-if="t.method === 'minmax'" style="margin-top: 8px">
+                <n-form-item label="Range min" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.range_min" placeholder="0" style="width: 100%" />
+                </n-form-item>
+                <n-form-item label="Range max" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.range_max" placeholder="1" style="width: 100%" />
+                </n-form-item>
+              </n-flex>
+            </template>
+            <template v-else-if="t.type === 'group_entities'">
+              <n-flex>
+                <n-form-item label="Source field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.source" placeholder="entities" />
+                </n-form-item>
+                <n-form-item label="Min score" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.min_score" :min="0" :max="1" :step="0.05" placeholder="0.8" style="width: 100%" />
+                </n-form-item>
+              </n-flex>
+              <n-flex style="margin-top: 8px">
+                <n-form-item label="Label field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.label_field" placeholder="label" />
+                </n-form-item>
+                <n-form-item label="Word field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.word_field" placeholder="word" />
+                </n-form-item>
+                <n-form-item label="Score field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.score_field" placeholder="score" />
+                </n-form-item>
+              </n-flex>
+            </template>
+          </n-card>
+          <n-button dashed style="width: 100%" @click="addTransformer">
+            <template #icon><n-icon><AddOutline /></n-icon></template>
+            Add Transformer
+          </n-button>
+        </n-flex>
+      </n-form-item>
     </FormDrawer>
 
     <PipelineBackendsModal
