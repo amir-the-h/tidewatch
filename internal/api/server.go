@@ -170,9 +170,12 @@ func NewServer(
 			r.Get("/tracked-entities/{id}/alias-suggestions", srv.handleListEntityAliasSuggestions)
 			r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
 
-			// Action chains (read) and triggers — all authenticated users.
-			r.Get("/actions/{id}/chains", srv.handleListChains)
+			// Chains (read) and triggers — all authenticated users.
+			r.Get("/chains", srv.handleListChains)
+			r.Get("/chains/{id}", srv.handleGetChain)
+			r.Get("/chains/{id}/graph", srv.handleGetChainGraph)
 			r.Get("/triggers", srv.handleListTriggers)
+			r.Get("/triggers/links", srv.handleListTriggerChainLinks)
 
 			// Admin-only routes.
 			r.Group(func(r chi.Router) {
@@ -206,10 +209,19 @@ func NewServer(
 				r.Post("/pipelines/{id}/activate", srv.handleActivatePipeline)
 				r.Post("/pipelines/{id}/deactivate", srv.handleDeactivatePipeline)
 
-				// Action chains (mutations only — GET is in the authed group above)
-				r.Post("/actions/{id}/chains", srv.handleCreateChain)
-				r.Put("/actions/{id}/chains/{chain_id}", srv.handleUpdateChain)
-				r.Delete("/actions/{id}/chains/{chain_id}", srv.handleDeleteChain)
+				// Chains (mutations)
+				r.Post("/chains", srv.handleCreateChain)
+				r.Put("/chains/{id}", srv.handleUpdateChain)
+				r.Delete("/chains/{id}", srv.handleDeleteChain)
+				r.Post("/chains/{id}/activate", srv.handleActivateChain)
+				r.Post("/chains/{id}/deactivate", srv.handleDeactivateChain)
+				r.Put("/chains/{id}/graph", srv.handleSaveChainGraph)
+
+				// Trigger chain links
+				r.Post("/triggers/links", srv.handleCreateTriggerChainLink)
+				r.Delete("/triggers/links/{id}", srv.handleDeleteTriggerChainLink)
+				r.Post("/triggers/links/{id}/activate", srv.handleActivateTriggerChainLink)
+				r.Post("/triggers/links/{id}/deactivate", srv.handleDeactivateTriggerChainLink)
 
 				// Stream control
 				r.Post("/stream/connect", srv.handleStreamConnect)
