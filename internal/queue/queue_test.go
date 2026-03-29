@@ -235,6 +235,72 @@ func TestPushTask_RoutesToActionKey(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// scanFakeClient — extends fakeRedisClient with Scan for TotalTaskLen/FlushQueue
+// ---------------------------------------------------------------------------
+
+// scanFakeClient extends fakeRedisClient with a Scan implementation for testing
+// TotalTaskLen and FlushQueue.
+type scanFakeClient struct {
+	fakeRedisClient
+	scanKeys []string         // keys returned by Scan
+	lenByKey map[string]int64 // key → LLEN result
+	deleted  []string         // keys passed to Del
+}
+
+func (f *scanFakeClient) Scan(_ context.Context, cursor uint64, _ string, _ int64) *redis.ScanCmd {
+	// Return all keys on the first call (cursor 0), then signal done (next=0).
+	if cursor == 0 {
+		return redis.NewScanCmdResult(f.scanKeys, 0, nil)
+	}
+	return redis.NewScanCmdResult(nil, 0, nil)
+}
+
+func (f *scanFakeClient) LLen(_ context.Context, key string) *redis.IntCmd {
+	n := f.lenByKey[key]
+	return redis.NewIntResult(n, nil)
+}
+
+func (f *scanFakeClient) Del(_ context.Context, keys ...string) *redis.IntCmd {
+	f.deleted = append(f.deleted, keys...)
+	return redis.NewIntResult(int64(len(keys)), nil)
+}
+
+func TestTotalTaskLen_SumsAllActionQueues(t *testing.T) {
+	fake := &scanFakeClient{
+		scanKeys: []string{"iran-watcher:tasks:1", "iran-watcher:tasks:2"},
+		lenByKey: map[string]int64{
+			"iran-watcher:tasks:1": 3,
+			"iran-watcher:tasks:2": 5,
+		},
+	}
+	q := &RedisQueue{client: fake}
+	total, err := q.TotalTaskLen(context.Background())
+	if err != nil {
+		t.Fatalf("TotalTaskLen: %v", err)
+	}
+	if total != 8 {
+		t.Errorf("TotalTaskLen = %d, want 8", total)
+	}
+}
+
+func TestFlushQueue_DeletesAllActionKeys(t *testing.T) {
+	fake := &scanFakeClient{
+		scanKeys: []string{"iran-watcher:tasks:3", "iran-watcher:tasks:4"},
+	}
+	q := &RedisQueue{client: fake}
+	if err := q.FlushQueue(context.Background()); err != nil {
+		t.Fatalf("FlushQueue: %v", err)
+	}
+	if len(fake.deleted) != 2 {
+		t.Errorf("deleted %d keys, want 2", len(fake.deleted))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Key format tests
+// ---------------------------------------------------------------------------
+
 // TestQueueTasksKey_Format verifies the per-action key format.
 func TestQueueTasksKey_Format(t *testing.T) {
 	key := QueueTasksKey(42)

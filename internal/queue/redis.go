@@ -20,6 +20,12 @@ type redisClient interface {
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
+// scanner is implemented by redis clients that support SCAN (e.g. *redis.Client).
+// Test fakes that omit this interface cause TotalTaskLen and FlushQueue to no-op.
+type scanner interface {
+	Scan(context.Context, uint64, string, int64) *redis.ScanCmd
+}
+
 // RedisQueue implements both Producer and Consumer using Redis lists.
 // PushTask uses LPUSH; PopTask uses BRPOP (blocking right-pop from a left-push queue).
 type RedisQueue struct {
@@ -143,9 +149,6 @@ func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 // keys matching iran-watcher:tasks:*. Returns 0 if the underlying client does
 // not support SCAN (e.g. test fakes).
 func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
-	type scanner interface {
-		Scan(context.Context, uint64, string, int64) *redis.ScanCmd
-	}
 	s, ok := q.client.(scanner)
 	if !ok {
 		return 0, nil
@@ -159,9 +162,13 @@ func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
 		}
 		for _, key := range keys {
 			n, err := q.client.LLen(ctx, key).Result()
-			if err == nil {
-				total += n
+			if err != nil {
+				if errors.Is(err, redis.Nil) {
+					continue
+				}
+				return 0, fmt.Errorf("queue: total task len: llen %s: %w", key, err)
 			}
+			total += n
 		}
 		if next == 0 {
 			break
@@ -174,9 +181,6 @@ func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
 // FlushQueue deletes all per-action task queues by scanning for keys matching
 // iran-watcher:tasks:*. No-op if the underlying client does not support SCAN.
 func (q *RedisQueue) FlushQueue(ctx context.Context) error {
-	type scanner interface {
-		Scan(context.Context, uint64, string, int64) *redis.ScanCmd
-	}
 	s, ok := q.client.(scanner)
 	if !ok {
 		return nil
