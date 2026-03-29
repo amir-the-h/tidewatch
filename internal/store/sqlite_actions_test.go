@@ -25,13 +25,11 @@ func seedActionAndTweet(t *testing.T, s Store) (action *model.Action, tweetID st
 	}
 
 	a := &model.Action{
-		Name:        "test-action",
-		TriggerType: model.TriggerTypeNewTweet,
-		PipelineID:  p.ID,
-		Active:      true,
-		RuleIDs:     []int64{},
-		CreatedAt:   time.Now().UTC(),
-		UpdatedAt:   time.Now().UTC(),
+		Name:       "test-action",
+		PipelineID: p.ID,
+		Active:     true,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 	if err := s.SaveAction(ctx, a); err != nil {
 		t.Fatalf("SaveAction: %v", err)
@@ -102,9 +100,11 @@ func TestDeleteActionExecutions_ScopedToAction(t *testing.T) {
 		t.Fatalf("SavePipeline p2: %v", err)
 	}
 	a2 := &model.Action{
-		Name: "action-2", TriggerType: model.TriggerTypeNewTweet,
-		PipelineID: p2.ID, Active: true, RuleIDs: []int64{},
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		Name:       "action-2",
+		PipelineID: p2.ID,
+		Active:     true,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 	if err := s.SaveAction(ctx, a2); err != nil {
 		t.Fatalf("SaveAction a2: %v", err)

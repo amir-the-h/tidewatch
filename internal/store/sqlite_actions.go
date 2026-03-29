@@ -15,22 +15,10 @@ import (
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 func (s *sqliteStore) SaveAction(ctx context.Context, a *model.Action) error {
-	ruleIDsJSON, err := json.Marshal(a.RuleIDs)
-	if err != nil {
-		return fmt.Errorf("store: save action: marshal rule_ids: %w", err)
-	}
 	now := time.Now().UTC().Format(time.RFC3339)
-
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO actions (name, trigger_type, pipeline_id, active, rule_ids, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		a.Name,
-		string(a.TriggerType),
-		a.PipelineID,
-		boolToInt(a.Active),
-		string(ruleIDsJSON),
-		now,
-		now,
+		`INSERT INTO actions (name, pipeline_id, active, created_at, updated_at) VALUES (?,?,?,?,?)`,
+		a.Name, a.PipelineID, boolToInt(a.Active), now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save action: %w", err)
@@ -45,7 +33,7 @@ func (s *sqliteStore) SaveAction(ctx context.Context, a *model.Action) error {
 
 func (s *sqliteStore) GetAction(ctx context.Context, id int64) (*model.Action, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, trigger_type, pipeline_id, active, rule_ids, created_at, updated_at FROM actions WHERE id = ?`, id)
+		`SELECT id, name, pipeline_id, active, created_at, updated_at FROM actions WHERE id = ?`, id)
 	a, err := scanAction(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -59,11 +47,6 @@ func (s *sqliteStore) GetAction(ctx context.Context, id int64) (*model.Action, e
 func (s *sqliteStore) ListActions(ctx context.Context, filter ActionFilter) ([]*model.Action, error) {
 	var where []string
 	var args []any
-
-	if filter.TriggerType != nil {
-		where = append(where, "trigger_type = ?")
-		args = append(args, string(*filter.TriggerType))
-	}
 	if filter.PipelineID != nil {
 		where = append(where, "pipeline_id = ?")
 		args = append(args, *filter.PipelineID)
@@ -72,19 +55,16 @@ func (s *sqliteStore) ListActions(ctx context.Context, filter ActionFilter) ([]*
 		where = append(where, "active = ?")
 		args = append(args, boolToInt(*filter.Active))
 	}
-
-	q := "SELECT id, name, trigger_type, pipeline_id, active, rule_ids, created_at, updated_at FROM actions"
+	q := "SELECT id, name, pipeline_id, active, created_at, updated_at FROM actions"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
 	q += " ORDER BY id ASC"
-
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: list actions: %w", err)
 	}
 	defer rows.Close()
-
 	var out []*model.Action
 	for rows.Next() {
 		a, err := scanAction(rows)
@@ -97,14 +77,10 @@ func (s *sqliteStore) ListActions(ctx context.Context, filter ActionFilter) ([]*
 }
 
 func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
-	ruleIDsJSON, err := json.Marshal(a.RuleIDs)
-	if err != nil {
-		return fmt.Errorf("store: update action: marshal rule_ids: %w", err)
-	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = s.db.ExecContext(ctx,
-		`UPDATE actions SET name = ?, trigger_type = ?, pipeline_id = ?, rule_ids = ?, updated_at = ? WHERE id = ?`,
-		a.Name, string(a.TriggerType), a.PipelineID, string(ruleIDsJSON), now, a.ID,
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE actions SET name = ?, pipeline_id = ?, updated_at = ? WHERE id = ?`,
+		a.Name, a.PipelineID, now, a.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update action: %w", err)
@@ -113,12 +89,6 @@ func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
 }
 
 func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
-	// Chains may not cascade due to migration 016 table-rename re-association;
-	// delete explicitly to avoid FK constraint errors.
-	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM action_chains WHERE source_action_id = ? OR target_action_id = ?`, id, id); err != nil {
-		return fmt.Errorf("store: delete action: delete chains: %w", err)
-	}
 	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM action_execution_metadata
 		WHERE execution_id IN (SELECT id FROM action_executions WHERE action_id = ?)`, id); err != nil {
@@ -509,14 +479,11 @@ type actionScanner interface {
 func scanAction(r actionScanner) (*model.Action, error) {
 	a := &model.Action{}
 	var activeInt int
-	var ruleIDsStr, createdAt, updatedAt string
-	if err := r.Scan(&a.ID, &a.Name, &a.TriggerType, &a.PipelineID, &activeInt, &ruleIDsStr, &createdAt, &updatedAt); err != nil {
+	var createdAt, updatedAt string
+	if err := r.Scan(&a.ID, &a.Name, &a.PipelineID, &activeInt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	a.Active = activeInt != 0
-	if err := json.Unmarshal([]byte(ruleIDsStr), &a.RuleIDs); err != nil || a.RuleIDs == nil {
-		a.RuleIDs = []int64{}
-	}
 	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
 		a.CreatedAt = t
 	}
@@ -524,4 +491,33 @@ func scanAction(r actionScanner) (*model.Action, error) {
 		a.UpdatedAt = t
 	}
 	return a, nil
+}
+
+// ── Chain stubs — implemented in sqlite_chains.go (Task 5) ───────────────────
+
+func (s *sqliteStore) SaveChain(ctx context.Context, c *model.Chain) error { return nil }
+func (s *sqliteStore) GetChain(ctx context.Context, id int64) (*model.Chain, error) {
+	return nil, nil
+}
+func (s *sqliteStore) ListChains(ctx context.Context) ([]*model.Chain, error) { return nil, nil }
+func (s *sqliteStore) UpdateChain(ctx context.Context, c *model.Chain) error  { return nil }
+func (s *sqliteStore) DeleteChain(ctx context.Context, id int64) error         { return nil }
+func (s *sqliteStore) SetChainActive(ctx context.Context, id int64, active bool) error {
+	return nil
+}
+func (s *sqliteStore) GetChainGraph(ctx context.Context, chainID int64) (*model.ChainGraph, error) {
+	return nil, nil
+}
+func (s *sqliteStore) SaveChainGraph(ctx context.Context, chainID int64, nodes []*model.ChainNodeRequest, edges []*model.ChainEdgeRequest) (*model.ChainGraph, error) {
+	return nil, nil
+}
+func (s *sqliteStore) SaveTriggerChainLink(ctx context.Context, l *model.TriggerChainLink) error {
+	return nil
+}
+func (s *sqliteStore) ListTriggerChainLinks(ctx context.Context) ([]*model.TriggerChainLink, error) {
+	return nil, nil
+}
+func (s *sqliteStore) DeleteTriggerChainLink(ctx context.Context, id int64) error { return nil }
+func (s *sqliteStore) SetTriggerChainLinkActive(ctx context.Context, id int64, active bool) error {
+	return nil
 }
