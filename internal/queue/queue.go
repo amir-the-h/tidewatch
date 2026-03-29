@@ -15,10 +15,6 @@ const (
 	// QueueFailed is the dead-letter queue key.
 	QueueFailed = "iran-watcher:failed"
 
-	// QueueTasks is the legacy shared task queue key, kept for backward
-	// compatibility during the transition to per-action queues.
-	// Deprecated: use QueueTasksKey(actionID) instead.
-	QueueTasks = "iran-watcher:tasks"
 )
 
 // QueueTasksKey returns the Redis key for the task queue of the given action.
