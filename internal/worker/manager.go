@@ -170,6 +170,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	mergedCtx["tweet_author"] = ev.AuthorHandle
 	mergedCtx["author"] = ev.AuthorHandle
 	mergedCtx["tweet"] = ev.Text
+	mergedCtx["tweet_short"] = truncateText(ev.Text, 280)
 	mergedCtx["tweet_url"] = "https://x.com/" + ev.AuthorHandle + "/status/" + ev.TweetID
 
 	// Derive convenience vars from common ONNX/Ollama output shapes.
@@ -424,6 +425,14 @@ func (m *Manager) FlushPipeline(_ string) int { return 0 }
 // cleanly in template substitution. String values lose their JSON quotes;
 // numbers become float64; arrays and objects become []interface{}/map[string]any.
 // Falls back to the raw string if the value is not valid JSON.
+func truncateText(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
+}
+
 func decodeMetaValue(s string) any {
 	var v any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {

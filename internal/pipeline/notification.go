@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,36 +133,105 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 	return out, nil
 }
 
-// substituteVars replaces ${key} placeholders in tmpl with values from ctx.
-// Strings are used as-is; complex types (slices, maps) are rendered as compact
-// JSON so they appear human-readable rather than as Go's default %v output.
-// If escaper is non-nil, each rendered value is passed through it before
-// substitution so user-supplied content cannot break formatted messages.
-// Unknown keys are left as-is. After substitution, inline empty parentheticals
-// like " ()" are removed and lines whose only value resolved to empty are dropped.
+// varPattern matches ${key} and ${key | filter} placeholders.
+var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+// htmlTagPattern matches HTML tags for stripping purposes.
+var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
+
+// substituteVars replaces ${key} and ${key | filter} placeholders in tmpl with
+// values from ctx. Supported filters: yesno, join. If escaper is non-nil, each
+// rendered value is passed through it before substitution. Unknown keys are left
+// as-is. After substitution, inline empty parentheticals like " ()" are removed
+// and lines whose only substituted value resolved to empty are dropped.
 func substituteVars(tmpl string, ctx map[string]any, escaper func(string) string) string {
-	for k, v := range ctx {
-		val := renderValue(v)
+	result := varPattern.ReplaceAllStringFunc(tmpl, func(match string) string {
+		inner := match[2 : len(match)-1] // strip ${ and }
+		parts := strings.SplitN(inner, "|", 2)
+		key := strings.TrimSpace(parts[0])
+		filter := ""
+		if len(parts) == 2 {
+			filter = strings.TrimSpace(parts[1])
+		}
+		v, ok := ctx[key]
+		if !ok {
+			return match // unknown key — leave placeholder as-is
+		}
+		val := applyFilter(v, filter)
 		if escaper != nil {
 			val = escaper(val)
 		}
-		tmpl = strings.ReplaceAll(tmpl, "${"+k+"}", val)
-	}
+		return val
+	})
 
 	// Remove inline empty parentheticals: "foo ()" → "foo".
-	tmpl = strings.ReplaceAll(tmpl, " ()", "")
+	result = strings.ReplaceAll(result, " ()", "")
 
-	// Drop lines where every substituted value resolved to empty, leaving
-	// only a trailing colon (e.g. "🎯 Perpetrator:").
-	lines := strings.Split(tmpl, "\n")
+	// Drop lines whose only substituted value resolved to empty, leaving
+	// only a label and colon (e.g. "🎯 Perpetrator:" or "<b>Casualties:</b> ").
+	// HTML tags are stripped before the check so markup-wrapped labels are handled.
+	lines := strings.Split(result, "\n")
 	kept := lines[:0]
 	for _, line := range lines {
-		if strings.HasSuffix(strings.TrimRight(line, " \t"), ":") {
+		stripped := htmlTagPattern.ReplaceAllString(line, "")
+		if strings.HasSuffix(strings.TrimRight(stripped, " \t"), ":") {
 			continue
 		}
 		kept = append(kept, line)
 	}
 	return strings.Join(kept, "\n")
+}
+
+// applyFilter renders a context value through an optional named filter.
+// Supported filters:
+//   - yesno: converts true/"true" → "yes", false/"false" → "no"
+//   - join:  flattens a JSON array (or []any) to a comma-separated string;
+//     an empty array becomes "" so the containing line is dropped
+//
+// An empty filter name falls back to renderValue.
+func applyFilter(v any, filter string) string {
+	switch filter {
+	case "yesno":
+		switch val := v.(type) {
+		case bool:
+			if val {
+				return "yes"
+			}
+			return "no"
+		case string:
+			switch strings.ToLower(val) {
+			case "true", "yes", "1":
+				return "yes"
+			case "false", "no", "0":
+				return "no"
+			}
+		}
+		return renderValue(v)
+
+	case "join":
+		var items []any
+		switch val := v.(type) {
+		case []any:
+			items = val
+		case string:
+			// Try to parse a JSON-encoded array stored as a string.
+			if err := json.Unmarshal([]byte(val), &items); err != nil {
+				return val // not an array — return as-is
+			}
+		default:
+			return renderValue(v)
+		}
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			if s := renderValue(item); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, ", ")
+
+	default:
+		return renderValue(v)
+	}
 }
 
 // renderValue converts a context value to a display string.

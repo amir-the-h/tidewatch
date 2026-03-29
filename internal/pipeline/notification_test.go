@@ -422,3 +422,85 @@ func TestRenderMetaDisplayValue_LongString(t *testing.T) {
 		t.Errorf("expected truncation to 200 chars with ellipsis, got len=%d", len(got))
 	}
 }
+
+// ── filter tests ──────────────────────────────────────────────────────────────
+
+func TestApplyFilter_YesNo_Bool(t *testing.T) {
+	if got := applyFilter(true, "yesno"); got != "yes" {
+		t.Errorf("true|yesno: got %q, want yes", got)
+	}
+	if got := applyFilter(false, "yesno"); got != "no" {
+		t.Errorf("false|yesno: got %q, want no", got)
+	}
+}
+
+func TestApplyFilter_YesNo_String(t *testing.T) {
+	if got := applyFilter("true", "yesno"); got != "yes" {
+		t.Errorf("\"true\"|yesno: got %q, want yes", got)
+	}
+	if got := applyFilter("false", "yesno"); got != "no" {
+		t.Errorf("\"false\"|yesno: got %q, want no", got)
+	}
+}
+
+func TestApplyFilter_Join_Slice(t *testing.T) {
+	got := applyFilter([]any{"Iran", "Iraq"}, "join")
+	if got != "Iran, Iraq" {
+		t.Errorf("[]any|join: got %q, want %q", got, "Iran, Iraq")
+	}
+}
+
+func TestApplyFilter_Join_EmptySlice(t *testing.T) {
+	got := applyFilter([]any{}, "join")
+	if got != "" {
+		t.Errorf("empty []any|join: got %q, want empty string", got)
+	}
+}
+
+func TestApplyFilter_Join_JSONString(t *testing.T) {
+	got := applyFilter(`["second strike","capital targeted"]`, "join")
+	if got != "second strike, capital targeted" {
+		t.Errorf("JSON string|join: got %q", got)
+	}
+}
+
+func TestApplyFilter_Join_EmptyJSONArray(t *testing.T) {
+	got := applyFilter("[]", "join")
+	if got != "" {
+		t.Errorf("empty JSON array string|join: got %q, want empty string", got)
+	}
+}
+
+func TestSubstituteVars_FilterYesNo(t *testing.T) {
+	ctx := map[string]any{"response": "true"}
+	got := substituteVars("Response: ${response | yesno}", ctx, nil)
+	if got != "Response: yes" {
+		t.Errorf("got %q, want %q", got, "Response: yes")
+	}
+}
+
+func TestSubstituteVars_FilterJoin_EmptyDropsLine(t *testing.T) {
+	ctx := map[string]any{"tags": []any{}}
+	got := substituteVars("Header\nEscalation: ${tags | join}\nFooter", ctx, nil)
+	if strings.Contains(got, "Escalation") {
+		t.Errorf("empty join should drop the line, got: %q", got)
+	}
+	if !strings.Contains(got, "Header") || !strings.Contains(got, "Footer") {
+		t.Errorf("surrounding lines should be preserved, got: %q", got)
+	}
+}
+
+func TestSubstituteVars_HTMLWrappedLabelDroppedWhenEmpty(t *testing.T) {
+	ctx := map[string]any{"casualties": nil, "tags": []any{}}
+	tmpl := "Header\n<b>Casualties:</b> ${casualties}\n<b>Escalation:</b> ${tags | join}\nFooter"
+	got := substituteVars(tmpl, ctx, nil)
+	if strings.Contains(got, "Casualties") {
+		t.Errorf("nil casualties should drop the HTML-wrapped line, got: %q", got)
+	}
+	if strings.Contains(got, "Escalation") {
+		t.Errorf("empty join should drop the HTML-wrapped line, got: %q", got)
+	}
+	if !strings.Contains(got, "Header") || !strings.Contains(got, "Footer") {
+		t.Errorf("surrounding lines should be preserved, got: %q", got)
+	}
+}
