@@ -16,9 +16,11 @@ const (
 // Task is a single unit of work pushed to iran-watcher:tasks.
 type Task struct {
 	TriggerType string          `json:"trigger_type"`
-	Event       json.RawMessage `json:"event"`    // serialised trigger payload
+	Event       json.RawMessage `json:"event"`        // serialised trigger payload
 	ActionID    int64           `json:"action_id"`
-	Context     map[string]any  `json:"context"` // accumulated outputs from upstream actions
+	ChainNodeID int64           `json:"chain_node_id,omitempty"` // 0 = not a chain-routed task
+	ChainID     int64           `json:"chain_id,omitempty"`      // chain the node belongs to
+	Context     map[string]any  `json:"context"`      // accumulated outputs from upstream actions
 }
 
 // TweetEvent is the Event payload for trigger_type=new_tweet.

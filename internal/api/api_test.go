@@ -171,8 +171,10 @@ func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChai
 func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) {
 	return nil, nil
 }
+func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, _ string) ([]*model.TriggerChainLink, error) { return nil, nil }
 func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error            { return nil }
 func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) GetChainIDForNode(_ context.Context, _ int64) (int64, error)        { return 0, nil }
 
 func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
 	return nil

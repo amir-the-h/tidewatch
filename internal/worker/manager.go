@@ -119,8 +119,12 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	entry := m.cache.Get(task.ActionID)
 	if entry == nil {
 		if m.logger != nil {
-			m.logger.Warn("worker: unknown action_id in task",
-				"action_id", task.ActionID, "trigger", task.TriggerType)
+			m.logger.Warn("worker: unknown action_id in task — action not in cache (inactive or missing?)",
+				"action_id", task.ActionID,
+				"trigger", task.TriggerType,
+				"chain_id", task.ChainID,
+				"chain_node_id", task.ChainNodeID,
+			)
 		}
 		return
 	}
@@ -186,6 +190,18 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		})
 	})
 
+	if m.logger != nil {
+		m.logger.Info("worker: running pipeline",
+			"worker_id", workerID,
+			"action_id", task.ActionID,
+			"action", entry.Action.Name,
+			"pipeline", entry.Pipeline.Name(),
+			"tweet_id", ev.TweetID,
+			"chain_id", task.ChainID,
+			"chain_node_id", task.ChainNodeID,
+		)
+	}
+
 	startTime := time.Now()
 	outputs, runErr := entry.Pipeline.Run(inferenceCtx, input)
 
@@ -208,7 +224,20 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		m.logger.Warn("worker: save action execution", "error", saveErr)
 	}
 
-	if runErr != nil || outputs == nil {
+	if runErr != nil {
+		return
+	}
+	if outputs == nil {
+		if m.logger != nil {
+			m.logger.Warn("worker: pipeline returned nil outputs — chain continuation skipped",
+				"worker_id", workerID,
+				"action_id", task.ActionID,
+				"action", entry.Action.Name,
+				"pipeline", entry.Pipeline.Name(),
+				"tweet_id", ev.TweetID,
+				"chain_node_id", task.ChainNodeID,
+			)
+		}
 		return
 	}
 
@@ -232,10 +261,25 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		_ = m.store.SaveActionExecutionMetadata(ctx, exec.ID, k, val)
 	}
 
+	outputKeys := make([]string, 0, len(outputs))
 	for k, v := range outputs {
 		mergedCtx[k] = v
+		outputKeys = append(outputKeys, fmt.Sprintf("%s=%v", k, v))
 	}
 
+	if m.logger != nil {
+		m.logger.Info("worker: pipeline completed",
+			"worker_id", workerID,
+			"action_id", task.ActionID,
+			"action", entry.Action.Name,
+			"tweet_id", ev.TweetID,
+			"output_keys", outputKeys,
+			"chain_node_id", task.ChainNodeID,
+		)
+	}
+
+	// Continue chain: push tasks for downstream action nodes whose conditions pass.
+	PushContinuationTasks(ctx, m.store, m.producer, task, mergedCtx, m.logger)
 }
 
 func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *queue.Task, entry *CacheEntry) {

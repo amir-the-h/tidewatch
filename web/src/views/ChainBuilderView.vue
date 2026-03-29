@@ -27,7 +27,7 @@ const chainId = Number(route.params.id)
 const {
   nodes, edges,
   setNodes, setEdges,
-  addNodes,
+  addNodes, addEdges,
   onNodesChange, onEdgesChange,
   applyNodeChanges, applyEdgeChanges,
   findNode,
@@ -127,6 +127,20 @@ onEdgesChange((changes) => {
   applyEdgeChanges(changes)
   dirty.value = true
 })
+
+function onConnect(params: any) {
+  const handle = params.sourceHandle ?? 'default'
+  addEdges([{
+    id: `e-${Date.now()}`,
+    source: params.source,
+    sourceHandle: handle,
+    target: params.target,
+    targetHandle: params.targetHandle,
+    animated: handle === 'pass',
+    style: { stroke: handle === 'fail' ? '#f38ba8' : handle === 'pass' ? '#a6e3a1' : '#585b70' },
+  }])
+  dirty.value = true
+}
 
 function addActionNode(action: Action) {
   const id = `action-${Date.now()}`
@@ -284,6 +298,7 @@ const actionOptions = computed(() =>
           :default-edge-options="{ animated: false, style: { stroke: '#585b70' } }"
           fit-view-on-init
           @node-click="onNodeClick"
+          @connect="onConnect"
           style="background: #181825; height: 100%;"
         >
         </VueFlow>

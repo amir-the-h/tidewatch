@@ -254,7 +254,15 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 			if err := c.store.SaveTweetRule(ctx, tr); err != nil {
 				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet rule %s: %w", rule.ID, st.Tweet.ID, err)
 			}
-			// TODO(chains): chain execution — deferred to worker execution spec.
+			ev := queue.TweetEvent{
+				TweetID:      st.Tweet.ID,
+				Text:         st.Tweet.Text,
+				AuthorHandle: st.Tweet.AuthorHandle,
+				RuleIDs:      []int64{rule.ID},
+			}
+			if pushErr := worker.PushInitialChainTasks(ctx, c.store, c.producer, "new_tweet", ev, c.logger); pushErr != nil && c.logger != nil {
+				c.logger.Warn("search: chain dispatch failed", "tweet_id", st.Tweet.ID, "error", pushErr)
+			}
 		}
 
 		fetched += len(page.Tweets)

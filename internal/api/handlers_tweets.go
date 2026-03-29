@@ -11,6 +11,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 func (s *Server) handleListTweets(w http.ResponseWriter, r *http.Request) {
@@ -211,35 +212,40 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 
 	count := 0
 	for _, tweet := range tweets {
-		ev, _ := json.Marshal(queue.TweetEvent{
+		ev := queue.TweetEvent{
 			TweetID:      tweet.ID,
 			Text:         tweet.Text,
 			AuthorHandle: tweet.AuthorHandle,
-		})
-		pushed := false
-		targetIDs := req.ActionIDs
-		if len(targetIDs) == 0 && s.actionCache != nil {
-			// No specific actions requested — dispatch to all active actions.
-			entries := s.actionCache.All()
-			for _, e := range entries {
-				targetIDs = append(targetIDs, e.Action.ID)
-			}
 		}
-		for _, actionID := range targetIDs {
-			task := &queue.Task{
-				TriggerType: "new_tweet",
-				Event:       ev,
-				ActionID:    actionID,
-				Context:     map[string]any{},
+
+		if len(req.ActionIDs) == 0 {
+			// Chain-based dispatch — mirrors what the stream listener does.
+			if err := worker.PushInitialChainTasks(r.Context(), s.store, s.producer, "new_tweet", ev, s.logger); err != nil {
+				s.logger.Error("api: reprocess chain dispatch", "tweet_id", tweet.ID, "error", err)
+				continue
 			}
-			if err := s.producer.PushTask(r.Context(), task); err != nil {
-				s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "action_id", actionID, "error", err)
-			} else {
-				pushed = true
-			}
-		}
-		if pushed {
 			count++
+		} else {
+			// Targeted dispatch: caller explicitly named which actions to run
+			// (bypass chain routing — useful for debugging a specific action).
+			evBytes, _ := json.Marshal(ev)
+			pushed := false
+			for _, actionID := range req.ActionIDs {
+				task := &queue.Task{
+					TriggerType: "new_tweet",
+					Event:       evBytes,
+					ActionID:    actionID,
+					Context:     map[string]any{},
+				}
+				if err := s.producer.PushTask(r.Context(), task); err != nil {
+					s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "action_id", actionID, "error", err)
+				} else {
+					pushed = true
+				}
+			}
+			if pushed {
+				count++
+			}
 		}
 	}
 

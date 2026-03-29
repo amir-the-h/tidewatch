@@ -234,8 +234,10 @@ type Store interface {
 	// TriggerChainLinks
 	SaveTriggerChainLink(ctx context.Context, l *model.TriggerChainLink) error
 	ListTriggerChainLinks(ctx context.Context) ([]*model.TriggerChainLink, error)
+	ListActiveTriggerChainLinks(ctx context.Context, triggerType string) ([]*model.TriggerChainLink, error)
 	DeleteTriggerChainLink(ctx context.Context, id int64) error
 	SetTriggerChainLinkActive(ctx context.Context, id int64, active bool) error
+	GetChainIDForNode(ctx context.Context, nodeID int64) (int64, error)
 
 	// ActionExecutions
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error

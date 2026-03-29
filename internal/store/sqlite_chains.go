@@ -254,6 +254,34 @@ func (s *sqliteStore) ListTriggerChainLinks(ctx context.Context) ([]*model.Trigg
 	return out, rows.Err()
 }
 
+func (s *sqliteStore) ListActiveTriggerChainLinks(ctx context.Context, triggerType string) ([]*model.TriggerChainLink, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, trigger_type, chain_id, active, created_at
+		 FROM trigger_chain_links WHERE trigger_type = ? AND active = 1 ORDER BY id ASC`, triggerType)
+	if err != nil {
+		return nil, fmt.Errorf("store: list active trigger chain links: %w", err)
+	}
+	defer rows.Close()
+	var out []*model.TriggerChainLink
+	for rows.Next() {
+		l, err := scanTriggerChainLink(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list active trigger chain links: scan: %w", err)
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) GetChainIDForNode(ctx context.Context, nodeID int64) (int64, error) {
+	var chainID int64
+	err := s.db.QueryRowContext(ctx, `SELECT chain_id FROM chain_nodes WHERE id = ?`, nodeID).Scan(&chainID)
+	if err != nil {
+		return 0, fmt.Errorf("store: get chain id for node %d: %w", nodeID, err)
+	}
+	return chainID, nil
+}
+
 func (s *sqliteStore) DeleteTriggerChainLink(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM trigger_chain_links WHERE id = ?`, id)
 	if err != nil {

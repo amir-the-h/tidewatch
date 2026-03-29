@@ -119,8 +119,10 @@ func (m *mockStore) GetChainGraph(_ context.Context, _ int64) (*model.ChainGraph
 func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) { return nil, nil }
 func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChainLink) error { return nil }
 func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) { return nil, nil }
+func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, _ string) ([]*model.TriggerChainLink, error) { return nil, nil }
 func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error             { return nil }
 func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error  { return nil }
+func (m *mockStore) GetChainIDForNode(_ context.Context, _ int64) (int64, error)         { return 0, nil }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                   { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)           { return nil, nil }
 func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) { return nil, nil }

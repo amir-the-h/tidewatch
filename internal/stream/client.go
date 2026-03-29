@@ -308,9 +308,20 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		})
 	}
 
-	// TODO(chains): chain execution — deferred to worker execution spec.
-	// When implemented, look up trigger_chain_links for "new_tweet" and
-	// walk the chain DAG for each matched tweet.
+	// Dispatch tasks for all action nodes in chains linked to "new_tweet".
+	ev := queue.TweetEvent{
+		TweetID:      st.Tweet.ID,
+		Text:         st.Tweet.Text,
+		AuthorHandle: st.Tweet.AuthorHandle,
+		RuleIDs:      resolvedRuleIDs,
+	}
+	if err := worker.PushInitialChainTasks(ctx, c.store, c.producer, "new_tweet", ev, c.logger); err != nil {
+		c.logger.Warn("stream: chain dispatch failed",
+			"component", "stream",
+			"tweet_id", st.Tweet.ID,
+			"error", err,
+		)
+	}
 
 	c.logger.Info("stream: processed tweet",
 		"component", "stream",
