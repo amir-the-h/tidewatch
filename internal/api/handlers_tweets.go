@@ -96,31 +96,38 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Keep only the most recent execution per action.
 	type execResult struct {
 		ID         int64          `json:"id"`
-		ActionID   int64          `json:"action_id"`
-		ActionName string         `json:"action_name"`
 		Status     string         `json:"status"`
 		Error      string         `json:"error,omitempty"`
 		ExecutedAt string         `json:"executed_at"`
 		Metadata   map[string]any `json:"metadata"`
 	}
+	type actionResult struct {
+		ActionID   int64        `json:"action_id"`
+		ActionName string       `json:"action_name"`
+		Executions []execResult `json:"executions"`
+	}
 
-	seen := map[int64]bool{}
-	var execResults []execResult
+	// Group all executions under their action, preserving insertion order.
+	actionOrder := []int64{}
+	actionMap := map[int64]*actionResult{}
+
 	for _, e := range execs {
-		if seen[e.ActionID] {
-			continue
+		if _, known := actionMap[e.ActionID]; !known {
+			name := ""
+			if a, err := s.store.GetAction(r.Context(), e.ActionID); err == nil {
+				name = a.Name
+			}
+			actionOrder = append(actionOrder, e.ActionID)
+			actionMap[e.ActionID] = &actionResult{
+				ActionID:   e.ActionID,
+				ActionName: name,
+				Executions: []execResult{},
+			}
 		}
-		seen[e.ActionID] = true
 
-		actionName := ""
-		if a, err := s.store.GetAction(r.Context(), e.ActionID); err == nil {
-			actionName = a.Name
-		}
-
-		rawMeta, _ := s.store.MergeActionExecutionMetadata(r.Context(), e.ActionID, e.TweetID)
+		rawMeta, _ := s.store.ListActionExecutionMetadata(r.Context(), e.ID)
 		meta := make(map[string]any, len(rawMeta))
 		for k, v := range rawMeta {
 			var parsed any
@@ -131,10 +138,8 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		execResults = append(execResults, execResult{
+		actionMap[e.ActionID].Executions = append(actionMap[e.ActionID].Executions, execResult{
 			ID:         e.ID,
-			ActionID:   e.ActionID,
-			ActionName: actionName,
 			Status:     e.Status,
 			Error:      e.Error,
 			ExecutedAt: e.ExecutedAt.UTC().Format(time.RFC3339),
@@ -142,9 +147,14 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	actions := make([]actionResult, 0, len(actionOrder))
+	for _, id := range actionOrder {
+		actions = append(actions, *actionMap[id])
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tweet":      tweet,
-		"executions": execResults,
+		"tweet":   tweet,
+		"actions": actions,
 	})
 }
 
@@ -247,6 +257,28 @@ func (s *Server) handleDeleteNoiseTweets(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		s.logger.Error("api: delete noise tweets", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete noise tweets")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}
+
+func (s *Server) handleDeleteExecutions(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TweetIDs  []string `json:"tweet_ids"`
+		ActionIDs []int64  `json:"action_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.TweetIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "tweet_ids is required")
+		return
+	}
+	n, err := s.store.DeleteActionExecutions(r.Context(), req.TweetIDs, req.ActionIDs)
+	if err != nil {
+		s.logger.Error("api: delete executions", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete executions")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})

@@ -263,15 +263,23 @@ func NewServer(
 				r.Get("/search/{id}", srv.handleGetSearchJob)
 				r.Delete("/search/{id}", srv.handleDeleteSearchJob)
 
-				// Notifications — static routes before parameterized
-				r.Get("/notifications", srv.handleListNotifications)
-				r.Post("/notifications", srv.handleCreateNotification)
-				r.Post("/notifications/test", srv.handleTestNotification)
-				r.Get("/notifications/{id}", srv.handleGetNotification)
-				r.Put("/notifications/{id}", srv.handleUpdateNotification)
-				r.Delete("/notifications/{id}", srv.handleDeleteNotification)
-				r.Post("/notifications/{id}/activate", srv.handleActivateNotification)
-				r.Post("/notifications/{id}/deactivate", srv.handleDeactivateNotification)
+				// Notification providers
+				r.Get("/notification-providers", srv.handleListNotificationProviders)
+				r.Post("/notification-providers", srv.handleCreateNotificationProvider)
+				r.Get("/notification-providers/{id}", srv.handleGetNotificationProvider)
+				r.Put("/notification-providers/{id}", srv.handleUpdateNotificationProvider)
+				r.Delete("/notification-providers/{id}", srv.handleDeleteNotificationProvider)
+				r.Post("/notification-providers/{id}/activate", srv.handleActivateNotificationProvider)
+				r.Post("/notification-providers/{id}/deactivate", srv.handleDeactivateNotificationProvider)
+
+				// Notification channels
+				r.Get("/notification-channels", srv.handleListNotificationChannels)
+				r.Post("/notification-channels", srv.handleCreateNotificationChannel)
+				r.Get("/notification-channels/{id}", srv.handleGetNotificationChannel)
+				r.Put("/notification-channels/{id}", srv.handleUpdateNotificationChannel)
+				r.Delete("/notification-channels/{id}", srv.handleDeleteNotificationChannel)
+				r.Post("/notification-channels/{id}/activate", srv.handleActivateNotificationChannel)
+				r.Post("/notification-channels/{id}/deactivate", srv.handleDeactivateNotificationChannel)
 
 				// User management
 				r.Get("/users", srv.handleListUsers)
@@ -292,6 +300,7 @@ func NewServer(
 				r.Get("/actions/{id}/executions", srv.handleListActionExecutions)
 				r.Get("/executions", srv.handleListAllExecutions)
 				r.Get("/executions/{id}/metadata", srv.handleGetExecutionMetadata)
+				r.Delete("/executions", srv.handleDeleteExecutions)
 
 				// Twitter OAuth (callback is public — registered above)
 				r.Get("/twitter/auth/start", srv.handleTwitterAuthStart)
