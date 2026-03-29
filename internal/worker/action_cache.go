@@ -107,6 +107,13 @@ func (c *ActionCache) All() []*CacheEntry {
 	return out
 }
 
+// Pool returns the BackendPool used by this cache.
+// Used by Manager to wait for Ollama backend availability when no ready
+// queue keys are available.
+func (c *ActionCache) Pool() *inference.BackendPool {
+	return c.pool
+}
+
 // FindByType returns the first active pipeline matching the given inference type.
 // Used by chat/digest endpoints to locate an Ollama pipeline.
 func (c *ActionCache) FindByType(pipelineType inference.PipelineType) inference.Pipeline {

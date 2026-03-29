@@ -2,11 +2,8 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"sync/atomic"
-	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
@@ -27,44 +24,11 @@ type worker struct {
 }
 
 func (w *worker) run(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		// Pop a Task from the tasks queue.
-		task, err := w.consumer.PopTask(ctx, 3*time.Second)
-		if err != nil {
-			if w.logger != nil {
-				w.logger.Error("worker: run: pop failed",
-					"worker_id", w.id,
-					"error", fmt.Errorf("worker: run: %w", err))
-			}
-			continue
-		}
-		if task == nil {
-			continue
-		}
-
-		if w.active != nil {
-			w.active.Add(1)
-		}
-
-		var ev queue.TweetEvent
-		_ = json.Unmarshal(task.Event, &ev)
-
-		// Legacy pool does not resolve pipelines — log and skip.
-		if w.logger != nil {
-			w.logger.Warn("worker (legacy pool): received task — use Manager for full processing",
-				"worker_id", w.id, "action_id", task.ActionID, "tweet_id", ev.TweetID)
-		}
-
-		if w.active != nil {
-			w.active.Add(-1)
-		}
+	// Legacy pool worker: processing is a no-op — use Manager instead.
+	if w.logger != nil {
+		w.logger.Warn("worker (legacy pool): started — use Manager for full processing")
 	}
+	<-ctx.Done()
 }
 
 // matchEntities is a no-op stub kept for compatibility. The Manager handles entity matching.

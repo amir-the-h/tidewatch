@@ -98,7 +98,24 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		default:
 		}
 
-		task, err := m.consumer.PopTask(ctx, 3*time.Second)
+		keys := m.buildReadyKeys()
+		if len(keys) == 0 {
+			// No active actions, or all Ollama backends are busy.
+			// Wait until a backend becomes available or the timeout fires,
+			// then re-evaluate. Nil pool guard handles test environments.
+			if pool := m.cache.Pool(); pool != nil {
+				pool.WaitForAvailability(ctx, 1*time.Second, nil)
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+			continue
+		}
+
+		task, err := m.consumer.PopTask(ctx, 1*time.Second, keys...)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Error("worker: pop task", "worker_id", id, "error", err)
@@ -110,6 +127,26 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		}
 		m.processTask(ctx, id, task)
 	}
+}
+
+// buildReadyKeys returns the Redis queue keys for all active actions whose
+// pipeline is currently acquirable. ONNX, internal, and notification
+// pipelines are always included. Ollama pipelines are included only when
+// at least one assigned (or pool-wide) backend is healthy, enabled, and idle.
+func (m *Manager) buildReadyKeys() []string {
+	entries := m.cache.All()
+	keys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if av, ok := e.Pipeline.(inference.AvailabilityChecker); ok {
+			if av.IsAvailable() {
+				keys = append(keys, queue.QueueTasksKey(e.Action.ID))
+			}
+		} else {
+			// No AvailabilityChecker → always available (ONNX, internal, notification).
+			keys = append(keys, queue.QueueTasksKey(e.Action.ID))
+		}
+	}
+	return keys
 }
 
 func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Task) {

@@ -20,7 +20,7 @@ type mockConsumer struct {
 	idx   int
 }
 
-func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration) (*queue.Task, error) {
+func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration, _ ...string) (*queue.Task, error) {
 	if m.idx >= len(m.tasks) {
 		return nil, nil
 	}
