@@ -360,7 +360,7 @@ async function onSave() {
   saving.value = true
   try {
     if (editingId.value !== null) {
-      await updatePipeline(editingId.value, { name: formName.value.trim(), config })
+      await updatePipeline(editingId.value, { name: formName.value.trim(), type: formType.value, config })
       msg.success('Pipeline updated')
     } else {
       await createPipeline({ name: formName.value.trim(), type: formType.value, config })
@@ -487,7 +487,7 @@ const columns: DataTableColumns<Pipeline> = [
         <n-input v-model:value="formName" placeholder="Pipeline name" />
       </n-form-item>
       <n-form-item label="Type">
-        <n-select v-model:value="formType" :options="typeOptions" :disabled="editingId !== null" />
+        <n-select v-model:value="formType" :options="typeOptions" />
       </n-form-item>
 
       <!-- Handler dropdown for internal type -->

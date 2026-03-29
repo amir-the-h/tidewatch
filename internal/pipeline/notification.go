@@ -137,7 +137,8 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 // JSON so they appear human-readable rather than as Go's default %v output.
 // If escaper is non-nil, each rendered value is passed through it before
 // substitution so user-supplied content cannot break formatted messages.
-// Unknown keys are left as-is.
+// Unknown keys are left as-is. After substitution, inline empty parentheticals
+// like " ()" are removed and lines whose only value resolved to empty are dropped.
 func substituteVars(tmpl string, ctx map[string]any, escaper func(string) string) string {
 	for k, v := range ctx {
 		val := renderValue(v)
@@ -146,12 +147,30 @@ func substituteVars(tmpl string, ctx map[string]any, escaper func(string) string
 		}
 		tmpl = strings.ReplaceAll(tmpl, "${"+k+"}", val)
 	}
-	return tmpl
+
+	// Remove inline empty parentheticals: "foo ()" → "foo".
+	tmpl = strings.ReplaceAll(tmpl, " ()", "")
+
+	// Drop lines where every substituted value resolved to empty, leaving
+	// only a trailing colon (e.g. "🎯 Perpetrator:").
+	lines := strings.Split(tmpl, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.HasSuffix(strings.TrimRight(line, " \t"), ":") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // renderValue converts a context value to a display string.
+// nil (JSON null) becomes an empty string so null fields don't print literally.
 // Strings pass through unchanged; everything else is JSON-encoded.
 func renderValue(v any) string {
+	if v == nil {
+		return ""
+	}
 	if s, ok := v.(string); ok {
 		return s
 	}

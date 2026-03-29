@@ -43,7 +43,7 @@ export const listPipelines = (filter: { active?: boolean; type?: PipelineType; u
 export const createPipeline = (body: { name: string; type: PipelineType; config?: Record<string, any> }) =>
   apiFetch<Pipeline>('/api/pipelines', { method: 'POST', body: JSON.stringify(body) })
 
-export const updatePipeline = (id: number, body: { name?: string; config?: Record<string, any> }) =>
+export const updatePipeline = (id: number, body: { name?: string; type?: PipelineType; config?: Record<string, any> }) =>
   apiFetch<Pipeline>(`/api/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 
 export const deletePipeline = (id: number) =>

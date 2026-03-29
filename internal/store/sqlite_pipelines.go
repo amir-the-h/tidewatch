@@ -91,8 +91,8 @@ func (s *sqliteStore) UpdatePipeline(ctx context.Context, p *model.Pipeline) err
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE pipelines SET name = ?, config = ?, updated_at = ? WHERE id = ?`,
-		p.Name, string(cfg), now, p.ID,
+		`UPDATE pipelines SET name = ?, type = ?, config = ?, updated_at = ? WHERE id = ?`,
+		p.Name, string(p.Type), string(cfg), now, p.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update pipeline: %w", err)
