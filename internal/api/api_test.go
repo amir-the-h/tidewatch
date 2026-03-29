@@ -313,6 +313,9 @@ func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ s
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
+func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) {
+	return 0, nil
+}
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error {
 	return nil
 }
