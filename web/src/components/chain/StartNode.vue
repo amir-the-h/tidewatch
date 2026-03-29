@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Handle, Position } from '@vue-flow/core'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
+
+const props = defineProps<{ id: string }>()
+
+const { edges, removeEdges } = useVueFlow()
+
+function disconnectSource() {
+  const ids = edges.value.filter(e => e.source === props.id).map(e => e.id)
+  if (ids.length) removeEdges(ids)
+}
 </script>
 
 <template>
@@ -10,6 +19,7 @@ import { Handle, Position } from '@vue-flow/core'
     min-width: 80px; text-align: center;
   ">
     Start
-    <Handle type="source" :position="Position.Right" id="default" style="background: #89dceb" />
+    <Handle type="source" :position="Position.Right" id="default" style="background: #89dceb"
+      @contextmenu.prevent="disconnectSource" />
   </div>
 </template>

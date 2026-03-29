@@ -1,10 +1,25 @@
 <script setup lang="ts">
-import { Handle, Position } from '@vue-flow/core'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import type { ChainCondition } from '../../api/chains'
 
-defineProps<{
+const props = defineProps<{
+  id: string
   data: { label: string; conditions?: ChainCondition[]; selected?: boolean }
 }>()
+
+const { edges, removeEdges } = useVueFlow()
+
+function disconnectHandle(handleId: string) {
+  const ids = edges.value
+    .filter(e => e.source === props.id && e.sourceHandle === handleId)
+    .map(e => e.id)
+  if (ids.length) removeEdges(ids)
+}
+
+function disconnectTarget() {
+  const ids = edges.value.filter(e => e.target === props.id).map(e => e.id)
+  if (ids.length) removeEdges(ids)
+}
 </script>
 
 <template>
@@ -16,7 +31,8 @@ defineProps<{
     position: relative;
   " :style="{ borderColor: data.selected ? '#cba6f7' : '#f9e2af' }">
     <Handle type="target" :position="Position.Left" id="input"
-      style="background: #585b70; left: -6px; top: 50%; transform: rotate(-45deg)" />
+      style="background: #585b70; left: -6px; top: 50%; transform: rotate(-45deg)"
+      @contextmenu.prevent="disconnectTarget" />
 
     <div style="transform: rotate(-45deg); text-align: center; font-size: 11px; color: #f9e2af;">
       <div style="font-weight: 600">{{ data.label || 'Condition' }}</div>
@@ -27,9 +43,11 @@ defineProps<{
 
     <!-- pass handle: right side -->
     <Handle type="source" :position="Position.Right" id="pass"
-      style="background: #a6e3a1; right: -6px; top: 50%; transform: rotate(-45deg)" />
+      style="background: #a6e3a1; right: -6px; top: 50%; transform: rotate(-45deg)"
+      @contextmenu.prevent="disconnectHandle('pass')" />
     <!-- fail handle: bottom -->
     <Handle type="source" :position="Position.Bottom" id="fail"
-      style="background: #f38ba8; bottom: -6px; left: 50%; transform: rotate(-45deg)" />
+      style="background: #f38ba8; bottom: -6px; left: 50%; transform: rotate(-45deg)"
+      @contextmenu.prevent="disconnectHandle('fail')" />
   </div>
 </template>
