@@ -190,6 +190,51 @@ func TestPopTask_ReturnsNilOnEmptyResult(t *testing.T) {
 	}
 }
 
+func TestPopTask_EmptyKeys_ReturnsNil(t *testing.T) {
+	q := &RedisQueue{client: &fakeRedisClient{}}
+	task, err := q.PopTask(context.Background(), 1*time.Second)
+	if err != nil {
+		t.Fatalf("expected nil error with no keys, got: %v", err)
+	}
+	if task != nil {
+		t.Fatalf("expected nil task with no keys, got: %+v", task)
+	}
+}
+
+type pushCaptureFakeClient struct {
+	fakeRedisClient
+	pushedKey string
+	pushedVal string
+}
+
+func (f *pushCaptureFakeClient) LPush(_ context.Context, key string, values ...interface{}) *redis.IntCmd {
+	f.pushedKey = key
+	if len(values) > 0 {
+		if b, ok := values[0].([]byte); ok {
+			f.pushedVal = string(b)
+		}
+	}
+	return redis.NewIntResult(1, nil)
+}
+
+func TestPushTask_RoutesToActionKey(t *testing.T) {
+	fake := &pushCaptureFakeClient{}
+	q := &RedisQueue{client: fake}
+
+	task := &Task{
+		TriggerType: "new_tweet",
+		ActionID:    7,
+		Context:     map[string]any{},
+	}
+	if err := q.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	want := "iran-watcher:tasks:7"
+	if fake.pushedKey != want {
+		t.Errorf("pushed to key %q, want %q", fake.pushedKey, want)
+	}
+}
+
 // TestQueueTasksKey_Format verifies the per-action key format.
 func TestQueueTasksKey_Format(t *testing.T) {
 	key := QueueTasksKey(42)

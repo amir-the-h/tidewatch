@@ -139,8 +139,63 @@ func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 	return nil
 }
 
-// FlushQueue is a no-op placeholder; per-action queues are flushed individually.
-// Callers that need to flush specific action queues should delete the keys directly.
+// TotalTaskLen sums the lengths of all per-action task queues by scanning for
+// keys matching iran-watcher:tasks:*. Returns 0 if the underlying client does
+// not support SCAN (e.g. test fakes).
+func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
+	type scanner interface {
+		Scan(context.Context, uint64, string, int64) *redis.ScanCmd
+	}
+	s, ok := q.client.(scanner)
+	if !ok {
+		return 0, nil
+	}
+	var total int64
+	var cursor uint64
+	for {
+		keys, next, err := s.Scan(ctx, cursor, QueueTasksPrefix+"*", 100).Result()
+		if err != nil {
+			return 0, fmt.Errorf("queue: total task len: scan: %w", err)
+		}
+		for _, key := range keys {
+			n, err := q.client.LLen(ctx, key).Result()
+			if err == nil {
+				total += n
+			}
+		}
+		if next == 0 {
+			break
+		}
+		cursor = next
+	}
+	return total, nil
+}
+
+// FlushQueue deletes all per-action task queues by scanning for keys matching
+// iran-watcher:tasks:*. No-op if the underlying client does not support SCAN.
 func (q *RedisQueue) FlushQueue(ctx context.Context) error {
+	type scanner interface {
+		Scan(context.Context, uint64, string, int64) *redis.ScanCmd
+	}
+	s, ok := q.client.(scanner)
+	if !ok {
+		return nil
+	}
+	var cursor uint64
+	for {
+		keys, next, err := s.Scan(ctx, cursor, QueueTasksPrefix+"*", 100).Result()
+		if err != nil {
+			return fmt.Errorf("queue: flush scan: %w", err)
+		}
+		if len(keys) > 0 {
+			if err := q.client.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("queue: flush delete: %w", err)
+			}
+		}
+		if next == 0 {
+			break
+		}
+		cursor = next
+	}
 	return nil
 }
