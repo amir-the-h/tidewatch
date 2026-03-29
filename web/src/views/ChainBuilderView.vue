@@ -2,13 +2,12 @@
 import { ref, computed, onMounted, markRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  VueFlow, useVueFlow, type Node, type Edge,
-  MiniMap, Controls, Background,
+  VueFlow, useVueFlow, type Node, type Edge, type NodeTypesObject, type NodeMouseEvent,
 } from '@vue-flow/core'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import {
-  NButton, NFlex, NText, NInput, NSelect, NDivider, NInputNumber,
+  NButton, NText, NInput, NSelect, NDivider, NInputNumber,
   NSpin, NScrollbar, NIcon, useMessage,
 } from 'naive-ui'
 import { ArrowBackOutline } from '@vicons/ionicons5'
@@ -34,10 +33,10 @@ const {
   findNode,
 } = useVueFlow()
 
-const nodeTypes = {
-  start:     markRaw(StartNode),
-  action:    markRaw(ActionNode),
-  condition: markRaw(ConditionNode),
+const nodeTypes: NodeTypesObject = {
+  start:     markRaw(StartNode) as any,
+  action:    markRaw(ActionNode) as any,
+  condition: markRaw(ConditionNode) as any,
 }
 
 const chain        = ref<Chain | null>(null)
@@ -151,7 +150,7 @@ function addConditionNode() {
   dirty.value = true
 }
 
-function onNodeClick(_event: MouseEvent, node: Node) {
+function onNodeClick({ node }: NodeMouseEvent) {
   if (node.type === 'start') return
   selectedNodeId.value = node.id
   editLabel.value = node.data.label ?? ''
@@ -194,7 +193,7 @@ function removeConditionRow(idx: number) {
 async function onSave() {
   saving.value = true
   try {
-    const nodeRequests = nodes.map(n => ({
+    const nodeRequests = nodes.value.map(n => ({
       client_id:  n.id,
       type:       (n.type ?? 'action') as 'start' | 'action' | 'condition',
       action_id:  n.data.actionId ?? undefined,
@@ -203,7 +202,7 @@ async function onSave() {
       pos_x:      n.position.x,
       pos_y:      n.position.y,
     }))
-    const edgeRequests = edges.map(e => ({
+    const edgeRequests = edges.value.map(e => ({
       source_client_id: e.source,
       source_handle:    e.sourceHandle ?? 'default',
       target_client_id: e.target,
@@ -287,9 +286,6 @@ const actionOptions = computed(() =>
           @node-click="onNodeClick"
           style="background: #181825; height: 100%;"
         >
-          <Background variant="dots" :gap="20" :size="1" pattern-color="#313244" />
-          <MiniMap style="background: #1e1e2e; border: 1px solid #313244;" />
-          <Controls style="background: #1e1e2e; border: 1px solid #313244;" />
         </VueFlow>
       </div>
 
