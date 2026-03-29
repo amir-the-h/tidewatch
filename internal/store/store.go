@@ -67,15 +67,8 @@ type PipelineFilter struct {
 
 // ActionFilter defines optional filters for listing actions.
 type ActionFilter struct {
-	TriggerType *model.TriggerType
-	PipelineID  *int64
-	Active      *bool
-}
-
-// ActionChainFilter defines optional filters for listing action chains.
-type ActionChainFilter struct {
-	SourceActionID *int64
-	TargetActionID *int64
+	PipelineID *int64
+	Active     *bool
 }
 
 // MapPin is a geo-event pin derived from action_execution_metadata.
@@ -155,13 +148,6 @@ type Store interface {
 	AddPipelineLabel(ctx context.Context, pipelineID int64, label string) error
 	RemovePipelineLabel(ctx context.Context, pipelineID int64, label string) error
 
-	// ActionChains
-	SaveActionChain(ctx context.Context, c *model.ActionChain) error
-	GetActionChain(ctx context.Context, id int64) (*model.ActionChain, error)
-	ListActionChains(ctx context.Context, filter ActionChainFilter) ([]*model.ActionChain, error)
-	UpdateActionChain(ctx context.Context, c *model.ActionChain) error
-	DeleteActionChain(ctx context.Context, id int64) error
-
 	// TweetRuleIDs (kept — used by stream listener rule matching)
 	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
 
@@ -234,6 +220,22 @@ type Store interface {
 	UpdateAction(ctx context.Context, a *model.Action) error
 	DeleteAction(ctx context.Context, id int64) error
 	SetActionActive(ctx context.Context, id int64, active bool) error
+
+	// Chains
+	SaveChain(ctx context.Context, c *model.Chain) error
+	GetChain(ctx context.Context, id int64) (*model.Chain, error)
+	ListChains(ctx context.Context) ([]*model.Chain, error)
+	UpdateChain(ctx context.Context, c *model.Chain) error
+	DeleteChain(ctx context.Context, id int64) error
+	SetChainActive(ctx context.Context, id int64, active bool) error
+	GetChainGraph(ctx context.Context, chainID int64) (*model.ChainGraph, error)
+	SaveChainGraph(ctx context.Context, chainID int64, nodes []*model.ChainNodeRequest, edges []*model.ChainEdgeRequest) (*model.ChainGraph, error)
+
+	// TriggerChainLinks
+	SaveTriggerChainLink(ctx context.Context, l *model.TriggerChainLink) error
+	ListTriggerChainLinks(ctx context.Context) ([]*model.TriggerChainLink, error)
+	DeleteTriggerChainLink(ctx context.Context, id int64) error
+	SetTriggerChainLinkActive(ctx context.Context, id int64, active bool) error
 
 	// ActionExecutions
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
