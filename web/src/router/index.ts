@@ -23,6 +23,9 @@ export default createRouter({
     { path: '/users', component: () => import('../views/UsersView.vue') },
     { path: '/ollama', component: () => import('../views/OllamaView.vue') },
     { path: '/actions', component: () => import('../views/ActionsView.vue') },
+    { path: '/chains', component: () => import('../views/ChainsView.vue') },
+    { path: '/chains/:id/edit', component: () => import('../views/ChainBuilderView.vue') },
+    { path: '/triggers', component: () => import('../views/TriggersView.vue') },
   ],
 })
 
