@@ -2,27 +2,14 @@ package model
 
 import "time"
 
-// TriggerType is the event that initiates an action.
-type TriggerType string
-
-const (
-	TriggerTypeNewTweet          TriggerType = "new_tweet"
-	TriggerTypeNewCategorization TriggerType = "new_categorization"
-	TriggerTypeEntityMatched     TriggerType = "entity_matched"
-	TriggerTypeChainOnly         TriggerType = "chain_only"
-	TriggerTypeDigestRequested   TriggerType = "digest_requested"
-)
-
-// Action subscribes a pipeline to a trigger.
+// Action subscribes a pipeline to a chain node.
 type Action struct {
-	ID          int64       `json:"id"`
-	Name        string      `json:"name"`
-	TriggerType TriggerType `json:"trigger_type"`
-	PipelineID  int64       `json:"pipeline_id"`
-	Active      bool        `json:"active"`
-	RuleIDs     []int64     `json:"rule_ids"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ID         int64     `json:"id"`
+	Name       string    `json:"name"`
+	PipelineID int64     `json:"pipeline_id"`
+	Active     bool      `json:"active"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ExecutionStatus values for ActionExecution.
@@ -31,7 +18,7 @@ const (
 	ExecutionStatusError   = "error"
 )
 
-// ActionExecution is one log entry per action fired on one tweet.
+// ActionExecution is one log entry per action fired.
 type ActionExecution struct {
 	ID         int64             `json:"id"`
 	ActionID   int64             `json:"action_id"`
