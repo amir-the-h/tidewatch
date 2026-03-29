@@ -7,6 +7,7 @@ import { useRulesStore } from '../stores/rules'
 import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns, DataTableRowKey } from 'naive-ui'
 import type { Tweet, TweetDetail } from '../api/tweets'
+import { deleteExecutions } from '../api/tweets'
 import { formatDateTime } from '../utils/format'
 import { EyeOutline, TrashOutline, TrashBinOutline, FunnelOutline, CloseCircleOutline, RefreshOutline, OpenOutline, ChatbubblesOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
@@ -43,6 +44,19 @@ const loadingDetail = ref(false)
 const deleting      = ref(false)
 const reprocessing  = ref(false)
 const deletingNoise = ref(false)
+const clearingExecutions = ref(false)
+
+// Format a single metadata value — handles nested arrays and nulls
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (Array.isArray(v)) return v.length ? v.map(x => fmtVal(x)).join(', ') : '—'
+  return String(v)
+}
+
+// Return array items that are worth displaying (filter empty nested arrays / nulls)
+function cleanArray(arr: unknown[]): unknown[] {
+  return arr.filter(x => x !== null && x !== undefined && !(Array.isArray(x) && x.length === 0) && x !== '')
+}
 
 const checkedRowKeys    = ref<DataTableRowKey[]>([])
 const hasSelection      = computed(() => checkedRowKeys.value.length > 0)
@@ -154,6 +168,32 @@ async function reprocessOne(id: string) {
     msg.error(e.message)
   } finally {
     reprocessing.value = false
+  }
+}
+
+async function clearAllExecutions(tweetId: string) {
+  clearingExecutions.value = true
+  try {
+    const { deleted } = await deleteExecutions([tweetId])
+    msg.success(`Cleared ${deleted} execution${deleted !== 1 ? 's' : ''}`)
+    detail.value = await store.getTweet(tweetId)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    clearingExecutions.value = false
+  }
+}
+
+async function clearActionExecutions(tweetId: string, actionId: number) {
+  clearingExecutions.value = true
+  try {
+    const { deleted } = await deleteExecutions([tweetId], [actionId])
+    msg.success(`Cleared ${deleted} execution${deleted !== 1 ? 's' : ''}`)
+    detail.value = await store.getTweet(tweetId)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    clearingExecutions.value = false
   }
 }
 
@@ -353,78 +393,101 @@ const columns: DataTableColumns<Tweet> = [
             </n-tag>
           </n-space>
 
-          <!-- Pipeline Executions -->
-          <template v-if="detail.executions?.length">
-            <n-h3 style="margin-top: 16px">Pipeline Runs</n-h3>
-            <n-list>
-              <n-list-item v-for="exec in detail.executions" :key="exec.id">
-                <n-space vertical size="small" style="width:100%">
-                  <n-space align="center" size="small">
-                    <n-tag size="small" :type="exec.status === 'success' ? 'success' : 'error'">
-                      {{ exec.action_name || `action #${exec.action_id}` }}
-                    </n-tag>
-                    <span style="font-size:11px; color: var(--n-text-color-disabled)">{{ formatDateTime(exec.executed_at) }}</span>
-                  </n-space>
+          <!-- Pipeline Executions — grouped by action -->
+          <template v-if="detail.actions?.length">
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 16px">
+              <n-h3 style="margin: 0">Pipeline Runs</n-h3>
+              <n-popconfirm @positive-click="clearAllExecutions(detail.tweet.id)">
+                <template #trigger>
+                  <n-button size="tiny" type="error" secondary :loading="clearingExecutions">
+                    Clear All
+                  </n-button>
+                </template>
+                Clear all execution history for this tweet?
+              </n-popconfirm>
+            </div>
+            <div v-for="group in detail.actions" :key="group.action_id" class="action-group">
+              <!-- Action header -->
+              <div class="action-group-header">
+                <span class="action-group-name">{{ group.action_name || `action #${group.action_id}` }}</span>
+                <span class="action-group-count">{{ group.executions.length }} run{{ group.executions.length !== 1 ? 's' : '' }}</span>
+                <n-popconfirm @positive-click="clearActionExecutions(detail.tweet.id, group.action_id)" style="margin-left: auto">
+                  <template #trigger>
+                    <n-button size="tiny" type="error" secondary :loading="clearingExecutions">
+                      Clear
+                    </n-button>
+                  </template>
+                  Clear execution history for {{ group.action_name || `action #${group.action_id}` }}?
+                </n-popconfirm>
+              </div>
 
-                  <!-- Error state -->
-                  <span v-if="exec.status === 'error'" style="color: var(--n-error-color); font-size: 12px">{{ exec.error }}</span>
+              <!-- Individual runs for this action -->
+              <div
+                v-for="exec in group.executions"
+                :key="exec.id"
+                class="exec-run"
+              >
+                <!-- Run timestamp + status -->
+                <div class="exec-run-header">
+                  <n-tag size="small" :type="exec.status === 'success' ? 'success' : 'error'" :bordered="false">
+                    {{ exec.status }}
+                  </n-tag>
+                  <span style="font-size:11px; color: var(--n-text-color-disabled)">{{ formatDateTime(exec.executed_at) }}</span>
+                </div>
 
-                  <!-- No metadata -->
-                  <span v-else-if="!exec.metadata || !Object.keys(exec.metadata).length" style="color: var(--n-text-color-disabled); font-size: 12px">(no output)</span>
+                <!-- Error state -->
+                <span v-if="exec.status === 'error'" style="color: var(--n-error-color); font-size: 12px">{{ exec.error }}</span>
 
-                  <!-- Structured extractor output: has boolean/array fields typical of the extractor -->
-                  <template v-else-if="'casualties' in exec.metadata || 'attackers' in exec.metadata || 'locations' in exec.metadata">
-                    <div class="exec-grid">
-                      <!-- Locations -->
-                      <template v-if="exec.metadata.locations?.length">
-                        <span class="exec-label">Locations</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="loc in exec.metadata.locations" :key="loc" size="small" type="info">{{ loc }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Attackers -->
-                      <template v-if="exec.metadata.attackers?.length">
-                        <span class="exec-label">Attackers</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="a in exec.metadata.attackers" :key="a" size="small" type="error">{{ a }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Defenders -->
-                      <template v-if="exec.metadata.defenders?.length">
-                        <span class="exec-label">Defenders</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="d in exec.metadata.defenders" :key="d" size="small" type="warning">{{ d }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Targets -->
-                      <template v-if="exec.metadata.targets?.length">
-                        <span class="exec-label">Targets</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="t in exec.metadata.targets" :key="t" size="small">{{ t }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Attack types -->
-                      <template v-if="exec.metadata.attack_types?.length">
-                        <span class="exec-label">Attack types</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="at in exec.metadata.attack_types" :key="at" size="small" type="warning">{{ at }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Weapons -->
-                      <template v-if="exec.metadata.weapons?.length">
-                        <span class="exec-label">Weapons</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="w in exec.metadata.weapons" :key="w" size="small">{{ w }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Coordinates -->
-                      <template v-if="exec.metadata.coordinates?.length">
-                        <span class="exec-label">Coordinates</span>
-                        <n-space wrap size="small">
-                          <n-tag v-for="c in exec.metadata.coordinates" :key="c" size="small" type="info">{{ c }}</n-tag>
-                        </n-space>
-                      </template>
-                      <!-- Boolean flags row -->
+                <!-- No metadata -->
+                <span v-else-if="!exec.metadata || !Object.keys(exec.metadata).length" style="color: var(--n-text-color-disabled); font-size: 12px">(no output)</span>
+
+                <!-- Structured extractor output -->
+                <template v-else-if="'casualties' in exec.metadata || 'attackers' in exec.metadata || 'locations' in exec.metadata">
+                  <div class="exec-grid">
+                    <template v-if="cleanArray(exec.metadata.locations ?? []).length">
+                      <span class="exec-label">Locations</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(loc, i) in cleanArray(exec.metadata.locations)" :key="i" size="small" type="info">{{ fmtVal(loc) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <template v-if="cleanArray(exec.metadata.attackers ?? []).length">
+                      <span class="exec-label">Attackers</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(a, i) in cleanArray(exec.metadata.attackers)" :key="i" size="small" type="error">{{ fmtVal(a) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <template v-if="cleanArray(exec.metadata.defenders ?? []).length">
+                      <span class="exec-label">Defenders</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(d, i) in cleanArray(exec.metadata.defenders)" :key="i" size="small" type="warning">{{ fmtVal(d) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <template v-if="cleanArray(exec.metadata.targets ?? []).length">
+                      <span class="exec-label">Targets</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(t, i) in cleanArray(exec.metadata.targets)" :key="i" size="small">{{ fmtVal(t) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <template v-if="cleanArray(exec.metadata.attack_types ?? []).length">
+                      <span class="exec-label">Attack types</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(at, i) in cleanArray(exec.metadata.attack_types)" :key="i" size="small" type="warning">{{ fmtVal(at) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <template v-if="cleanArray(exec.metadata.weapons ?? []).length">
+                      <span class="exec-label">Weapons</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(w, i) in cleanArray(exec.metadata.weapons)" :key="i" size="small">{{ fmtVal(w) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <template v-if="cleanArray(exec.metadata.coordinates ?? []).length">
+                      <span class="exec-label">Coordinates</span>
+                      <n-space wrap size="small">
+                        <n-tag v-for="(c, i) in cleanArray(exec.metadata.coordinates)" :key="i" size="small" type="info">{{ fmtVal(c) }}</n-tag>
+                      </n-space>
+                    </template>
+                    <!-- Boolean flags -->
+                    <template v-if="exec.metadata.casualties || exec.metadata.confirmed || exec.metadata.interception || exec.metadata.interception_partial || exec.metadata.air_defense_active || exec.metadata.damage_reported || exec.metadata.alert || exec.metadata.nuclear || exec.metadata.escalation">
                       <span class="exec-label">Flags</span>
                       <n-space wrap size="small">
                         <n-tag v-if="exec.metadata.casualties" size="small" type="error">casualties</n-tag>
@@ -436,31 +499,28 @@ const columns: DataTableColumns<Tweet> = [
                         <n-tag v-if="exec.metadata.alert" size="small" type="error">alert</n-tag>
                         <n-tag v-if="exec.metadata.nuclear" size="small" type="error">nuclear</n-tag>
                         <n-tag v-if="exec.metadata.escalation" size="small" type="warning">escalation</n-tag>
-                        <span
-                          v-if="!exec.metadata.casualties && !exec.metadata.confirmed && !exec.metadata.interception && !exec.metadata.interception_partial && !exec.metadata.air_defense_active && !exec.metadata.damage_reported && !exec.metadata.alert && !exec.metadata.nuclear && !exec.metadata.escalation"
-                          style="color: var(--n-text-color-disabled); font-size: 12px"
-                        >none</span>
                       </n-space>
-                      <!-- Casualty count -->
-                      <template v-if="exec.metadata.casualty_count != null">
-                        <span class="exec-label">Casualties</span>
-                        <span style="font-size:13px">{{ exec.metadata.casualty_count }}</span>
-                      </template>
-                    </div>
-                  </template>
-
-                  <!-- Generic key-value metadata fallback -->
-                  <div v-else class="exec-grid">
-                    <template v-for="(val, key) in exec.metadata" :key="key">
-                      <span class="exec-label">{{ key }}</span>
-                      <span style="font-size:13px; word-break:break-word">
-                        {{ Array.isArray(val) ? val.join(', ') || '—' : val === null ? '—' : String(val) }}
-                      </span>
+                    </template>
+                    <template v-if="exec.metadata.casualty_count != null">
+                      <span class="exec-label">Casualty count</span>
+                      <span style="font-size:13px">{{ exec.metadata.casualty_count }}</span>
                     </template>
                   </div>
-                </n-space>
-              </n-list-item>
-            </n-list>
+                </template>
+
+                <!-- Generic key-value metadata fallback -->
+                <div v-else class="exec-grid">
+                  <template v-for="(val, key) in exec.metadata" :key="key">
+                    <span class="exec-label">{{ key }}</span>
+                    <span v-if="!Array.isArray(val)" style="font-size:13px; word-break:break-word">{{ val === null ? '—' : String(val) }}</span>
+                    <n-space v-else-if="cleanArray(val).length" wrap size="small">
+                      <n-tag v-for="(item, i) in cleanArray(val)" :key="i" size="small">{{ fmtVal(item) }}</n-tag>
+                    </n-space>
+                    <span v-else style="font-size:13px; color: var(--n-text-color-disabled)">—</span>
+                  </template>
+                </div>
+              </div>
+            </div>
           </template>
 
           <div style="margin-top: 16px">
@@ -516,5 +576,43 @@ const columns: DataTableColumns<Tweet> = [
   padding-top: 3px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+.action-group {
+  margin-top: 12px;
+  border: 1px solid var(--n-border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.action-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--n-table-header-color);
+  border-bottom: 1px solid var(--n-border-color);
+  flex: 1;
+}
+.action-group-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.action-group-count {
+  font-size: 11px;
+  color: var(--n-text-color-disabled);
+}
+.exec-run {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exec-run + .exec-run {
+  border-top: 1px solid var(--n-border-color);
+}
+.exec-run-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 </style>
