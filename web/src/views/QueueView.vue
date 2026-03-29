@@ -1,11 +1,12 @@
-<!-- web/src/views/FailuresView.vue -->
+<!-- web/src/views/QueueView.vue -->
 <script setup lang="ts">
 import { h, ref, computed, onMounted, onUnmounted } from 'vue'
 import { useFailuresStore } from '../stores/failures'
-import { useMessage, NButton, NSpace, NTag } from 'naive-ui'
+import { useMessage, NButton, NSpace, NTag, NIcon } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
-import { flushQueue } from '../api/failures'
+import { getQueue, flushQueue } from '../api/queue'
+import type { QueueEntry } from '../api/queue'
 import { apiFetch } from '../api/client'
 import { formatDateTime } from '../utils/format'
 import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
@@ -14,18 +15,14 @@ import { iconBtn } from '../utils/renderActions'
 const store = useFailuresStore()
 const msg   = useMessage()
 
-// ── Queue / worker stats ──────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 
-interface QueueStats  { pending: number; failed: number }
-interface WorkerStats {
-  total: number
-  active: number
-  idle: number
-  active_workers?: Array<{ id: number; action: string; pipeline: string; backend: string }>
-}
+interface QueueStats { pending: number; failed: number }
+interface WorkerStats { total: number; active: number; idle: number }
 
 const queueStats  = ref<QueueStats | null>(null)
 const workerStats = ref<WorkerStats | null>(null)
+const queues      = ref<QueueEntry[]>([])
 
 interface PendingSample { t: number; v: number }
 const pendingHistory = ref<PendingSample[]>([])
@@ -35,36 +32,37 @@ async function fetchStats() {
     const h = await apiFetch<any>('/api/health')
     if (h.queue) {
       queueStats.value = h.queue
-      const sample = { t: Date.now(), v: h.queue.pending as number }
-      pendingHistory.value.push(sample)
+      pendingHistory.value.push({ t: Date.now(), v: h.queue.pending as number })
       if (pendingHistory.value.length > 10) pendingHistory.value.shift()
     }
     if (h.workers) workerStats.value = h.workers
-  } catch { /* unreachable */ }
+  } catch { /* ignore */ }
+}
+
+async function fetchQueues() {
+  try {
+    const data = await getQueue()
+    queues.value = data.queues
+  } catch { /* ignore */ }
 }
 
 const drainEta = computed<string | null>(() => {
   const hist = pendingHistory.value
   if (hist.length < 2) return null
-  const first = hist[0]
-  const last  = hist[hist.length - 1]
-  const dt = (last.t - first.t) / 1000   // seconds elapsed
-  const dv = first.v - last.v            // tasks drained
-  if (dt <= 0 || dv <= 0) return null    // not draining
-  const rate    = dv / dt                // tasks/sec
-  const seconds = Math.ceil(last.v / rate)
-  if (seconds < 60)  return `~${seconds}s`
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
+  const first = hist[0], last = hist[hist.length - 1]
+  const dt = (last.t - first.t) / 1000
+  const dv = first.v - last.v
+  if (dt <= 0 || dv <= 0) return null
+  const rate = dv / dt
+  const secs = Math.ceil(last.v / rate)
+  if (secs < 60) return `~${secs}s`
+  const m = Math.floor(secs / 60), s = secs % 60
   if (m < 60) return s > 0 ? `~${m}m ${s}s` : `~${m}m`
-  const hr = Math.floor(m / 60)
-  const rm = m % 60
+  const hr = Math.floor(m / 60), rm = m % 60
   return rm > 0 ? `~${hr}h ${rm}m` : `~${hr}h`
 })
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-// ── Failure actions ───────────────────────────────────────────────────────────
+// ── Actions ───────────────────────────────────────────────────────────────────
 
 const showDetail  = ref(false)
 const selected    = ref<FailedTweet | null>(null)
@@ -83,11 +81,8 @@ async function onClear() {
     await store.clear()
     msg.success('Dead-letter queue cleared')
     await fetchStats()
-  } catch (e: any) {
-    msg.error(e.message)
-  } finally {
-    clearing.value = false
-  }
+  } catch (e: any) { msg.error(e.message) }
+  finally { clearing.value = false }
 }
 
 async function onFlush() {
@@ -95,17 +90,74 @@ async function onFlush() {
   try {
     await flushQueue()
     msg.success('Pending queue flushed')
-    await Promise.all([store.fetch(), fetchStats()])
-  } catch (e: any) {
-    msg.error(e.message)
-  } finally {
-    flushing.value = false
-  }
+    await Promise.all([store.fetch(), fetchStats(), fetchQueues()])
+  } catch (e: any) { msg.error(e.message) }
+  finally { flushing.value = false }
 }
+
+// ── Queue table ───────────────────────────────────────────────────────────────
+
+const pipelineTagType: Record<string, 'info' | 'success' | 'default' | 'warning'> = {
+  onnx: 'info',
+  ollama: 'success',
+  internal: 'default',
+  notification: 'warning',
+}
+
+const queueColumns = [
+  {
+    title: 'Action',
+    key: 'action_name',
+    render: (row: QueueEntry) =>
+      h('span', { style: { color: '#cdd6f4' } }, row.action_name),
+  },
+  {
+    title: 'Pipeline',
+    key: 'pipeline_name',
+    render: (row: QueueEntry) =>
+      h(NSpace, { size: 6, align: 'center' }, {
+        default: () => [
+          h('span', { style: { color: '#a6adc8' } }, row.pipeline_name),
+          h(NTag, {
+            type: pipelineTagType[row.pipeline_type] ?? 'default',
+            size: 'small',
+            round: true,
+          }, { default: () => row.pipeline_type }),
+        ],
+      }),
+  },
+  {
+    title: 'Pending',
+    key: 'pending',
+    width: 100,
+    render: (row: QueueEntry) =>
+      h('span', {
+        style: {
+          color: row.pending > 0 ? '#f9e2af' : '#585b70',
+          fontVariantNumeric: 'tabular-nums',
+        },
+      }, row.pending > 0 ? String(row.pending) : '—'),
+  },
+  {
+    title: 'Worker',
+    key: 'worker',
+    width: 220,
+    render: (row: QueueEntry) => {
+      if (!row.worker) return h('span', { style: { color: '#585b70' } }, '—')
+      const { id, backend } = row.worker
+      let suffix = ''
+      if (backend === 'waiting') suffix = ' · waiting…'
+      else if (backend) suffix = ` · ${backend.replace(/^https?:\/\//, '')}`
+      return h('span', {
+        style: { color: '#a6e3a1', fontVariantNumeric: 'tabular-nums' },
+      }, `#${id}${suffix}`)
+    },
+  },
+]
 
 // ── Failures table ────────────────────────────────────────────────────────────
 
-const columns: DataTableColumns<FailedTweet> = [
+const failureColumns: DataTableColumns<FailedTweet> = [
   {
     title: 'Tweet',
     key: 'text',
@@ -117,8 +169,8 @@ const columns: DataTableColumns<FailedTweet> = [
     key: 'author',
     width: 140,
     render: (row) => {
-      const h_ = row.tweet?.Tweet?.author_handle
-      return h_ ? `@${h_}` : row.tweet?.Tweet?.author_id ?? '—'
+      const handle = row.tweet?.Tweet?.author_handle
+      return handle ? `@${handle}` : row.tweet?.Tweet?.author_id ?? '—'
     },
   },
   {
@@ -152,19 +204,24 @@ const columns: DataTableColumns<FailedTweet> = [
 ]
 
 const pagination = computed(() => ({
-  page:     store.page,
-  pageSize: store.perPage,
+  page:      store.page,
+  pageSize:  store.perPage,
   itemCount: store.total,
   showSizePicker: true,
   pageSizes: [20, 50, 100],
-  onChange:  (p: number) => store.fetch(p),
-  onUpdatePageSize: (ps: number) => store.fetch(1, ps),
+  onChange:          (p: number)  => store.fetch(p),
+  onUpdatePageSize:  (ps: number) => store.fetch(1, ps),
 }))
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   store.fetch()
   fetchStats()
-  pollTimer = setInterval(fetchStats, 3000)
+  fetchQueues()
+  pollTimer = setInterval(() => { fetchStats(); fetchQueues() }, 3000)
 })
 onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 </script>
@@ -178,7 +235,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
       <n-space size="small">
         <n-tooltip trigger="hover">
           <template #trigger>
-            <n-button @click="() => { store.fetch(); fetchStats() }" :loading="store.loading">
+            <n-button @click="() => { store.fetch(); fetchStats(); fetchQueues() }" :loading="store.loading">
               <template #icon><n-icon><RefreshOutline /></n-icon></template>
             </n-button>
           </template>
@@ -195,7 +252,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
               Flush Pending
             </n-tooltip>
           </template>
-          Drop all pending (unprocessed) tweets from the raw queue?
+          Drop all pending tasks from all action queues?
         </n-popconfirm>
         <n-popconfirm @positive-click="onClear">
           <template #trigger>
@@ -269,38 +326,17 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
       </n-gi>
     </n-grid>
 
-    <!-- Active workers -->
-    <n-card v-if="workerStats" size="small" title="Workers">
+    <!-- Per-action queues table -->
+    <n-card size="small" title="Action Queues">
       <n-empty
-        v-if="!workerStats.active_workers || workerStats.active_workers.length === 0"
-        :description="`All ${workerStats.total} workers idle`"
+        v-if="queues.length === 0"
+        description="No active actions"
         style="padding: 16px 0;"
       />
       <n-data-table
         v-else
-        :columns="[
-          { title: 'Worker', key: 'id', width: 90,
-            render: (row: { id: number; action: string; pipeline: string; backend: string }) =>
-              h('span', { style: { color: '#585b70', fontVariantNumeric: 'tabular-nums' } }, `#${row.id}`)
-          },
-          { title: 'Action', key: 'action',
-            render: (row: { id: number; action: string; pipeline: string; backend: string }) =>
-              h('span', { style: { color: '#a6e3a1' } }, row.action)
-          },
-          { title: 'Pipeline', key: 'pipeline',
-            render: (row: { id: number; action: string; pipeline: string; backend: string }) =>
-              h('span', { style: { color: '#cdd6f4' } }, row.pipeline || '—')
-          },
-          { title: 'Backend', key: 'backend', width: 180,
-            render: (row: { id: number; action: string; pipeline: string; backend: string }) => {
-              if (!row.backend) return h('span', { style: { color: '#585b70' } }, '—')
-              if (row.backend === 'waiting') return h('span', { style: { color: '#585b70' } }, 'waiting…')
-              const display = row.backend.replace(/^https?:\/\//, '')
-              return h('span', { style: { color: '#cdd6f4', fontVariantNumeric: 'tabular-nums' } }, display)
-            }
-          },
-        ]"
-        :data="workerStats.active_workers"
+        :columns="queueColumns"
+        :data="queues"
         :pagination="false"
         size="small"
       />
@@ -318,7 +354,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 
       <n-data-table
         v-else
-        :columns="columns"
+        :columns="failureColumns"
         :data="store.failures"
         :pagination="pagination"
         :loading="store.loading"
@@ -359,9 +395,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
                 <n-tag
                   v-for="rule in selected.tweet.MatchingRules"
                   :key="rule.id"
-                  type="info"
-                  size="small"
-                  round
+                  type="info" size="small" round
                 >
                   {{ rule.tag || rule.id }}
                 </n-tag>
