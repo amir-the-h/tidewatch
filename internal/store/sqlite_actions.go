@@ -493,31 +493,3 @@ func scanAction(r actionScanner) (*model.Action, error) {
 	return a, nil
 }
 
-// ── Chain stubs — implemented in sqlite_chains.go (Task 5) ───────────────────
-
-func (s *sqliteStore) SaveChain(ctx context.Context, c *model.Chain) error { return nil }
-func (s *sqliteStore) GetChain(ctx context.Context, id int64) (*model.Chain, error) {
-	return nil, nil
-}
-func (s *sqliteStore) ListChains(ctx context.Context) ([]*model.Chain, error) { return nil, nil }
-func (s *sqliteStore) UpdateChain(ctx context.Context, c *model.Chain) error  { return nil }
-func (s *sqliteStore) DeleteChain(ctx context.Context, id int64) error         { return nil }
-func (s *sqliteStore) SetChainActive(ctx context.Context, id int64, active bool) error {
-	return nil
-}
-func (s *sqliteStore) GetChainGraph(ctx context.Context, chainID int64) (*model.ChainGraph, error) {
-	return nil, nil
-}
-func (s *sqliteStore) SaveChainGraph(ctx context.Context, chainID int64, nodes []*model.ChainNodeRequest, edges []*model.ChainEdgeRequest) (*model.ChainGraph, error) {
-	return nil, nil
-}
-func (s *sqliteStore) SaveTriggerChainLink(ctx context.Context, l *model.TriggerChainLink) error {
-	return nil
-}
-func (s *sqliteStore) ListTriggerChainLinks(ctx context.Context) ([]*model.TriggerChainLink, error) {
-	return nil, nil
-}
-func (s *sqliteStore) DeleteTriggerChainLink(ctx context.Context, id int64) error { return nil }
-func (s *sqliteStore) SetTriggerChainLinkActive(ctx context.Context, id int64, active bool) error {
-	return nil
-}
