@@ -24,9 +24,11 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
-// queueSizer can report the number of items in a named queue.
+// queueSizer can report queue sizes.
 type queueSizer interface {
 	Len(ctx context.Context, queue string) (int64, error)
+	// TotalTaskLen returns the sum of all per-action task queue lengths.
+	TotalTaskLen(ctx context.Context) (int64, error)
 }
 
 // workerPoolStatsProvider is satisfied by *worker.Pool and *worker.Manager.
@@ -265,6 +267,7 @@ func NewServer(
 				r.Delete("/pipelines/{id}/backends/{backend_id}", srv.handleRemovePipelineBackend)
 
 				// Queue management
+				r.Get("/queue", srv.handleGetQueue)
 				r.Delete("/queue", srv.handleFlushQueue)
 				r.Delete("/workers/buffer", srv.handleFlushWorkerBuffer)
 				r.Delete("/workers/buffer/{pipeline}", srv.handleFlushPipelineBuffer)
