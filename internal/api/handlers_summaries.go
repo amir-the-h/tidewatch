@@ -14,6 +14,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 // handleListSummaries returns paginated tweet+summary pairs for tweets that
@@ -127,7 +128,7 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	// Find active actions backed by the summarizer pipeline via the action cache.
 	var actionIDs []int64
 	if s.actionCache != nil {
-		entries := s.actionCache.AllForRules(nil)
+		entries := s.actionCache.All()
 		for _, e := range entries {
 			if e.Pipeline != nil && e.Pipeline.Name() == summarizerName {
 				actionIDs = append(actionIDs, e.Action.ID)
@@ -145,7 +146,7 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 		pushed := false
 		for _, actionID := range actionIDs {
 			task := &queue.Task{
-				TriggerType: string(model.TriggerTypeNewTweet),
+				TriggerType: "new_tweet",
 				Event:       ev,
 				ActionID:    actionID,
 				Context:     map[string]any{},
@@ -173,9 +174,16 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries := s.actionCache.AllForTrigger(model.TriggerTypeDigestRequested, nil)
-	if len(entries) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "no active digest action configured (create an action with trigger_type 'digest_requested' backed by an Ollama pipeline)")
+	entries := s.actionCache.All()
+	// Filter to digest-capable entries (pipelines implementing DigestPipeline).
+	var digestEntries []*worker.CacheEntry
+	for _, e := range entries {
+		if _, ok := e.Pipeline.(inference.DigestPipeline); ok {
+			digestEntries = append(digestEntries, e)
+		}
+	}
+	if len(digestEntries) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "no active digest action configured (create an action backed by an Ollama pipeline)")
 		return
 	}
 
@@ -201,9 +209,9 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ev, _ := json.Marshal(queue.DigestEvent{DigestJobID: job.ID})
-	for _, entry := range entries {
+	for _, entry := range digestEntries {
 		task := &queue.Task{
-			TriggerType: string(model.TriggerTypeDigestRequested),
+			TriggerType: "digest_requested",
 			Event:       ev,
 			ActionID:    entry.Action.ID,
 			Context:     map[string]any{"digest_job_id": job.ID},

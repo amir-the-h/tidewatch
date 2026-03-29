@@ -125,7 +125,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		return
 	}
 
-	if task.TriggerType == string(model.TriggerTypeDigestRequested) {
+	if task.TriggerType == "digest_requested" {
 		m.processDigestTask(ctx, workerID, task, entry)
 		return
 	}
@@ -212,6 +212,18 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		return
 	}
 
+	for _, t := range entry.Transformers {
+		transformed, tErr := t.Apply(outputs)
+		if tErr != nil {
+			if m.logger != nil {
+				m.logger.Warn("worker: transformer failed, using untransformed output",
+					"worker_id", workerID, "action_id", task.ActionID, "error", tErr)
+			}
+			break
+		}
+		outputs = transformed
+	}
+
 	for k, v := range outputs {
 		val := fmt.Sprintf("%v", v)
 		if b, err := json.Marshal(v); err == nil {
@@ -224,7 +236,6 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		mergedCtx[k] = v
 	}
 
-	m.evaluateChains(ctx, task.ActionID, task.TriggerType, task.Event, mergedCtx)
 }
 
 func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *queue.Task, entry *CacheEntry) {
@@ -359,60 +370,6 @@ func (m *Manager) emitDigestEvent(job *model.DigestJob, pipelineName string) {
 		Error:     job.Error,
 		Timestamp: time.Now().UTC(),
 	})
-}
-
-func (m *Manager) evaluateChains(ctx context.Context, sourceActionID int64, triggerType string, event json.RawMessage, mergedCtx map[string]any) {
-	chains, err := m.store.ListActionChains(ctx, store.ActionChainFilter{SourceActionID: &sourceActionID})
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Warn("worker: list chains", "source_action_id", sourceActionID, "error", err)
-		}
-		return
-	}
-	for _, chain := range chains {
-		if !evaluateConditions(chain.Conditions, mergedCtx) {
-			continue
-		}
-		downstream := &queue.Task{
-			TriggerType: triggerType,
-			Event:       event,
-			ActionID:    chain.TargetActionID,
-			Context:     mergedCtx,
-		}
-		if pushErr := m.producer.PushTask(ctx, downstream); pushErr != nil && m.logger != nil {
-			m.logger.Warn("worker: push chain task",
-				"target_action_id", chain.TargetActionID, "error", pushErr)
-		}
-	}
-}
-
-func evaluateConditions(conds []model.ChainCondition, ctx map[string]any) bool {
-	for _, c := range conds {
-		val := fmt.Sprintf("%v", ctx[c.Key])
-		if !evalCondition(c.Operator, val, c.Value) {
-			return false
-		}
-	}
-	return true
-}
-
-func evalCondition(op, actual, expected string) bool {
-	switch op {
-	case "==":
-		return actual == expected
-	case "!=":
-		return actual != expected
-	case "is_empty":
-		return actual == "" || actual == "null" || actual == "[]"
-	case "not_empty":
-		return actual != "" && actual != "null" && actual != "[]"
-	case "contains":
-		return strings.Contains(actual, expected)
-	case "not_contains":
-		return !strings.Contains(actual, expected)
-	default:
-		return false
-	}
 }
 
 // Flush and FlushPipeline are no-ops in the simplified model.

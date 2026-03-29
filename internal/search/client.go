@@ -2,7 +2,6 @@ package search
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -255,28 +254,7 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 			if err := c.store.SaveTweetRule(ctx, tr); err != nil {
 				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet rule %s: %w", rule.ID, st.Tweet.ID, err)
 			}
-			// Dispatch tasks to all matching actions via ActionCache.
-			if c.cache != nil {
-				entries := c.cache.AllForTrigger(model.TriggerTypeNewTweet, []int64{rule.ID})
-				eventPayload, _ := json.Marshal(queue.TweetEvent{
-					TweetID:      st.Tweet.ID,
-					Text:         st.Tweet.Text,
-					AuthorHandle: st.Tweet.AuthorHandle,
-					RuleIDs:      []int64{rule.ID},
-				})
-				for _, e := range entries {
-					task := &queue.Task{
-						TriggerType: string(model.TriggerTypeNewTweet),
-						Event:       eventPayload,
-						ActionID:    e.Action.ID,
-						Context:     map[string]any{},
-					}
-					if pushErr := c.producer.PushTask(ctx, task); pushErr != nil && c.logger != nil {
-						c.logger.Warn("search: push task",
-							"tweet_id", st.Tweet.ID, "action_id", e.Action.ID, "error", pushErr)
-					}
-				}
-			}
+			// TODO(chains): chain execution — deferred to worker execution spec.
 		}
 
 		fetched += len(page.Tweets)

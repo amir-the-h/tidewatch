@@ -219,21 +219,15 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 		pushed := false
 		targetIDs := req.ActionIDs
 		if len(targetIDs) == 0 && s.actionCache != nil {
-			// No specific actions requested — dispatch to all active new-tweet actions
-			// that match the tweet's rules (rule-scoped actions only fire if the tweet
-			// matched one of their rules; global actions always fire).
-			matchedRuleIDs := make([]int64, 0, len(tweet.Rules))
-			for _, r := range tweet.Rules {
-				matchedRuleIDs = append(matchedRuleIDs, r.ID)
-			}
-			entries := s.actionCache.AllForTrigger(model.TriggerTypeNewTweet, matchedRuleIDs)
+			// No specific actions requested — dispatch to all active actions.
+			entries := s.actionCache.All()
 			for _, e := range entries {
 				targetIDs = append(targetIDs, e.Action.ID)
 			}
 		}
 		for _, actionID := range targetIDs {
 			task := &queue.Task{
-				TriggerType: string(model.TriggerTypeNewTweet),
+				TriggerType: "new_tweet",
 				Event:       ev,
 				ActionID:    actionID,
 				Context:     map[string]any{},

@@ -64,16 +64,38 @@ func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error          
 func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                          { return nil }
 func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error     { return nil }
 func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)               { return 0, nil }
-func (m *mockStore) SaveNotification(_ context.Context, _ *model.Notification) error { return nil }
-func (m *mockStore) GetNotification(_ context.Context, _ int64) (*model.Notification, error) {
+func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
+	return nil
+}
+func (m *mockStore) GetNotificationProvider(_ context.Context, _ int64) (*model.NotificationProvider, error) {
 	return nil, nil
 }
-func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFilter) ([]*model.Notification, error) {
+func (m *mockStore) ListNotificationProviders(_ context.Context) ([]*model.NotificationProvider, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
-func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
-func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
+func (m *mockStore) UpdateNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
+	return nil
+}
+func (m *mockStore) DeleteNotificationProvider(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetNotificationProviderActive(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
+func (m *mockStore) SaveNotificationChannel(_ context.Context, _ *model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStore) GetNotificationChannel(_ context.Context, _ int64) (*model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStore) ListNotificationChannels(_ context.Context, _ *int64) ([]*model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateNotificationChannel(_ context.Context, _ *model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStore) DeleteNotificationChannel(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetNotificationChannelActive(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
 func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
 func (m *mockStore) CountEntityTracks(_ context.Context, _ store.EntityTrackFilter) (int, error) { return 0, nil }
 // Pipelines
@@ -86,12 +108,19 @@ func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error 
 func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error) { return nil, nil }
 func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error    { return nil }
 func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error { return nil }
-// ActionChains
-func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
-func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) { return nil, fmt.Errorf("not found") }
-func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilter) ([]*model.ActionChain, error) { return nil, nil }
-func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
-func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
+// Chains
+func (m *mockStore) SaveChain(_ context.Context, _ *model.Chain) error { return nil }
+func (m *mockStore) GetChain(_ context.Context, _ int64) (*model.Chain, error) { return nil, nil }
+func (m *mockStore) ListChains(_ context.Context) ([]*model.Chain, error)      { return nil, nil }
+func (m *mockStore) UpdateChain(_ context.Context, _ *model.Chain) error       { return nil }
+func (m *mockStore) DeleteChain(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) SetChainActive(_ context.Context, _ int64, _ bool) error   { return nil }
+func (m *mockStore) GetChainGraph(_ context.Context, _ int64) (*model.ChainGraph, error) { return nil, nil }
+func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) { return nil, nil }
+func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChainLink) error { return nil }
+func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) { return nil, nil }
+func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error             { return nil }
+func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error  { return nil }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                   { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)           { return nil, nil }
 func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) { return nil, nil }
@@ -152,6 +181,9 @@ func (m *mockStore) ListPipelineBackends(_ context.Context, _ int64) ([]model.Pi
 func (m *mockStore) SetPipelineBackends(_ context.Context, _ int64, _ []model.PipelineBackend) error  { return nil }
 func (m *mockStore) RemovePipelineBackend(_ context.Context, _, _ int64) error                    { return nil }
 func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]int64, error)       { return nil, nil }
+func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) { return nil, nil }
+func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) { return nil, nil }
+func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) { return 0, nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {

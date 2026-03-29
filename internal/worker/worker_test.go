@@ -62,10 +62,6 @@ func (m *mockStore) SaveActionExecution(_ context.Context, e *model.ActionExecut
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
-func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilter) ([]*model.ActionChain, error) {
-	return nil, nil
-}
-
 // Tweets
 func (m *mockStore) SaveTweet(_ context.Context, _ *model.Tweet) error { return nil }
 func (m *mockStore) GetTweet(_ context.Context, _ string) (*model.Tweet, error) {
@@ -126,13 +122,29 @@ func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, er
 func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error    { return nil }
 func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error { return nil }
 
-// ActionChains
-func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
-func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) {
-	return nil, fmt.Errorf("not found")
+// Chains
+func (m *mockStore) SaveChain(_ context.Context, _ *model.Chain) error { return nil }
+func (m *mockStore) GetChain(_ context.Context, _ int64) (*model.Chain, error) {
+	return nil, nil
 }
-func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
-func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) ListChains(_ context.Context) ([]*model.Chain, error)     { return nil, nil }
+func (m *mockStore) UpdateChain(_ context.Context, _ *model.Chain) error      { return nil }
+func (m *mockStore) DeleteChain(_ context.Context, _ int64) error             { return nil }
+func (m *mockStore) SetChainActive(_ context.Context, _ int64, _ bool) error  { return nil }
+func (m *mockStore) GetChainGraph(_ context.Context, _ int64) (*model.ChainGraph, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChainLink) error {
+	return nil
+}
+func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error             { return nil }
+func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error  { return nil }
 
 // NotificationProviders
 func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
@@ -273,6 +285,9 @@ func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) 
 func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) {
 	return nil, nil
 }
+func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) {
+	return 0, nil
+}
 
 // TwitterCredentials
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error {
@@ -330,7 +345,7 @@ func (s *stubPipeline) Close() error { return nil }
 func makeTask(actionID int64, tweetID string) *queue.Task {
 	ev, _ := json.Marshal(queue.TweetEvent{TweetID: tweetID, Text: "test tweet text"})
 	return &queue.Task{
-		TriggerType: string(model.TriggerTypeNewTweet),
+		TriggerType: "new_tweet",
 		Event:       ev,
 		ActionID:    actionID,
 		Context:     map[string]any{},
@@ -426,7 +441,7 @@ func runManagerUntilDrained(t *testing.T, mgr *Manager, consumer *mockConsumer) 
 
 func TestManager_ProcessesTweet(t *testing.T) {
 	pipe := &stubPipeline{name: "pa", pType: inference.PipelineTypeONNX}
-	action := &model.Action{ID: 1, Name: "pa", TriggerType: model.TriggerTypeNewTweet, Active: true}
+	action := &model.Action{ID: 1, Name: "pa", Active: true}
 	cache := buildCacheWithEntries(map[int64]*CacheEntry{
 		1: {Action: action, Pipeline: pipe},
 	})
@@ -495,7 +510,7 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 	stub := &stubPipeline{name: "slow-action", pType: inference.PipelineTypeONNX}
 	pipe := &blockPipeline{stub: stub, started: started, unblock: unblock, done: done}
 
-	action := &model.Action{ID: 1, Name: "slow-action", TriggerType: model.TriggerTypeNewTweet, Active: true}
+	action := &model.Action{ID: 1, Name: "slow-action", Active: true}
 	cache := buildCacheWithEntries(map[int64]*CacheEntry{
 		1: {Action: action, Pipeline: pipe},
 	})

@@ -22,12 +22,11 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	sources       map[int64]*model.Source
-	rules         map[int64]*model.Rule
-	tweets        map[string]*model.Tweet
-	notifications map[int64]*model.Notification
-	tweetRules    []*model.TweetRule
-	nextID        int64
+	sources    map[int64]*model.Source
+	rules      map[int64]*model.Rule
+	tweets     map[string]*model.Tweet
+	tweetRules []*model.TweetRule
+	nextID     int64
 }
 
 func newMockStore() *mockStore {
@@ -152,59 +151,59 @@ func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, er
 func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error     { return nil }
 func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error  { return nil }
 
-func (m *mockStore) SaveActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
-func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionChain, error) {
-	return nil, fmt.Errorf("not found")
-}
-func (m *mockStore) ListActionChains(_ context.Context, _ store.ActionChainFilter) ([]*model.ActionChain, error) {
+func (m *mockStore) SaveChain(_ context.Context, _ *model.Chain) error { return nil }
+func (m *mockStore) GetChain(_ context.Context, _ int64) (*model.Chain, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
-func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
+func (m *mockStore) ListChains(_ context.Context) ([]*model.Chain, error)    { return nil, nil }
+func (m *mockStore) UpdateChain(_ context.Context, _ *model.Chain) error     { return nil }
+func (m *mockStore) DeleteChain(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) SetChainActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) GetChainGraph(_ context.Context, _ int64) (*model.ChainGraph, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) {
+	return nil, nil
+}
+func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChainLink) error {
+	return nil
+}
+func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
 
-func (m *mockStore) SaveNotification(_ context.Context, n *model.Notification) error {
-	m.nextID++
-	n.ID = m.nextID
-	if m.notifications == nil {
-		m.notifications = make(map[int64]*model.Notification)
-	}
-	m.notifications[n.ID] = n
+func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
 	return nil
 }
-func (m *mockStore) GetNotification(_ context.Context, id int64) (*model.Notification, error) {
-	if m.notifications != nil {
-		if n, ok := m.notifications[id]; ok {
-			return n, nil
-		}
-	}
-	return nil, fmt.Errorf("notification not found: %d", id)
+func (m *mockStore) GetNotificationProvider(_ context.Context, _ int64) (*model.NotificationProvider, error) {
+	return nil, nil
 }
-func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFilter) ([]*model.Notification, error) {
-	out := make([]*model.Notification, 0)
-	for _, n := range m.notifications {
-		out = append(out, n)
-	}
-	return out, nil
+func (m *mockStore) ListNotificationProviders(_ context.Context) ([]*model.NotificationProvider, error) {
+	return nil, nil
 }
-func (m *mockStore) UpdateNotification(_ context.Context, n *model.Notification) error {
-	if m.notifications == nil {
-		m.notifications = make(map[int64]*model.Notification)
-	}
-	m.notifications[n.ID] = n
+func (m *mockStore) UpdateNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
 	return nil
 }
-func (m *mockStore) DeleteNotification(_ context.Context, id int64) error {
-	if m.notifications != nil {
-		delete(m.notifications, id)
-	}
+func (m *mockStore) DeleteNotificationProvider(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetNotificationProviderActive(_ context.Context, _ int64, _ bool) error {
 	return nil
 }
-func (m *mockStore) SetNotificationActive(_ context.Context, id int64, active bool) error {
-	if m.notifications != nil {
-		if n, ok := m.notifications[id]; ok {
-			n.Active = active
-		}
-	}
+func (m *mockStore) SaveNotificationChannel(_ context.Context, _ *model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStore) GetNotificationChannel(_ context.Context, _ int64) (*model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStore) ListNotificationChannels(_ context.Context, _ *int64) ([]*model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateNotificationChannel(_ context.Context, _ *model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStore) DeleteNotificationChannel(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetNotificationChannelActive(_ context.Context, _ int64, _ bool) error {
 	return nil
 }
 
@@ -315,6 +314,12 @@ func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _
 }
 func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) {
 	return 0, nil
+}
+func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
+func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) {
+	return nil, nil
 }
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error {
 	return nil

@@ -3,10 +3,9 @@ package stream
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"log/slog"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -309,34 +308,9 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		})
 	}
 
-	// 3. Fan out a Task per matching action via ActionCache.
-	if c.cache != nil {
-		entries := c.cache.AllForTrigger(model.TriggerTypeNewTweet, resolvedRuleIDs)
-
-		eventPayload, _ := json.Marshal(queue.TweetEvent{
-			TweetID:      st.Tweet.ID,
-			Text:         st.Tweet.Text,
-			AuthorHandle: st.Tweet.AuthorHandle,
-			RuleIDs:      resolvedRuleIDs,
-		})
-
-		for _, e := range entries {
-			task := &queue.Task{
-				TriggerType: string(model.TriggerTypeNewTweet),
-				Event:       eventPayload,
-				ActionID:    e.Action.ID,
-				Context:     map[string]any{},
-			}
-			if err := c.producer.PushTask(ctx, task); err != nil && c.logger != nil {
-				c.logger.Warn("stream: push task",
-					"component", "stream",
-					"tweet_id", st.Tweet.ID,
-					"action_id", e.Action.ID,
-					"error", err,
-				)
-			}
-		}
-	}
+	// TODO(chains): chain execution — deferred to worker execution spec.
+	// When implemented, look up trigger_chain_links for "new_tweet" and
+	// walk the chain DAG for each matched tweet.
 
 	c.logger.Info("stream: processed tweet",
 		"component", "stream",

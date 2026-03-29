@@ -12,12 +12,15 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/pipeline"
 	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/transform"
 )
 
-// CacheEntry pairs an Action DB row with its resolved Pipeline instance.
+// CacheEntry pairs an Action DB row with its resolved Pipeline instance and
+// any output transformers parsed from the pipeline config.
 type CacheEntry struct {
-	Action   *model.Action
-	Pipeline inference.Pipeline
+	Action       *model.Action
+	Pipeline     inference.Pipeline
+	Transformers []transform.Transformer
 }
 
 // ActionCache is a hot-reloadable in-memory map of action_id → CacheEntry.
@@ -67,7 +70,7 @@ func (c *ActionCache) Load(ctx context.Context) error {
 
 	entries := make(map[int64]*CacheEntry, len(actions))
 	for _, a := range actions {
-		p, pErr := c.resolvePipeline(ctx, a.PipelineID, pipelineBackendIDs)
+		p, transformers, pErr := c.resolvePipeline(ctx, a.PipelineID, pipelineBackendIDs)
 		if pErr != nil {
 			if c.logger != nil {
 				c.logger.Warn("action_cache: skip action (pipeline resolution failed)",
@@ -75,7 +78,7 @@ func (c *ActionCache) Load(ctx context.Context) error {
 			}
 			continue
 		}
-		entries[a.ID] = &CacheEntry{Action: a, Pipeline: p}
+		entries[a.ID] = &CacheEntry{Action: a, Pipeline: p, Transformers: transformers}
 	}
 
 	c.mu.Lock()
@@ -91,42 +94,13 @@ func (c *ActionCache) Get(actionID int64) *CacheEntry {
 	return c.entries[actionID]
 }
 
-// AllForRules returns CacheEntries whose actions should fire for the given rule IDs.
-// Global actions (empty rule_ids) are always included.
-func (c *ActionCache) AllForRules(matchedRuleIDs []int64) []*CacheEntry {
-	ruleSet := make(map[int64]struct{}, len(matchedRuleIDs))
-	for _, id := range matchedRuleIDs {
-		ruleSet[id] = struct{}{}
-	}
-
+// All returns all active CacheEntries in the cache.
+func (c *ActionCache) All() []*CacheEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	var out []*CacheEntry
+	out := make([]*CacheEntry, 0, len(c.entries))
 	for _, e := range c.entries {
-		if !e.Action.Active {
-			continue
-		}
-		if len(e.Action.RuleIDs) == 0 {
-			out = append(out, e)
-			continue
-		}
-		for _, rid := range e.Action.RuleIDs {
-			if _, ok := ruleSet[rid]; ok {
-				out = append(out, e)
-				break
-			}
-		}
-	}
-	return out
-}
-
-// AllForTrigger returns CacheEntries for the given trigger type, filtered by rule IDs.
-func (c *ActionCache) AllForTrigger(trigger model.TriggerType, matchedRuleIDs []int64) []*CacheEntry {
-	all := c.AllForRules(matchedRuleIDs)
-	var out []*CacheEntry
-	for _, e := range all {
-		if e.Action.TriggerType == trigger {
+		if e.Action.Active {
 			out = append(out, e)
 		}
 	}
@@ -146,10 +120,10 @@ func (c *ActionCache) FindByType(pipelineType inference.PipelineType) inference.
 	return nil
 }
 
-func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pipelineBackendIDs map[int64][]int64) (inference.Pipeline, error) {
+func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pipelineBackendIDs map[int64][]int64) (inference.Pipeline, []transform.Transformer, error) {
 	row, err := c.store.GetPipeline(ctx, pipelineID)
 	if err != nil {
-		return nil, fmt.Errorf("get pipeline row: %w", err)
+		return nil, nil, fmt.Errorf("get pipeline row: %w", err)
 	}
 
 	var cfg map[string]any
@@ -161,16 +135,23 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pip
 		cfg = make(map[string]any)
 	}
 
+	transformers, err := transform.Parse(cfg)
+	if err != nil && c.logger != nil {
+		c.logger.Warn("action_cache: invalid transformer config, ignoring",
+			"pipeline", row.Name, "error", err)
+	}
+
+	var p inference.Pipeline
 	switch row.Type {
 	case model.PipelineTypeONNX:
-		if p := c.infReg.Get(row.Name); p != nil {
-			return p, nil
+		if p = c.infReg.Get(row.Name); p != nil {
+			return p, transformers, nil
 		}
 		onnx, err := inference.NewONNXPipelineFromConfig(row.Name, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("onnx: %w", err)
+			return nil, nil, fmt.Errorf("onnx: %w", err)
 		}
-		var p inference.Pipeline = onnx
+		p = onnx
 		labels, _ := c.store.ListPipelineLabels(ctx, pipelineID)
 		if len(labels) > 0 {
 			if lp, ok := p.(inference.LabeledPipeline); ok {
@@ -178,25 +159,31 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pip
 			}
 		}
 		c.infReg.Register(p)
-		return p, nil
 
 	case model.PipelineTypeOllama:
 		// Always build fresh from DB config so that updates to model name,
 		// system_prompt, or backend assignments take effect without a restart.
 		assignedIDs := pipelineBackendIDs[pipelineID] // nil → use full pool
-		p := inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.pool, assignedIDs, 0)
+		p = inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.pool, assignedIDs, 0)
 		c.infReg.Register(p)
-		return p, nil
 
 	case model.PipelineTypeInternal:
-		return c.pipeReg.Build(row.Name, cfg)
+		p, err = c.pipeReg.Build(row.Name, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
 
 	case model.PipelineTypeNotification:
-		return buildNotificationPipeline(ctx, c.store, row, c.logger)
+		p, err = buildNotificationPipeline(ctx, c.store, row, c.logger)
+		if err != nil {
+			return nil, nil, err
+		}
 
 	default:
-		return nil, fmt.Errorf("unknown pipeline type: %s", row.Type)
+		return nil, nil, fmt.Errorf("unknown pipeline type: %s", row.Type)
 	}
+
+	return p, transformers, nil
 }
 
 func buildNotificationPipeline(ctx context.Context, st store.Store, p *model.Pipeline, logger *slog.Logger) (inference.Pipeline, error) {
