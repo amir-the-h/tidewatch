@@ -134,17 +134,41 @@ func (m *mockStore) GetActionChain(_ context.Context, _ int64) (*model.ActionCha
 func (m *mockStore) UpdateActionChain(_ context.Context, _ *model.ActionChain) error { return nil }
 func (m *mockStore) DeleteActionChain(_ context.Context, _ int64) error              { return nil }
 
-// Notifications
-func (m *mockStore) SaveNotification(_ context.Context, _ *model.Notification) error { return nil }
-func (m *mockStore) GetNotification(_ context.Context, _ int64) (*model.Notification, error) {
+// NotificationProviders
+func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
+	return nil
+}
+func (m *mockStore) GetNotificationProvider(_ context.Context, _ int64) (*model.NotificationProvider, error) {
 	return nil, nil
 }
-func (m *mockStore) ListNotifications(_ context.Context, _ store.NotificationFilter) ([]*model.Notification, error) {
+func (m *mockStore) ListNotificationProviders(_ context.Context) ([]*model.NotificationProvider, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateNotification(_ context.Context, _ *model.Notification) error { return nil }
-func (m *mockStore) DeleteNotification(_ context.Context, _ int64) error               { return nil }
-func (m *mockStore) SetNotificationActive(_ context.Context, _ int64, _ bool) error    { return nil }
+func (m *mockStore) UpdateNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
+	return nil
+}
+func (m *mockStore) DeleteNotificationProvider(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetNotificationProviderActive(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
+
+// NotificationChannels
+func (m *mockStore) SaveNotificationChannel(_ context.Context, _ *model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStore) GetNotificationChannel(_ context.Context, _ int64) (*model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStore) ListNotificationChannels(_ context.Context, _ *int64) ([]*model.NotificationChannel, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateNotificationChannel(_ context.Context, _ *model.NotificationChannel) error {
+	return nil
+}
+func (m *mockStore) DeleteNotificationChannel(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetNotificationChannelActive(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
 
 // TrackedEntities
 func (m *mockStore) SaveTrackedEntity(_ context.Context, _ *model.TrackedEntity) error {
@@ -241,6 +265,12 @@ func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map
 	return nil, nil
 }
 func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) {
+	return nil, nil
+}
+func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
+func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) {
 	return nil, nil
 }
 
@@ -539,4 +569,90 @@ func (b *blockPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[s
 		close(b.done)
 	}
 	return map[string]any{"label": "test"}, nil
+}
+
+// ── enrichContext tests ───────────────────────────────────────────────────────
+
+func TestEnrichContext_ZeroShot_TopLabel(t *testing.T) {
+	ctx := map[string]any{
+		"labels": []any{"political", "news"},
+		"scores": []any{float64(0.8), float64(0.2)},
+	}
+	enrichContext(ctx)
+	if ctx["top_label"] != "political" {
+		t.Errorf("top_label: got %v, want political", ctx["top_label"])
+	}
+	if ctx["top_score"] != float64(0.8) {
+		t.Errorf("top_score: got %v, want 0.8", ctx["top_score"])
+	}
+}
+
+func TestEnrichContext_ZeroShot_DoesNotOverwrite(t *testing.T) {
+	ctx := map[string]any{
+		"labels":    []any{"political"},
+		"top_label": "existing",
+	}
+	enrichContext(ctx)
+	if ctx["top_label"] != "existing" {
+		t.Errorf("top_label should not be overwritten, got %v", ctx["top_label"])
+	}
+}
+
+func TestEnrichContext_NER_EntityList(t *testing.T) {
+	ctx := map[string]any{
+		"entities": []any{
+			map[string]any{"word": "Iran", "label": "GPE", "score": float64(0.99)},
+			map[string]any{"word": "Khamenei", "label": "PER", "score": float64(0.95)},
+		},
+	}
+	enrichContext(ctx)
+	got, ok := ctx["entity_list"].(string)
+	if !ok {
+		t.Fatalf("entity_list missing or wrong type: %v", ctx["entity_list"])
+	}
+	if got != "Iran (GPE), Khamenei (PER)" {
+		t.Errorf("entity_list: got %q", got)
+	}
+}
+
+func TestEnrichContext_NER_DoesNotOverwrite(t *testing.T) {
+	ctx := map[string]any{
+		"entities":    []any{map[string]any{"word": "Iran", "label": "GPE", "score": float64(0.99)}},
+		"entity_list": "custom",
+	}
+	enrichContext(ctx)
+	if ctx["entity_list"] != "custom" {
+		t.Errorf("entity_list should not be overwritten, got %v", ctx["entity_list"])
+	}
+}
+
+// ── decodeMetaValue tests ─────────────────────────────────────────────────────
+
+func TestDecodeMetaValue_String(t *testing.T) {
+	got := decodeMetaValue(`"political"`)
+	if got != "political" {
+		t.Errorf("got %v (%T), want political (string)", got, got)
+	}
+}
+
+func TestDecodeMetaValue_Number(t *testing.T) {
+	got := decodeMetaValue("0.95")
+	if got != float64(0.95) {
+		t.Errorf("got %v (%T), want 0.95 (float64)", got, got)
+	}
+}
+
+func TestDecodeMetaValue_Array(t *testing.T) {
+	got := decodeMetaValue(`["a","b"]`)
+	arr, ok := got.([]any)
+	if !ok || len(arr) != 2 {
+		t.Errorf("expected []any of length 2, got %v (%T)", got, got)
+	}
+}
+
+func TestDecodeMetaValue_InvalidJSON(t *testing.T) {
+	got := decodeMetaValue("not json")
+	if got != "not json" {
+		t.Errorf("should fall back to raw string, got %v", got)
+	}
 }

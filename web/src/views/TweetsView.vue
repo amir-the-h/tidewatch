@@ -347,7 +347,7 @@ const columns: DataTableColumns<Tweet> = [
       </n-tooltip>
       <n-tooltip trigger="hover">
         <template #trigger>
-          <n-button secondary @click="filterRuleId = null; filterFrom = null; filterTo = null; perPageOption = 20; store.fetchTweets({ per_page: 20 }); checkedRowKeys = []; router.replace({ query: {} })">
+          <n-button secondary @click="filterRuleId.value = null; filterFrom.value = null; filterTo.value = null; perPageOption.value = 20; store.fetchTweets({ per_page: 20 }); checkedRowKeys.value = []; router.replace({ query: {} })">
             <template #icon><n-icon><CloseCircleOutline /></n-icon></template>
           </n-button>
         </template>
@@ -658,7 +658,7 @@ const columns: DataTableColumns<Tweet> = [
       </template>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="showSelectActionsModal = false; selectedActionIds = []">Cancel</n-button>
+          <n-button @click="showSelectActionsModal = false; selectedActionIds.value = []">Cancel</n-button>
           <n-popconfirm @positive-click="bulkClearSelected">
             <template #trigger>
               <n-button type="error" :disabled="!selectedActionIds.length" :loading="clearingBulk">

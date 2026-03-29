@@ -31,9 +31,12 @@ func NewSQLiteStore(path string, migrationsFS fs.FS) (Store, error) {
 	// so all writes are serialized within the process without SQLITE_BUSY errors.
 	db.SetMaxOpenConns(1)
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	// DELETE journal mode: no -wal/-shm files. WAL mode is unreliable on NFS
+	// (shm requires shared-memory semantics NFS can't guarantee), and offers no
+	// benefit here since we only ever have one connection open anyway.
+	if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("store: pragma wal: %w", err)
+		return nil, fmt.Errorf("store: pragma journal_mode: %w", err)
 	}
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		_ = db.Close()
@@ -55,6 +58,9 @@ func NewSQLiteStore(path string, migrationsFS fs.FS) (Store, error) {
 }
 
 func (s *sqliteStore) Close() error {
+	// Checkpoint the WAL before closing so stale WAL frames don't corrupt the DB
+	// on the next startup if the file is ever swapped out during recovery.
+	_, _ = s.db.Exec("PRAGMA wal_checkpoint(FULL)")
 	return s.db.Close()
 }
 

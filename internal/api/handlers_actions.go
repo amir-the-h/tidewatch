@@ -49,7 +49,7 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.TriggerType {
-	case model.TriggerTypeNewTweet, model.TriggerTypeNewCategorization, model.TriggerTypeEntityMatched, model.TriggerTypeChainOnly:
+	case model.TriggerTypeNewTweet, model.TriggerTypeNewCategorization, model.TriggerTypeEntityMatched, model.TriggerTypeChainOnly, model.TriggerTypeDigestRequested:
 	default:
 		writeError(w, http.StatusBadRequest, "invalid trigger_type")
 		return

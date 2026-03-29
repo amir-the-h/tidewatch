@@ -123,7 +123,7 @@ func (c *PushoverClient) Send(ctx context.Context, msg PushoverMessage) error {
 
 // Deliver implements notifier.Provider for PushoverClient.
 // config keys: "title", "priority", "sound", "device", "url", "url_title", "ttl", "html", "retry", "expire"
-func (c *PushoverClient) Deliver(ctx context.Context, text string, config map[string]any) error {
+func (c *PushoverClient) Deliver(ctx context.Context, text string, config map[string]any) (map[string]any, error) {
 	msg := PushoverMessage{
 		Message: text,
 	}
@@ -157,5 +157,5 @@ func (c *PushoverClient) Deliver(ctx context.Context, text string, config map[st
 	if v, ok := config["expire"].(float64); ok {
 		msg.Expire = int(v)
 	}
-	return c.Send(ctx, msg)
+	return nil, c.Send(ctx, msg)
 }

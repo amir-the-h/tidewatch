@@ -12,6 +12,7 @@ import (
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -23,9 +24,16 @@ type Manager struct {
 	producer      queue.Producer
 	store         store.Store
 	cache         *ActionCache
+	dispatcher    notifier.EventEmitter
 	logger        *slog.Logger
 	active        atomic.Int32
 	workerActions sync.Map // key: int (worker ID), value: WorkerInfo
+}
+
+// WithDispatcher sets an optional event emitter used to fire digest_done/digest_failed events.
+func (m *Manager) WithDispatcher(d notifier.EventEmitter) *Manager {
+	m.dispatcher = d
+	return m
 }
 
 func NewManager(
@@ -117,6 +125,11 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		return
 	}
 
+	if task.TriggerType == string(model.TriggerTypeDigestRequested) {
+		m.processDigestTask(ctx, workerID, task, entry)
+		return
+	}
+
 	// Track which action this worker is executing.
 	info := WorkerInfo{
 		ID:       workerID,
@@ -129,12 +142,34 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	var ev queue.TweetEvent
 	_ = json.Unmarshal(task.Event, &ev)
 
-	mergedCtx := make(map[string]any, len(task.Context)+3)
+	// Load execution metadata for this tweet across all prior actions so that
+	// notification pipelines can reference ONNX/Ollama outputs even when not
+	// triggered via a chain (e.g. ${label}, ${score}, ${summary}, ${entity_list}).
+	allMeta, _ := m.store.MergeAllTweetExecutionMetadata(ctx, ev.TweetID)
+
+	// Load metadata from prior executions of THIS action on the same tweet
+	// (e.g. telegram_message_id for edit-vs-send logic). Overrides allMeta on conflict.
+	prevMeta, _ := m.store.MergeActionExecutionMetadata(ctx, task.ActionID, ev.TweetID)
+
+	mergedCtx := make(map[string]any, len(task.Context)+len(allMeta)+len(prevMeta)+5)
+	// Inject in ascending priority order: all-tweet meta → this-action meta → chain context → well-known fields.
+	for k, v := range allMeta {
+		mergedCtx[k] = decodeMetaValue(v)
+	}
+	for k, v := range prevMeta {
+		mergedCtx[k] = decodeMetaValue(v)
+	}
 	for k, v := range task.Context {
 		mergedCtx[k] = v
 	}
 	mergedCtx["tweet_id"] = ev.TweetID
 	mergedCtx["tweet_author"] = ev.AuthorHandle
+	mergedCtx["author"] = ev.AuthorHandle
+	mergedCtx["tweet"] = ev.Text
+	mergedCtx["tweet_url"] = "https://x.com/" + ev.AuthorHandle + "/status/" + ev.TweetID
+
+	// Derive convenience vars from common ONNX/Ollama output shapes.
+	enrichContext(mergedCtx)
 
 	input := inference.PipelineInput{
 		Text:    ev.Text,
@@ -190,6 +225,140 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	}
 
 	m.evaluateChains(ctx, task.ActionID, task.TriggerType, task.Event, mergedCtx)
+}
+
+func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *queue.Task, entry *CacheEntry) {
+	info := WorkerInfo{
+		ID:       workerID,
+		Action:   entry.Action.Name,
+		Pipeline: entry.Pipeline.Name(),
+	}
+	m.workerActions.Store(workerID, info)
+	defer m.workerActions.Delete(workerID)
+
+	dp, ok := entry.Pipeline.(inference.DigestPipeline)
+	if !ok {
+		if m.logger != nil {
+			m.logger.Warn("worker: digest action pipeline does not implement DigestPipeline",
+				"worker_id", workerID, "action_id", task.ActionID, "pipeline", entry.Pipeline.Name())
+		}
+		return
+	}
+
+	jobID, _ := task.Context["digest_job_id"].(string)
+	if jobID == "" {
+		var ev queue.DigestEvent
+		_ = json.Unmarshal(task.Event, &ev)
+		jobID = ev.DigestJobID
+	}
+	if jobID == "" {
+		if m.logger != nil {
+			m.logger.Warn("worker: digest task missing digest_job_id", "worker_id", workerID, "action_id", task.ActionID)
+		}
+		return
+	}
+
+	job, err := m.store.GetDigestJob(ctx, jobID)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("worker: digest job not found", "job_id", jobID, "error", err)
+		}
+		return
+	}
+
+	job.Status = model.DigestStatusRunning
+	if err := m.store.UpdateDigestJob(ctx, job); err != nil && m.logger != nil {
+		m.logger.Warn("worker: digest job mark running", "job_id", jobID, "error", err)
+	}
+
+	inferenceCtx := inference.WithBackendNotify(ctx, func(backend string) {
+		m.workerActions.Store(workerID, WorkerInfo{
+			ID:       workerID,
+			Action:   entry.Action.Name,
+			Pipeline: entry.Pipeline.Name(),
+			Backend:  backend,
+		})
+	})
+
+	p := job.Params
+	tweets, err := m.store.ListTweets(ctx, store.TweetFilter{
+		RuleID:   p.RuleID,
+		SourceID: p.SourceID,
+		EntityID: p.EntityID,
+		From:     p.From,
+		To:       p.To,
+		Page:     1,
+		PerPage:  p.Limit,
+	})
+
+	now := time.Now().UTC()
+	job.CompletedAt = &now
+
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("worker: digest job: list tweets", "job_id", jobID, "error", err)
+		}
+		job.Status = model.DigestStatusError
+		job.Error = "failed to fetch tweets: " + err.Error()
+		_ = m.store.UpdateDigestJob(ctx, job)
+		m.emitDigestEvent(job, entry.Pipeline.Name())
+		return
+	}
+
+	job.TweetCount = len(tweets)
+
+	if len(tweets) == 0 {
+		job.Status = model.DigestStatusDone
+		job.Result = "No tweets found matching the selected filters."
+		_ = m.store.UpdateDigestJob(ctx, job)
+		m.emitDigestEvent(job, entry.Pipeline.Name())
+		return
+	}
+
+	formatted := make([]string, len(tweets))
+	for i, t := range tweets {
+		if t.AuthorHandle != "" {
+			formatted[i] = fmt.Sprintf("@%s: %s", t.AuthorHandle, t.Text)
+		} else {
+			formatted[i] = t.Text
+		}
+	}
+
+	digest, err := dp.Digest(inferenceCtx, formatted)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Error("worker: digest job: run", "job_id", jobID, "action_id", task.ActionID, "error", err)
+		}
+		job.Status = model.DigestStatusError
+		job.Error = "digest generation failed: " + err.Error()
+		_ = m.store.UpdateDigestJob(ctx, job)
+		m.emitDigestEvent(job, entry.Pipeline.Name())
+		return
+	}
+
+	job.Status = model.DigestStatusDone
+	job.Result = digest
+	if err := m.store.UpdateDigestJob(ctx, job); err != nil && m.logger != nil {
+		m.logger.Error("worker: digest job: save result", "job_id", jobID, "error", err)
+	}
+	m.emitDigestEvent(job, entry.Pipeline.Name())
+}
+
+func (m *Manager) emitDigestEvent(job *model.DigestJob, pipelineName string) {
+	if m.dispatcher == nil {
+		return
+	}
+	eventType := notifier.EventDigestDone
+	if job.Status == model.DigestStatusError {
+		eventType = notifier.EventDigestFailed
+	}
+	m.dispatcher.Emit(notifier.NotificationEvent{
+		Type:      eventType,
+		DigestJob: job,
+		ModelName: pipelineName,
+		Error:     job.Error,
+		Timestamp: time.Now().UTC(),
+	})
 }
 
 func (m *Manager) evaluateChains(ctx context.Context, sourceActionID int64, triggerType string, event json.RawMessage, mergedCtx map[string]any) {
@@ -249,3 +418,57 @@ func evalCondition(op, actual, expected string) bool {
 // Flush and FlushPipeline are no-ops in the simplified model.
 func (m *Manager) Flush() int                 { return 0 }
 func (m *Manager) FlushPipeline(_ string) int { return 0 }
+
+// decodeMetaValue JSON-decodes a DB-stored metadata value so it can be used
+// cleanly in template substitution. String values lose their JSON quotes;
+// numbers become float64; arrays and objects become []interface{}/map[string]any.
+// Falls back to the raw string if the value is not valid JSON.
+func decodeMetaValue(s string) any {
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s
+	}
+	return v
+}
+
+// enrichContext derives convenience template vars from common ONNX/Ollama output
+// shapes. It never overwrites a key that is already present in ctx.
+func enrichContext(ctx map[string]any) {
+	// Zero-shot classification: {"labels": [...], "scores": [...]}
+	// → top_label (string), top_score (float64)
+	if _, ok := ctx["top_label"]; !ok {
+		if labels, ok := ctx["labels"].([]any); ok && len(labels) > 0 {
+			ctx["top_label"] = labels[0]
+			if scores, ok := ctx["scores"].([]any); ok && len(scores) > 0 {
+				ctx["top_score"] = scores[0]
+			}
+		}
+	}
+
+	// NER: {"entities": [{"word": "...", "label": "...", "score": ...}, ...]}
+	// → entity_list: "word (LABEL), ..." human-readable summary
+	if _, ok := ctx["entity_list"]; !ok {
+		if entities, ok := ctx["entities"].([]any); ok && len(entities) > 0 {
+			var parts []string
+			for _, e := range entities {
+				em, ok := e.(map[string]any)
+				if !ok {
+					continue
+				}
+				word, _ := em["word"].(string)
+				label, _ := em["label"].(string)
+				if word == "" {
+					continue
+				}
+				if label != "" {
+					parts = append(parts, word+" ("+label+")")
+				} else {
+					parts = append(parts, word)
+				}
+			}
+			if len(parts) > 0 {
+				ctx["entity_list"] = strings.Join(parts, ", ")
+			}
+		}
+	}
+}

@@ -24,13 +24,12 @@ func sampleProvider() *model.NotificationProvider {
 
 func sampleChannel(providerID int64) *model.NotificationChannel {
 	return &model.NotificationChannel{
-		Name:            "alert-channel",
-		ProviderID:      providerID,
-		MessageTemplate: "Tweet by ${author}: ${tweet}",
-		Config:          json.RawMessage(`{"priority":1,"title":"Alert"}`),
-		Active:          true,
-		CreatedAt:       time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt:       time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Name:      "alert-channel",
+		ProviderID: providerID,
+		Config:    json.RawMessage(`{"chat_id":"-1001234567890"}`),
+		Active:    true,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -188,9 +187,6 @@ func TestNotificationChannel_SaveGet(t *testing.T) {
 	if got.ProviderID != p.ID {
 		t.Errorf("ProviderID: got %d, want %d", got.ProviderID, p.ID)
 	}
-	if got.MessageTemplate != ch.MessageTemplate {
-		t.Errorf("MessageTemplate: got %q, want %q", got.MessageTemplate, ch.MessageTemplate)
-	}
 }
 
 func TestNotificationChannel_GetNotFound(t *testing.T) {
@@ -255,14 +251,13 @@ func TestNotificationChannel_Update(t *testing.T) {
 	ch := sampleChannel(p.ID)
 	_ = s.SaveNotificationChannel(ctx, ch)
 
-	ch.MessageTemplate = "updated: ${tweet}"
-	ch.Config = json.RawMessage(`{"priority":2}`)
+	ch.Config = json.RawMessage(`{"chat_id":"-9999"}`)
 	if err := s.UpdateNotificationChannel(ctx, ch); err != nil {
 		t.Fatalf("UpdateNotificationChannel: %v", err)
 	}
 	got, _ := s.GetNotificationChannel(ctx, ch.ID)
-	if got.MessageTemplate != "updated: ${tweet}" {
-		t.Errorf("MessageTemplate: got %q", got.MessageTemplate)
+	if string(got.Config) != `{"chat_id":"-9999"}` {
+		t.Errorf("Config: got %s", got.Config)
 	}
 }
 

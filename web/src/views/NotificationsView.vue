@@ -2,343 +2,304 @@
 <script setup lang="ts">
 import { h, onMounted, ref, computed } from 'vue'
 import { useNotificationsStore } from '../stores/notifications'
-import { useRulesStore } from '../stores/rules'
-import { useModelsStore } from '../stores/models'
 import { useMessage, NSpace } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import type { Notification } from '../api/notifications'
-import { VALID_EVENT_TYPES } from '../api/notifications'
-import { FlashOutline, CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline } from '@vicons/ionicons5'
+import type { NotificationProvider, NotificationChannel } from '../api/notifications'
+import { CreateOutline, CheckmarkCircleOutline, PauseCircleOutline, TrashOutline } from '@vicons/ionicons5'
 import { iconBtn, activeTag } from '../utils/renderActions'
 
-const store       = useNotificationsStore()
-const rulesStore  = useRulesStore()
-const modelsStore = useModelsStore()
-const msg         = useMessage()
+const store = useNotificationsStore()
+const msg   = useMessage()
 
-const filterText       = ref('')
-const filterEventType  = ref<string | null>(null)
-const filterProvider   = ref<string | null>(null)
-const filterActiveOnly = ref(false)
-
-const filteredNotifications = computed(() => {
-  let list = store.notifications
-  const q = filterText.value.trim().toLowerCase()
-  if (q) list = list.filter(n => n.name.toLowerCase().includes(q))
-  if (filterEventType.value) list = list.filter(n => n.event_type === filterEventType.value)
-  if (filterProvider.value) list = list.filter(n => n.provider === filterProvider.value)
-  if (filterActiveOnly.value) list = list.filter(n => n.active)
-  return list
-})
-
-const showDrawer  = ref(false)
-const editingN    = ref<Notification | null>(null)
-const saving      = ref(false)
-
-// Local form type uses `null` for optional fields (Naive UI expects `null`, not `undefined`)
-interface NotificationForm {
-  name: string
-  event_type: string
-  active: boolean
-  provider: string
-  filter_rule_id: number | null
-  filter_model_name: string | null
-  filter_model_result: unknown
-  // Pushover
-  pushover_priority: number
-  pushover_sound: string | null
-  pushover_device: string | null
-  pushover_title: string | null
-  pushover_url: string | null
-  pushover_url_title: string | null
-  pushover_ttl: number | null
-  pushover_html: boolean
-  pushover_retry: number | null
-  pushover_expire: number | null
-  // Telegram
-  telegram_chat_id: string | null
-  telegram_parse_mode: string | null
-  telegram_disable_web_page_preview: boolean
-  telegram_disable_notification: boolean
-  telegram_message_thread_id: number | null
-  message_template: string | null
-}
-
-const defaultForm = (): NotificationForm => ({
-  name: '', event_type: 'tweet_matched', active: true,
-  provider: 'pushover',
-  filter_rule_id: null, filter_model_name: null, filter_model_result: null,
-  pushover_priority: 0, pushover_html: false,
-  pushover_sound: null, pushover_device: null, pushover_title: null,
-  pushover_url: null, pushover_url_title: null, pushover_ttl: null,
-  pushover_retry: null, pushover_expire: null,
-  telegram_chat_id: null, telegram_parse_mode: null,
-  telegram_disable_web_page_preview: false, telegram_disable_notification: false,
-  telegram_message_thread_id: null,
-  message_template: null,
-})
-const form = ref<NotificationForm>(defaultForm())
+const activeTab = ref<'providers' | 'channels'>('providers')
 
 onMounted(() => {
-  store.fetchNotifications()
-  rulesStore.fetchRules()
-  modelsStore.fetchModels()
+  store.fetchProviders()
+  store.fetchChannels()
 })
 
-function openCreate() {
-  editingN.value = null
-  form.value = defaultForm()
-  showDrawer.value = true
+// ── Providers ──────────────────────────────────────────────────────────────────
+
+const showProviderDrawer = ref(false)
+const editingProvider    = ref<NotificationProvider | null>(null)
+const savingProvider     = ref(false)
+
+interface ProviderForm {
+  name: string
+  type: 'pushover' | 'telegram'
+  // pushover
+  pushover_app_token: string
+  pushover_user_key:  string
+  // telegram
+  telegram_bot_token: string
 }
 
-function openEdit(n: Notification) {
-  editingN.value = n
-  form.value = {
-    name:                  n.name,
-    event_type:            n.event_type,
-    active:                n.active,
-    provider:              n.provider || 'pushover',
-    filter_rule_id:        n.filter_rule_id        ?? null,
-    filter_model_name:     n.filter_model_name     ?? null,
-    filter_model_result:   n.filter_model_result   ?? null,
-    pushover_priority:     n.pushover_priority,
-    pushover_sound:        n.pushover_sound        ?? null,
-    pushover_device:       n.pushover_device       ?? null,
-    pushover_title:        n.pushover_title        ?? null,
-    pushover_url:          n.pushover_url          ?? null,
-    pushover_url_title:    n.pushover_url_title    ?? null,
-    pushover_ttl:          n.pushover_ttl          ?? null,
-    pushover_html:         n.pushover_html,
-    pushover_retry:        n.pushover_retry        ?? null,
-    pushover_expire:       n.pushover_expire       ?? null,
-    telegram_chat_id:      n.telegram_chat_id      ?? null,
-    telegram_parse_mode:   n.telegram_parse_mode   ?? null,
-    telegram_disable_web_page_preview: n.telegram_disable_web_page_preview,
-    telegram_disable_notification:     n.telegram_disable_notification,
-    telegram_message_thread_id: n.telegram_message_thread_id ?? null,
-    message_template:      n.message_template      ?? null,
-  }
-  showDrawer.value = true
+const defaultProviderForm = (): ProviderForm => ({
+  name: '', type: 'pushover',
+  pushover_app_token: '', pushover_user_key: '',
+  telegram_bot_token: '',
+})
+const providerForm = ref<ProviderForm>(defaultProviderForm())
+
+const isPushoverProvider = computed(() => providerForm.value.type === 'pushover')
+
+function openCreateProvider() {
+  editingProvider.value = null
+  providerForm.value    = defaultProviderForm()
+  showProviderDrawer.value = true
 }
 
-function validateForm(): string | null {
-  if (!form.value.name) return 'Name is required'
-  if (form.value.provider === 'pushover' && form.value.pushover_priority === 2) {
-    if (!form.value.pushover_retry || form.value.pushover_retry < 30) return 'Retry must be ≥ 30 for emergency priority'
-    if (!form.value.pushover_expire || form.value.pushover_expire < 1 || form.value.pushover_expire > 10800)
-      return 'Expire must be 1–10800 for emergency priority'
+function openEditProvider(p: NotificationProvider) {
+  editingProvider.value = p
+  providerForm.value    = {
+    name: p.name,
+    type: p.type,
+    pushover_app_token: p.type === 'pushover' ? (p.config.app_token ?? '') : '',
+    pushover_user_key:  p.type === 'pushover' ? (p.config.user_key  ?? '') : '',
+    telegram_bot_token: p.type === 'telegram' ? (p.config.bot_token ?? '') : '',
   }
-  if (form.value.provider === 'telegram' && !form.value.telegram_chat_id) {
-    return 'Chat ID is required for Telegram'
-  }
-  return null
+  showProviderDrawer.value = true
 }
 
-// Convert the form (null for empty) to the API shape (undefined for empty)
-function toApiPayload() {
-  const f = form.value
-  return {
-    name:                f.name,
-    event_type:          f.event_type,
-    provider:            f.provider,
-    filter_rule_id:      f.filter_rule_id      ?? undefined,
-    filter_model_name:   f.filter_model_name   ?? undefined,
-    filter_model_result: f.filter_model_result ?? undefined,
-    // Pushover
-    pushover_priority:   f.pushover_priority,
-    pushover_sound:      f.pushover_sound      ?? undefined,
-    pushover_device:     f.pushover_device     ?? undefined,
-    pushover_title:      f.pushover_title      ?? undefined,
-    pushover_url:        f.pushover_url        ?? undefined,
-    pushover_url_title:  f.pushover_url_title  ?? undefined,
-    pushover_ttl:        f.pushover_ttl        ?? undefined,
-    pushover_html:       f.pushover_html,
-    pushover_retry:      f.pushover_retry      ?? undefined,
-    pushover_expire:     f.pushover_expire     ?? undefined,
-    // Telegram
-    telegram_chat_id:    f.telegram_chat_id    ?? undefined,
-    telegram_parse_mode: f.telegram_parse_mode ?? undefined,
-    telegram_disable_web_page_preview: f.telegram_disable_web_page_preview,
-    telegram_disable_notification:     f.telegram_disable_notification,
-    telegram_message_thread_id: f.telegram_message_thread_id ?? undefined,
-    message_template:    f.message_template    ?? undefined,
-  }
+function buildProviderConfig(f: ProviderForm): Record<string, any> {
+  if (f.type === 'pushover') return { app_token: f.pushover_app_token, user_key: f.pushover_user_key }
+  return { bot_token: f.telegram_bot_token }
 }
 
-async function onSave() {
-  const err = validateForm()
-  if (err) { msg.error(err); return }
-  saving.value = true
+async function onSaveProvider() {
+  const f = providerForm.value
+  if (!f.name) { msg.error('Name is required'); return }
+  if (f.type === 'pushover' && (!f.pushover_app_token || !f.pushover_user_key)) {
+    msg.error('App token and user key are required'); return
+  }
+  if (f.type === 'telegram' && !f.telegram_bot_token) {
+    msg.error('Bot token is required'); return
+  }
+  savingProvider.value = true
   try {
-    if (editingN.value) {
-      await store.updateNotification(editingN.value.id, toApiPayload())
+    const body = { name: f.name, type: f.type, config: buildProviderConfig(f) }
+    if (editingProvider.value) {
+      await store.updateProvider(editingProvider.value.id, body)
     } else {
-      await store.createNotification(toApiPayload())
+      await store.createProvider(body)
     }
     msg.success('Saved')
-    showDrawer.value = false
+    showProviderDrawer.value = false
   } catch (e: any) { msg.error(e.message) }
-  finally { saving.value = false }
+  finally { savingProvider.value = false }
 }
 
-async function onTest(id: number) {
-  try { await store.test(id); msg.success('Test sent') }
-  catch (e: any) { msg.error(e.message) }
-}
-
-const eventTypeOptions  = VALID_EVENT_TYPES.map(t => ({ label: t, value: t }))
-const providerOptions   = [
+const providerTypeOptions = [
   { label: 'Pushover', value: 'pushover' },
   { label: 'Telegram', value: 'telegram' },
 ]
-const priorityOptions   = [
-  { label: '0 — Normal',    value: 0 },
-  { label: '1 — High',      value: 1 },
-  { label: '2 — Emergency', value: 2 },
-]
-const parseModeOptions  = [
-  { label: '(none)',       value: null },
-  { label: 'HTML',         value: 'HTML' },
-  { label: 'Markdown',     value: 'Markdown' },
-  { label: 'MarkdownV2',   value: 'MarkdownV2' },
-]
 
-const ruleOptions = computed(() => [
-  { label: '(none)', value: null },
-  ...rulesStore.rules.map(r => ({ label: r.name, value: r.id })),
-])
-
-const modelOptions = computed(() => [
-  { label: '(none)', value: null },
-  ...modelsStore.models.map(m => ({ label: m.name, value: m.name })),
-])
-
-const isPushover         = computed(() => form.value.provider === 'pushover')
-const isTelegram         = computed(() => form.value.provider === 'telegram')
-const showEmergencyFields = computed(() => isPushover.value && form.value.pushover_priority === 2)
-
-const columns: DataTableColumns<Notification> = [
-  { title: 'ID',         key: 'id',         width: 60,  sorter: 'default' },
-  { title: 'Name',       key: 'name',                   sorter: 'default' },
-  { title: 'Event Type', key: 'event_type',             sorter: 'default' },
-  { title: 'Provider',   key: 'provider',   width: 100, sorter: 'default' },
-  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: (row) => activeTag(row.active) },
+const providerColumns: DataTableColumns<NotificationProvider> = [
+  { title: 'ID',   key: 'id',   width: 60,  sorter: 'default' },
+  { title: 'Name', key: 'name',             sorter: 'default' },
+  { title: 'Type', key: 'type', width: 110, sorter: 'default' },
+  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: row => activeTag(row.active) },
   {
     title: 'Actions', key: 'actions',
-    render: (row) => h(NSpace, { size: 4 }, {
-      default: () => [
-        iconBtn(FlashOutline,  'Send test', () => onTest(row.id)),
-        iconBtn(CreateOutline, 'Edit',      () => openEdit(row)),
-        row.active
-          ? iconBtn(PauseCircleOutline,     'Deactivate', () => store.deactivate(row.id).catch((e: any) => msg.error(e.message)))
-          : iconBtn(CheckmarkCircleOutline, 'Activate',   () => store.activate(row.id).catch((e: any) => msg.error(e.message)), { type: 'primary' }),
-        iconBtn(TrashOutline, 'Delete', () => store.remove(row.id).catch((e: any) => msg.error(e.message)), { type: 'error' }),
-      ]
-    })
+    render: row => h(NSpace, { size: 4 }, { default: () => [
+      iconBtn(CreateOutline, 'Edit', () => openEditProvider(row)),
+      row.active
+        ? iconBtn(PauseCircleOutline, 'Deactivate', () => store.deactivateProvider(row.id).catch((e: any) => msg.error(e.message)))
+        : iconBtn(CheckmarkCircleOutline, 'Activate', () => store.activateProvider(row.id).catch((e: any) => msg.error(e.message)), { type: 'primary' }),
+      iconBtn(TrashOutline, 'Delete', () => store.removeProvider(row.id).catch((e: any) => msg.error(e.message)), { type: 'error' }),
+    ]})
+  },
+]
+
+// ── Channels ──────────────────────────────────────────────────────────────────
+
+const showChannelDrawer = ref(false)
+const editingChannel    = ref<NotificationChannel | null>(null)
+const savingChannel     = ref(false)
+
+interface ChannelForm {
+  name:        string
+  provider_id: number | null
+  // Telegram routing
+  tg_chat_id:  string
+  // Pushover routing (optional: target a specific device)
+  push_device: string | null
+}
+
+const defaultChannelForm = (): ChannelForm => ({
+  name: '', provider_id: null,
+  tg_chat_id: '', push_device: null,
+})
+const channelForm = ref<ChannelForm>(defaultChannelForm())
+
+const selectedChannelProvider = computed(() =>
+  store.providers.find(p => p.id === channelForm.value.provider_id) ?? null
+)
+const isPushoverChannel = computed(() => selectedChannelProvider.value?.type === 'pushover')
+const isTelegramChannel = computed(() => selectedChannelProvider.value?.type === 'telegram')
+
+function openCreateChannel() {
+  editingChannel.value  = null
+  channelForm.value     = defaultChannelForm()
+  showChannelDrawer.value = true
+}
+
+function openEditChannel(c: NotificationChannel) {
+  editingChannel.value = c
+  const cfg = c.config ?? {}
+  channelForm.value = {
+    name:        c.name,
+    provider_id: c.provider_id,
+    tg_chat_id:  cfg.chat_id ?? '',
+    push_device: cfg.device  ?? null,
+  }
+  showChannelDrawer.value = true
+}
+
+function buildChannelConfig(f: ChannelForm): Record<string, any> {
+  const provider = store.providers.find(p => p.id === f.provider_id)
+  if (!provider) return {}
+  if (provider.type === 'telegram') return { chat_id: f.tg_chat_id }
+  // pushover: device is optional routing
+  const cfg: Record<string, any> = {}
+  if (f.push_device) cfg.device = f.push_device
+  return cfg
+}
+
+async function onSaveChannel() {
+  const f = channelForm.value
+  if (!f.name)        { msg.error('Name is required');     return }
+  if (!f.provider_id) { msg.error('Provider is required'); return }
+  if (isTelegramChannel.value && !f.tg_chat_id) {
+    msg.error('Chat ID is required'); return
+  }
+  savingChannel.value = true
+  try {
+    const body = { name: f.name, provider_id: f.provider_id!, config: buildChannelConfig(f) }
+    if (editingChannel.value) {
+      await store.updateChannel(editingChannel.value.id, body)
+    } else {
+      await store.createChannel(body)
+    }
+    msg.success('Saved')
+    showChannelDrawer.value = false
+  } catch (e: any) { msg.error(e.message) }
+  finally { savingChannel.value = false }
+}
+
+const providerSelectOptions = computed(() =>
+  store.providers.map(p => ({ label: `${p.name} (${p.type})`, value: p.id }))
+)
+const providerNameById = computed(() => {
+  const m: Record<number, string> = {}
+  store.providers.forEach(p => { m[p.id] = p.name })
+  return m
+})
+
+const channelColumns: DataTableColumns<NotificationChannel> = [
+  { title: 'ID',       key: 'id',          width: 60,  sorter: 'default' },
+  { title: 'Name',     key: 'name',                    sorter: 'default' },
+  { title: 'Provider', key: 'provider_id', width: 160, render: row => providerNameById.value[row.provider_id] ?? String(row.provider_id) },
+  { title: 'Active',   key: 'active',      width: 80,  sorter: (a, b) => Number(a.active) - Number(b.active), render: row => activeTag(row.active) },
+  {
+    title: 'Actions', key: 'actions',
+    render: row => h(NSpace, { size: 4 }, { default: () => [
+      iconBtn(CreateOutline, 'Edit', () => openEditChannel(row)),
+      row.active
+        ? iconBtn(PauseCircleOutline, 'Deactivate', () => store.deactivateChannel(row.id).catch((e: any) => msg.error(e.message)))
+        : iconBtn(CheckmarkCircleOutline, 'Activate', () => store.activateChannel(row.id).catch((e: any) => msg.error(e.message)), { type: 'primary' }),
+      iconBtn(TrashOutline, 'Delete', () => store.removeChannel(row.id).catch((e: any) => msg.error(e.message)), { type: 'error' }),
+    ]})
   },
 ]
 </script>
 
 <template>
   <n-space vertical size="large">
-    <PageHeader title="Notifications" add-label="New Notification" @add="openCreate" />
+    <n-tabs v-model:value="activeTab" type="line" animated>
 
-    <n-flex align="center" :size="8" wrap>
-      <n-input v-model:value="filterText" placeholder="Search by name…" clearable style="width: 220px" />
-      <n-select v-model:value="filterEventType" :options="[{ label: 'All events', value: null }, ...eventTypeOptions]" clearable placeholder="All events" style="width: 200px" />
-      <n-select v-model:value="filterProvider" :options="[{ label: 'All providers', value: null }, ...providerOptions]" clearable placeholder="All providers" style="width: 160px" />
-      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
-    </n-flex>
+      <!-- ── Providers ──────────────────────────────────────────────────── -->
+      <n-tab-pane name="providers" tab="Providers">
+        <n-space vertical size="large">
+          <PageHeader title="Notification Providers" add-label="New Provider" @add="openCreateProvider" />
+          <n-data-table :columns="providerColumns" :data="store.providers" :loading="store.loading" :scroll-x="560" />
+        </n-space>
 
-    <n-data-table :columns="columns" :data="filteredNotifications" :loading="store.loading" :scroll-x="660" />
-
-    <FormDrawer
-      v-model:show="showDrawer"
-      :title="editingN ? 'Edit Notification' : 'New Notification'"
-      width="min(560px, calc(100vw - 16px))"
-      :loading="saving"
-      @save="onSave"
-    >
+        <FormDrawer
+          v-model:show="showProviderDrawer"
+          :title="editingProvider ? 'Edit Provider' : 'New Provider'"
+          width="min(480px, calc(100vw - 16px))"
+          :loading="savingProvider"
+          @save="onSaveProvider"
+        >
           <n-form-item label="Name">
-            <n-input v-model:value="form.name" />
+            <n-input v-model:value="providerForm.name" />
           </n-form-item>
-          <n-form-item label="Event Type">
-            <n-select v-model:value="form.event_type" :options="eventTypeOptions" />
+          <n-form-item label="Type">
+            <n-select v-model:value="providerForm.type" :options="providerTypeOptions" :disabled="!!editingProvider" />
+          </n-form-item>
+
+          <template v-if="isPushoverProvider">
+            <n-divider>Pushover credentials</n-divider>
+            <n-form-item label="App Token">
+              <n-input v-model:value="providerForm.pushover_app_token" />
+            </n-form-item>
+            <n-form-item label="User Key">
+              <n-input v-model:value="providerForm.pushover_user_key" />
+            </n-form-item>
+          </template>
+
+          <template v-else>
+            <n-divider>Telegram credentials</n-divider>
+            <n-form-item label="Bot Token">
+              <n-input v-model:value="providerForm.telegram_bot_token" />
+            </n-form-item>
+          </template>
+        </FormDrawer>
+      </n-tab-pane>
+
+      <!-- ── Channels ───────────────────────────────────────────────────── -->
+      <n-tab-pane name="channels" tab="Channels">
+        <n-space vertical size="large">
+          <PageHeader title="Notification Channels" add-label="New Channel" @add="openCreateChannel" />
+          <n-data-table :columns="channelColumns" :data="store.channels" :loading="store.loading" :scroll-x="580" />
+        </n-space>
+
+        <FormDrawer
+          v-model:show="showChannelDrawer"
+          :title="editingChannel ? 'Edit Channel' : 'New Channel'"
+          width="min(560px, calc(100vw - 16px))"
+          :loading="savingChannel"
+          @save="onSaveChannel"
+        >
+          <n-form-item label="Name">
+            <n-input v-model:value="channelForm.name" />
           </n-form-item>
           <n-form-item label="Provider">
-            <n-select v-model:value="form.provider" :options="providerOptions" />
+            <n-select
+              v-model:value="channelForm.provider_id"
+              :options="providerSelectOptions"
+              :disabled="!!editingChannel"
+              placeholder="Select a provider…"
+            />
           </n-form-item>
-          <n-form-item label="Filter Rule (optional)">
-            <n-select v-model:value="form.filter_rule_id" :options="ruleOptions" clearable />
+
+          <!-- Telegram: required routing field -->
+          <n-form-item v-if="isTelegramChannel" label="Chat ID">
+            <n-input v-model:value="channelForm.tg_chat_id" placeholder="-1001234567890" />
           </n-form-item>
-          <n-form-item label="Filter Model (optional)">
-            <n-select v-model:value="form.filter_model_name" :options="modelOptions" clearable />
+
+          <!-- Pushover: optional device routing -->
+          <n-form-item v-if="isPushoverChannel" label="Device (optional)">
+            <n-input v-model:value="channelForm.push_device" clearable placeholder="Leave blank to send to all devices" />
           </n-form-item>
 
-          <!-- Pushover fields -->
-          <template v-if="isPushover">
-            <n-divider>Pushover</n-divider>
+          <n-text v-if="selectedChannelProvider" depth="3" style="font-size:12px; display:block">
+            Message template and delivery options are configured on the notification pipeline.
+          </n-text>
+        </FormDrawer>
+      </n-tab-pane>
 
-            <n-form-item label="Priority">
-              <n-select v-model:value="form.pushover_priority" :options="priorityOptions" />
-            </n-form-item>
-            <n-form-item label="Sound (optional)">
-              <n-input v-model:value="form.pushover_sound" clearable />
-            </n-form-item>
-            <n-form-item label="Device (optional)">
-              <n-input v-model:value="form.pushover_device" clearable />
-            </n-form-item>
-            <n-form-item label="Title (optional)">
-              <n-input v-model:value="form.pushover_title" clearable />
-            </n-form-item>
-            <n-form-item label="URL (optional)">
-              <n-input v-model:value="form.pushover_url" clearable />
-            </n-form-item>
-            <n-form-item label="URL Title (optional)">
-              <n-input v-model:value="form.pushover_url_title" clearable />
-            </n-form-item>
-            <n-form-item label="TTL (optional)">
-              <n-input-number v-model:value="form.pushover_ttl" clearable />
-            </n-form-item>
-            <n-form-item label="HTML">
-              <n-switch v-model:value="form.pushover_html" />
-            </n-form-item>
-
-            <!-- Emergency-only fields -->
-            <template v-if="showEmergencyFields">
-              <n-form-item label="Retry (≥ 30s, required for emergency)">
-                <n-input-number v-model:value="form.pushover_retry" :min="30" />
-              </n-form-item>
-              <n-form-item label="Expire (1–10800s, required for emergency)">
-                <n-input-number v-model:value="form.pushover_expire" :min="1" :max="10800" />
-              </n-form-item>
-            </template>
-          </template>
-
-          <!-- Telegram fields -->
-          <template v-if="isTelegram">
-            <n-divider>Telegram</n-divider>
-
-            <n-form-item label="Chat ID">
-              <n-input v-model:value="form.telegram_chat_id" placeholder="e.g. -1001234567890" />
-            </n-form-item>
-            <n-form-item label="Parse Mode (optional)">
-              <n-select v-model:value="form.telegram_parse_mode" :options="parseModeOptions" />
-            </n-form-item>
-            <n-form-item label="Message Thread ID (optional)">
-              <n-input-number v-model:value="form.telegram_message_thread_id" clearable />
-            </n-form-item>
-            <n-form-item label="Disable Web Page Preview">
-              <n-switch v-model:value="form.telegram_disable_web_page_preview" />
-            </n-form-item>
-            <n-form-item label="Silent (disable notification sound)">
-              <n-switch v-model:value="form.telegram_disable_notification" />
-            </n-form-item>
-          </template>
-
-          <n-form-item label="Message Template (optional)">
-            <n-input v-model:value="form.message_template" type="textarea" :rows="3" clearable />
-          </n-form-item>
-    </FormDrawer>
+    </n-tabs>
   </n-space>
 </template>

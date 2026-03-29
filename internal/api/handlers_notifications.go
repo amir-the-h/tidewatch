@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -10,254 +9,289 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
-	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
-func (s *Server) handleListNotifications(w http.ResponseWriter, r *http.Request) {
-	filter := store.NotificationFilter{}
+// ── NotificationProviders ─────────────────────────────────────────────────────
 
-	if et := r.URL.Query().Get("event_type"); et != "" {
-		filter.EventType = &et
-	}
-	if activeStr := r.URL.Query().Get("active"); activeStr != "" {
-		active := activeStr == "true"
-		filter.Active = &active
-	}
-	if ruleIDStr := r.URL.Query().Get("rule_id"); ruleIDStr != "" {
-		ruleID, err := strconv.ParseInt(ruleIDStr, 10, 64)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid rule_id")
-			return
-		}
-		filter.RuleID = &ruleID
-	}
-
-	notifications, err := s.store.ListNotifications(r.Context(), filter)
+func (s *Server) handleListNotificationProviders(w http.ResponseWriter, r *http.Request) {
+	providers, err := s.store.ListNotificationProviders(r.Context())
 	if err != nil {
-		s.logger.Error("api: list notifications", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list notifications")
+		s.logger.Error("api: list notification providers", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list notification providers")
 		return
 	}
-	writeJSON(w, http.StatusOK, notifications)
+	writeJSON(w, http.StatusOK, providers)
 }
 
-func (s *Server) handleCreateNotification(w http.ResponseWriter, r *http.Request) {
-	var n model.Notification
-	if err := json.NewDecoder(r.Body).Decode(&n); err != nil {
+func (s *Server) handleCreateNotificationProvider(w http.ResponseWriter, r *http.Request) {
+	var p model.NotificationProvider
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	if n.Name == "" {
+	if p.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if n.EventType == "" {
-		writeError(w, http.StatusBadRequest, "event_type is required")
+	if p.Type != "pushover" && p.Type != "telegram" {
+		writeError(w, http.StatusBadRequest, "type must be \"pushover\" or \"telegram\"")
 		return
 	}
-	if !notifier.ValidEventTypes[n.EventType] {
-		writeError(w, http.StatusBadRequest, "invalid event_type")
+	if len(p.Config) == 0 {
+		writeError(w, http.StatusBadRequest, "config is required")
 		return
-	}
-	if err := validateNotificationProvider(&n); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if n.MessageTemplate != nil {
-		if err := notifier.ValidateTemplate(*n.MessageTemplate); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 	}
 
-	if n.Provider == "" {
-		n.Provider = "pushover"
-	}
-	n.Active = true
+	p.Active = true
 	now := time.Now()
-	n.CreatedAt = now
-	n.UpdatedAt = now
+	p.CreatedAt = now
+	p.UpdatedAt = now
 
-	if err := s.store.SaveNotification(r.Context(), &n); err != nil {
-		s.logger.Error("api: save notification", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to save notification")
+	if err := s.store.SaveNotificationProvider(r.Context(), &p); err != nil {
+		s.logger.Error("api: save notification provider", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save notification provider")
 		return
 	}
-
-	writeJSON(w, http.StatusCreated, &n)
+	writeJSON(w, http.StatusCreated, &p)
 }
 
-func (s *Server) handleGetNotification(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseNotificationID(w, r)
+func (s *Server) handleGetNotificationProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationProviderID(w, r)
 	if !ok {
 		return
 	}
-
-	n, err := s.store.GetNotification(r.Context(), id)
+	p, err := s.store.GetNotificationProvider(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "notification not found")
+		writeError(w, http.StatusNotFound, "notification provider not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, n)
+	writeJSON(w, http.StatusOK, p)
 }
 
-func (s *Server) handleUpdateNotification(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseNotificationID(w, r)
+func (s *Server) handleUpdateNotificationProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationProviderID(w, r)
 	if !ok {
 		return
 	}
-
-	n, err := s.store.GetNotification(r.Context(), id)
+	p, err := s.store.GetNotificationProvider(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "notification not found")
+		writeError(w, http.StatusNotFound, "notification provider not found")
 		return
 	}
-
-	if err := json.NewDecoder(r.Body).Decode(n); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-
-	if n.Name == "" {
+	if p.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if n.EventType == "" {
-		writeError(w, http.StatusBadRequest, "event_type is required")
+	if p.Type != "pushover" && p.Type != "telegram" {
+		writeError(w, http.StatusBadRequest, "type must be \"pushover\" or \"telegram\"")
 		return
 	}
-	if !notifier.ValidEventTypes[n.EventType] {
-		writeError(w, http.StatusBadRequest, "invalid event_type")
+	p.UpdatedAt = time.Now()
+	if err := s.store.UpdateNotificationProvider(r.Context(), p); err != nil {
+		s.logger.Error("api: update notification provider", "provider_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update notification provider")
 		return
 	}
-	if err := validateNotificationProvider(n); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if n.MessageTemplate != nil {
-		if err := notifier.ValidateTemplate(*n.MessageTemplate); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	n.UpdatedAt = time.Now()
-
-	if err := s.store.UpdateNotification(r.Context(), n); err != nil {
-		s.logger.Error("api: update notification", "notification_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to update notification")
-		return
-	}
-	writeJSON(w, http.StatusOK, n)
+	s.reloadCache(r.Context())
+	writeJSON(w, http.StatusOK, p)
 }
 
-func (s *Server) handleDeleteNotification(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseNotificationID(w, r)
+func (s *Server) handleDeleteNotificationProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationProviderID(w, r)
 	if !ok {
 		return
 	}
-
-	if err := s.store.DeleteNotification(r.Context(), id); err != nil {
-		s.logger.Error("api: delete notification", "notification_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete notification")
+	if err := s.store.DeleteNotificationProvider(r.Context(), id); err != nil {
+		s.logger.Error("api: delete notification provider", "provider_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete notification provider")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleActivateNotification(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseNotificationID(w, r)
+func (s *Server) handleActivateNotificationProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationProviderID(w, r)
 	if !ok {
 		return
 	}
-
-	if err := s.store.SetNotificationActive(r.Context(), id, true); err != nil {
-		s.logger.Error("api: activate notification", "notification_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to activate notification")
+	if err := s.store.SetNotificationProviderActive(r.Context(), id, true); err != nil {
+		s.logger.Error("api: activate notification provider", "provider_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to activate notification provider")
 		return
 	}
+	s.reloadCache(r.Context())
 	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
 }
 
-func (s *Server) handleDeactivateNotification(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseNotificationID(w, r)
+func (s *Server) handleDeactivateNotificationProvider(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationProviderID(w, r)
 	if !ok {
 		return
 	}
-
-	if err := s.store.SetNotificationActive(r.Context(), id, false); err != nil {
-		s.logger.Error("api: deactivate notification", "notification_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to deactivate notification")
+	if err := s.store.SetNotificationProviderActive(r.Context(), id, false); err != nil {
+		s.logger.Error("api: deactivate notification provider", "provider_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to deactivate notification provider")
 		return
 	}
+	s.reloadCache(r.Context())
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
 
-func (s *Server) handleTestNotification(w http.ResponseWriter, r *http.Request) {
-	if s.dispatcher == nil {
-		writeError(w, http.StatusNotImplemented, "notifier not configured")
+// ── NotificationChannels ──────────────────────────────────────────────────────
+
+func (s *Server) handleListNotificationChannels(w http.ResponseWriter, r *http.Request) {
+	var providerID *int64
+	if v := r.URL.Query().Get("provider_id"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid provider_id")
+			return
+		}
+		providerID = &id
+	}
+	channels, err := s.store.ListNotificationChannels(r.Context(), providerID)
+	if err != nil {
+		s.logger.Error("api: list notification channels", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list notification channels")
 		return
 	}
+	writeJSON(w, http.StatusOK, channels)
+}
 
-	var req struct {
-		NotificationID int64 `json:"notification_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	var c model.NotificationChannel
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.NotificationID <= 0 {
-		writeError(w, http.StatusBadRequest, "notification_id is required")
+	if c.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if c.ProviderID == 0 {
+		writeError(w, http.StatusBadRequest, "provider_id is required")
+		return
+	}
+	// Verify provider exists.
+	if _, err := s.store.GetNotificationProvider(r.Context(), c.ProviderID); err != nil {
+		writeError(w, http.StatusBadRequest, "notification provider not found")
 		return
 	}
 
-	if err := s.dispatcher.SendTestNotification(r.Context(), req.NotificationID); err != nil {
-		s.logger.Error("api: test notification", "notification_id", req.NotificationID, "error", err)
-		writeError(w, http.StatusInternalServerError, err.Error())
+	c.Active = true
+	now := time.Now()
+	c.CreatedAt = now
+	c.UpdatedAt = now
+
+	if err := s.store.SaveNotificationChannel(r.Context(), &c); err != nil {
+		s.logger.Error("api: save notification channel", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save notification channel")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+	writeJSON(w, http.StatusCreated, &c)
 }
 
-// validateNotificationProvider checks provider-specific required fields.
-func validateNotificationProvider(n *model.Notification) error {
-	switch n.Provider {
-	case "telegram":
-		if n.TelegramChatID == nil || *n.TelegramChatID == "" {
-			return fmt.Errorf("telegram_chat_id is required for telegram provider")
-		}
-	case "", "pushover":
-		if n.PushoverPriority == 2 {
-			retry := 0
-			if n.PushoverRetry != nil {
-				retry = *n.PushoverRetry
-			}
-			expire := 0
-			if n.PushoverExpire != nil {
-				expire = *n.PushoverExpire
-			}
-			if retry < 30 {
-				return fmt.Errorf("pushover_retry must be >= 30 for emergency priority")
-			}
-			if expire <= 0 || expire > 10800 {
-				return fmt.Errorf("pushover_expire must be between 1 and 10800 for emergency priority")
-			}
-		}
-	default:
-		return fmt.Errorf("invalid provider %q: must be \"pushover\" or \"telegram\"", n.Provider)
+func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationChannelID(w, r)
+	if !ok {
+		return
 	}
-	return nil
-}
-
-// parseNotificationID extracts and parses the {id} path parameter.
-// Returns false and writes an error response if parsing fails.
-func parseNotificationID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	c, err := s.store.GetNotificationChannel(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid notification ID")
+		writeError(w, http.StatusNotFound, "notification channel not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationChannelID(w, r)
+	if !ok {
+		return
+	}
+	c, err := s.store.GetNotificationChannel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "notification channel not found")
+		return
+	}
+	if err := json.NewDecoder(r.Body).Decode(c); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if c.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	c.UpdatedAt = time.Now()
+	if err := s.store.UpdateNotificationChannel(r.Context(), c); err != nil {
+		s.logger.Error("api: update notification channel", "channel_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to update notification channel")
+		return
+	}
+	s.reloadCache(r.Context())
+	writeJSON(w, http.StatusOK, c)
+}
+
+func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationChannelID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteNotificationChannel(r.Context(), id); err != nil {
+		s.logger.Error("api: delete notification channel", "channel_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete notification channel")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleActivateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationChannelID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.SetNotificationChannelActive(r.Context(), id, true); err != nil {
+		s.logger.Error("api: activate notification channel", "channel_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to activate notification channel")
+		return
+	}
+	s.reloadCache(r.Context())
+	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
+}
+
+func (s *Server) handleDeactivateNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseNotificationChannelID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.SetNotificationChannelActive(r.Context(), id, false); err != nil {
+		s.logger.Error("api: deactivate notification channel", "channel_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to deactivate notification channel")
+		return
+	}
+	s.reloadCache(r.Context())
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func parseNotificationProviderID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid notification provider ID")
+		return 0, false
+	}
+	return id, true
+}
+
+func parseNotificationChannelID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid notification channel ID")
 		return 0, false
 	}
 	return id, true

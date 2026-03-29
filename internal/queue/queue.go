@@ -29,6 +29,11 @@ type TweetEvent struct {
 	RuleIDs      []int64 `json:"rule_ids"`
 }
 
+// DigestEvent is the Event payload for trigger_type=digest_requested.
+type DigestEvent struct {
+	DigestJobID string `json:"digest_job_id"`
+}
+
 // FailedTweet wraps a Task with error annotations for dead-letter storage.
 type FailedTweet struct {
 	Task         *Task         `json:"task"`

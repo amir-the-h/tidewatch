@@ -55,7 +55,7 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.sizer != nil {
-		pending, _ := s.sizer.Len(r.Context(), queue.QueueRaw)
+		pending, _ := s.sizer.Len(r.Context(), queue.QueueTasks)
 		failed, _ := s.sizer.Len(r.Context(), queue.QueueFailed)
 		resp["queue"] = map[string]any{
 			"pending": pending,

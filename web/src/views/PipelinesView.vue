@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, h } from 'vue'
 import {
-  NFlex, NTag, NSelect, NInput, NSwitch, NFormItem,
+  NFlex, NTag, NSelect, NInput, NSwitch, NFormItem, NInputNumber, NDivider,
   NText, NSpace, NDataTable,
   useMessage,
-  type DataTableColumns,
+  type DataTableColumns, type SelectOption,
 } from 'naive-ui'
 import {
   TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline, ServerOutline,
@@ -18,6 +18,7 @@ import {
   listPipelineHandlers, listModels,
   type Pipeline, type PipelineType, type ModelFile,
 } from '../api/pipelines'
+import { listChannels, listProviders, type NotificationChannel, type NotificationProvider } from '../api/notifications'
 
 const msg = useMessage()
 
@@ -57,16 +58,63 @@ const handlerOptions = computed(() => handlers.value.map(h => ({ label: h, value
 const models = ref<ModelFile[]>([])
 const modelOptions = computed(() => models.value.map(m => ({ label: m.name, value: m.path })))
 
+// Channels + providers (for notification type)
+const channels = ref<NotificationChannel[]>([])
+const providers = ref<NotificationProvider[]>([])
+const channelOptions = computed(() => channels.value.map(c => ({ label: c.name, value: c.id })))
+const formChannelId = ref<number | null>(null)
+const formMessageTemplate = ref('')
+
+// Notification delivery options — Pushover
+const formPushPriority = ref(0)
+const formPushTitle = ref<string | null>(null)
+const formPushSound = ref<string | null>(null)
+const formPushUrl = ref<string | null>(null)
+const formPushUrlTitle = ref<string | null>(null)
+const formPushTtl = ref<number | null>(null)
+const formPushHtml = ref(false)
+const formPushRetry = ref<number | null>(null)
+const formPushExpire = ref<number | null>(null)
+
+// Notification delivery options — Telegram
+const formTgParseMode = ref<string | null>(null)
+const formTgDisablePreview = ref(false)
+const formTgDisableNotification = ref(false)
+const formTgThreadId = ref<number | null>(null)
+
+const selectedNotifChannel = computed(() =>
+  channels.value.find(c => c.id === formChannelId.value) ?? null
+)
+const selectedNotifProvider = computed(() =>
+  providers.value.find(p => p.id === selectedNotifChannel.value?.provider_id) ?? null
+)
+const notifProviderType = computed(() => selectedNotifProvider.value?.type ?? null)
+const showPushEmergency = computed(() => notifProviderType.value === 'pushover' && formPushPriority.value === 2)
+
+const pushPriorityOptions = [
+  { label: '0 — Normal',    value: 0 },
+  { label: '1 — High',      value: 1 },
+  { label: '2 — Emergency', value: 2 },
+]
+const tgParseModeOptions: SelectOption[] = [
+  { label: '(none)',     value: '' },
+  { label: 'HTML',       value: 'HTML' },
+  { label: 'Markdown',   value: 'Markdown' },
+  { label: 'MarkdownV2', value: 'MarkdownV2' },
+]
+
 const typeOptions: { label: string; value: PipelineType }[] = [
   { label: 'ONNX', value: 'onnx' },
   { label: 'Ollama', value: 'ollama' },
   { label: 'Internal', value: 'internal' },
+  { label: 'Notification', value: 'notification' },
 ]
 
 const typeTagType: Record<PipelineType, 'default' | 'info' | 'success' | 'warning'> = {
   onnx: 'info',
   ollama: 'success',
   internal: 'warning',
+  notification: 'default',
 }
 
 async function fetchPipelines() {
@@ -84,6 +132,8 @@ onMounted(async () => {
   fetchPipelines()
   try { handlers.value = await listPipelineHandlers() } catch {}
   try { models.value = await listModels() } catch {}
+  try { channels.value = await listChannels() } catch {}
+  try { providers.value = await listProviders() } catch {}
 })
 
 function openCreate() {
@@ -96,6 +146,13 @@ function openCreate() {
   formConfigText.value = '{}'
   formHandler.value = null
   formPath.value = ''
+  formChannelId.value = null
+  formMessageTemplate.value = '${tweet}'
+  formPushPriority.value = 0; formPushTitle.value = null; formPushSound.value = null
+  formPushUrl.value = null; formPushUrlTitle.value = null; formPushTtl.value = null
+  formPushHtml.value = false; formPushRetry.value = null; formPushExpire.value = null
+  formTgParseMode.value = null; formTgDisablePreview.value = false
+  formTgDisableNotification.value = false; formTgThreadId.value = null
   showForm.value = true
 }
 
@@ -112,6 +169,22 @@ function openEdit(row: Pipeline) {
   formHandler.value = row.config?.handler ?? null
   // ONNX-specific
   formPath.value = row.config?.path ?? ''
+  // Notification-specific
+  formChannelId.value = row.config?.channel_id ?? null
+  formMessageTemplate.value = row.config?.message_template ?? '${tweet}'
+  formPushPriority.value = row.config?.priority ?? 0
+  formPushTitle.value = row.config?.title ?? null
+  formPushSound.value = row.config?.sound ?? null
+  formPushUrl.value = row.config?.url ?? null
+  formPushUrlTitle.value = row.config?.url_title ?? null
+  formPushTtl.value = row.config?.ttl ?? null
+  formPushHtml.value = row.config?.html ?? false
+  formPushRetry.value = row.config?.retry ?? null
+  formPushExpire.value = row.config?.expire ?? null
+  formTgParseMode.value = row.config?.parse_mode ?? null
+  formTgDisablePreview.value = row.config?.disable_web_page_preview ?? false
+  formTgDisableNotification.value = row.config?.disable_notification ?? false
+  formTgThreadId.value = row.config?.message_thread_id ?? null
   showForm.value = true
 }
 
@@ -138,6 +211,42 @@ async function onSave() {
         msg.error(`A ${formUsecase.value} pipeline already exists ("${conflict.name}"). Delete it first.`)
         return
       }
+    }
+  } else if (formType.value === 'notification') {
+    if (formChannelId.value == null) {
+      msg.error('Channel is required')
+      return
+    }
+    if (!formMessageTemplate.value.trim()) {
+      msg.error('Message template is required')
+      return
+    }
+    config.channel_id = formChannelId.value
+    config.message_template = formMessageTemplate.value.trim()
+    if (notifProviderType.value === 'pushover') {
+      config.priority = formPushPriority.value
+      config.html = formPushHtml.value
+      if (formPushTitle.value)    config.title     = formPushTitle.value
+      if (formPushSound.value)    config.sound     = formPushSound.value
+      if (formPushUrl.value)      config.url       = formPushUrl.value
+      if (formPushUrlTitle.value) config.url_title = formPushUrlTitle.value
+      if (formPushTtl.value)      config.ttl       = formPushTtl.value
+      if (formPushPriority.value === 2) {
+        if (!formPushRetry.value || formPushRetry.value < 30) {
+          msg.error('Retry must be ≥ 30 for emergency priority'); return
+        }
+        if (!formPushExpire.value || formPushExpire.value < 1) {
+          msg.error('Expire is required for emergency priority'); return
+        }
+        config.retry  = formPushRetry.value
+        config.expire = formPushExpire.value
+      }
+    } else if (notifProviderType.value === 'telegram') {
+      if (formTgParseMode.value && formTgParseMode.value !== '')
+        config.parse_mode = formTgParseMode.value
+      if (formTgDisablePreview.value)    config.disable_web_page_preview  = true
+      if (formTgDisableNotification.value) config.disable_notification    = true
+      if (formTgThreadId.value)          config.message_thread_id         = formTgThreadId.value
     }
   } else {
     try {
@@ -327,7 +436,83 @@ const columns: DataTableColumns<Pipeline> = [
         </n-form-item>
       </template>
 
-      <!-- Config JSON for non-Ollama types -->
+      <!-- Notification pipeline fields -->
+      <template v-else-if="formType === 'notification'">
+        <n-form-item label="Channel">
+          <n-select
+            v-model:value="formChannelId"
+            :options="channelOptions"
+            placeholder="Select a notification channel"
+            filterable
+            clearable
+          />
+        </n-form-item>
+        <n-form-item label="Message Template">
+          <n-input
+            v-model:value="formMessageTemplate"
+            type="textarea"
+            :rows="3"
+            placeholder="e.g. ${tweet} — by @${author}"
+            style="font-family: monospace; font-size: 12px"
+          />
+        </n-form-item>
+        <n-text depth="3" style="font-size:12px; margin-top:-8px; display:block">
+          Available vars: ${tweet}, ${author}, ${tweet_id}, ${tweet_url}, plus any action execution key.
+        </n-text>
+
+        <!-- Pushover delivery options -->
+        <template v-if="notifProviderType === 'pushover'">
+          <n-divider>Pushover delivery options</n-divider>
+          <n-form-item label="Priority">
+            <n-select v-model:value="formPushPriority" :options="pushPriorityOptions" />
+          </n-form-item>
+          <n-form-item label="Title (optional)">
+            <n-input v-model:value="formPushTitle" clearable />
+          </n-form-item>
+          <n-form-item label="Sound (optional)">
+            <n-input v-model:value="formPushSound" clearable />
+          </n-form-item>
+          <n-form-item label="URL (optional)">
+            <n-input v-model:value="formPushUrl" clearable />
+          </n-form-item>
+          <n-form-item label="URL Title (optional)">
+            <n-input v-model:value="formPushUrlTitle" clearable />
+          </n-form-item>
+          <n-form-item label="TTL seconds (optional)">
+            <n-input-number v-model:value="formPushTtl" clearable />
+          </n-form-item>
+          <n-form-item label="HTML">
+            <n-switch v-model:value="formPushHtml" />
+          </n-form-item>
+          <template v-if="showPushEmergency">
+            <n-form-item label="Retry (≥ 30s)">
+              <n-input-number v-model:value="formPushRetry" :min="30" />
+            </n-form-item>
+            <n-form-item label="Expire (1–10800s)">
+              <n-input-number v-model:value="formPushExpire" :min="1" :max="10800" />
+            </n-form-item>
+          </template>
+        </template>
+
+        <!-- Telegram delivery options -->
+        <template v-if="notifProviderType === 'telegram'">
+          <n-divider>Telegram delivery options</n-divider>
+          <n-form-item label="Parse Mode (optional)">
+            <n-select v-model:value="formTgParseMode" :options="tgParseModeOptions" />
+          </n-form-item>
+          <n-form-item label="Message Thread ID (optional)">
+            <n-input-number v-model:value="formTgThreadId" clearable />
+          </n-form-item>
+          <n-form-item label="Disable Web Page Preview">
+            <n-switch v-model:value="formTgDisablePreview" />
+          </n-form-item>
+          <n-form-item label="Silent (no sound)">
+            <n-switch v-model:value="formTgDisableNotification" />
+          </n-form-item>
+        </template>
+      </template>
+
+      <!-- Config JSON for non-Ollama, non-notification types -->
       <template v-else>
         <n-form-item v-if="formType === 'onnx'" label="Model">
           <n-select

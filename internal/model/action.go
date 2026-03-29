@@ -10,6 +10,7 @@ const (
 	TriggerTypeNewCategorization TriggerType = "new_categorization"
 	TriggerTypeEntityMatched     TriggerType = "entity_matched"
 	TriggerTypeChainOnly         TriggerType = "chain_only"
+	TriggerTypeDigestRequested   TriggerType = "digest_requested"
 )
 
 // Action subscribes a pipeline to a trigger.

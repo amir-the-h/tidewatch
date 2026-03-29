@@ -27,13 +27,40 @@ interface WorkerStats {
 const queueStats  = ref<QueueStats | null>(null)
 const workerStats = ref<WorkerStats | null>(null)
 
+interface PendingSample { t: number; v: number }
+const pendingHistory = ref<PendingSample[]>([])
+
 async function fetchStats() {
   try {
     const h = await apiFetch<any>('/api/health')
-    if (h.queue)   queueStats.value  = h.queue
+    if (h.queue) {
+      queueStats.value = h.queue
+      const sample = { t: Date.now(), v: h.queue.pending as number }
+      pendingHistory.value.push(sample)
+      if (pendingHistory.value.length > 10) pendingHistory.value.shift()
+    }
     if (h.workers) workerStats.value = h.workers
   } catch { /* unreachable */ }
 }
+
+const drainEta = computed<string | null>(() => {
+  const hist = pendingHistory.value
+  if (hist.length < 2) return null
+  const first = hist[0]
+  const last  = hist[hist.length - 1]
+  const dt = (last.t - first.t) / 1000   // seconds elapsed
+  const dv = first.v - last.v            // tasks drained
+  if (dt <= 0 || dv <= 0) return null    // not draining
+  const rate    = dv / dt                // tasks/sec
+  const seconds = Math.ceil(last.v / rate)
+  if (seconds < 60)  return `~${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  if (m < 60) return s > 0 ? `~${m}m ${s}s` : `~${m}m`
+  const hr = Math.floor(m / 60)
+  const rm = m % 60
+  return rm > 0 ? `~${hr}h ${rm}m` : `~${hr}h`
+})
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -194,6 +221,11 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             <template #default>
               <span :style="{ color: (queueStats?.pending ?? 0) > 0 ? '#f9e2af' : '#cdd6f4' }">
                 {{ queueStats?.pending ?? '—' }}
+              </span>
+            </template>
+            <template #suffix>
+              <span v-if="drainEta" style="color: #585b70; font-size: 12px; margin-left: 8px;">
+                {{ drainEta }}
               </span>
             </template>
           </n-statistic>

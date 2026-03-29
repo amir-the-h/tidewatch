@@ -9,6 +9,7 @@ import (
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/pipeline"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -180,9 +181,8 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pip
 		return p, nil
 
 	case model.PipelineTypeOllama:
-		if p := c.infReg.Get(row.Name); p != nil {
-			return p, nil
-		}
+		// Always build fresh from DB config so that updates to model name,
+		// system_prompt, or backend assignments take effect without a restart.
 		assignedIDs := pipelineBackendIDs[pipelineID] // nil → use full pool
 		p := inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.pool, assignedIDs, 0)
 		c.infReg.Register(p)
@@ -191,7 +191,98 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pip
 	case model.PipelineTypeInternal:
 		return c.pipeReg.Build(row.Name, cfg)
 
+	case model.PipelineTypeNotification:
+		return buildNotificationPipeline(ctx, c.store, row, c.logger)
+
 	default:
 		return nil, fmt.Errorf("unknown pipeline type: %s", row.Type)
 	}
+}
+
+func buildNotificationPipeline(ctx context.Context, st store.Store, p *model.Pipeline, logger *slog.Logger) (inference.Pipeline, error) {
+	// Parse pipeline config for channel_id, message_template, and delivery options.
+	var pipelineCfg map[string]any
+	if len(p.Config) > 0 {
+		if err := json.Unmarshal(p.Config, &pipelineCfg); err != nil {
+			return nil, fmt.Errorf("action cache: parse notification pipeline config: %w", err)
+		}
+	}
+	if pipelineCfg == nil {
+		pipelineCfg = map[string]any{}
+	}
+
+	channelID, _ := pipelineCfg["channel_id"].(float64)
+	if channelID == 0 {
+		return nil, fmt.Errorf("action cache: notification pipeline missing channel_id")
+	}
+	messageTemplate, _ := pipelineCfg["message_template"].(string)
+
+	channel, err := st.GetNotificationChannel(ctx, int64(channelID))
+	if err != nil {
+		return nil, fmt.Errorf("action cache: load notification channel %d: %w", int64(channelID), err)
+	}
+
+	provider, err := st.GetNotificationProvider(ctx, channel.ProviderID)
+	if err != nil {
+		return nil, fmt.Errorf("action cache: load notification provider %d: %w", channel.ProviderID, err)
+	}
+
+	// Build delivery config: pipeline options first, then overlay channel routing (chat_id, device).
+	deliveryConfig := make(map[string]any, len(pipelineCfg))
+	for k, v := range pipelineCfg {
+		if k == "channel_id" || k == "message_template" {
+			continue
+		}
+		deliveryConfig[k] = v
+	}
+	if len(channel.Config) > 0 && string(channel.Config) != "null" {
+		var routingCfg map[string]any
+		if err := json.Unmarshal(channel.Config, &routingCfg); err == nil {
+			for k, v := range routingCfg {
+				deliveryConfig[k] = v
+			}
+		}
+	}
+
+	var notifProvider notifier.Provider
+	switch provider.Type {
+	case "pushover":
+		var creds struct {
+			AppToken string `json:"app_token"`
+			UserKey  string `json:"user_key"`
+		}
+		if err := json.Unmarshal(provider.Config, &creds); err != nil {
+			return nil, fmt.Errorf("action cache: parse pushover config: %w", err)
+		}
+		notifProvider = notifier.NewPushoverClient(creds.AppToken, creds.UserKey, logger)
+	case "telegram":
+		var creds struct {
+			BotToken string `json:"bot_token"`
+		}
+		if err := json.Unmarshal(provider.Config, &creds); err != nil {
+			return nil, fmt.Errorf("action cache: parse telegram config: %w", err)
+		}
+		notifProvider = notifier.NewTelegramClient(creds.BotToken, logger)
+	default:
+		return nil, fmt.Errorf("action cache: unknown notification provider type %q", provider.Type)
+	}
+
+	// Provide a loader so the pipeline can expand ${actions} into per-action
+	// expandable blocks without needing direct store access.
+	loader := func(ctx context.Context, tweetID string) ([]pipeline.ActionSummary, error) {
+		summaries, err := st.ListTweetActionSummaries(ctx, tweetID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]pipeline.ActionSummary, len(summaries))
+		for i, s := range summaries {
+			out[i] = pipeline.ActionSummary{
+				ActionName: s.ActionName,
+				Metadata:   s.Metadata,
+			}
+		}
+		return out, nil
+	}
+
+	return pipeline.NewNotificationPipeline(p.Name, messageTemplate, deliveryConfig, notifProvider, loader), nil
 }

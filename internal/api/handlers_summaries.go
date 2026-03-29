@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -166,29 +164,18 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
 }
 
-// handleDigest accepts digest parameters, creates a background job, and returns
-// the job ID immediately. Poll GET /digest/{id} for status and result.
+// handleDigest accepts digest parameters, creates a digest job, and enqueues a
+// task for each active action with trigger_type=digest_requested. Poll GET
+// /digest/{id} for status and result.
 func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
-	if s.registry == nil {
-		writeError(w, http.StatusServiceUnavailable, "registry not available")
+	if s.actionCache == nil {
+		writeError(w, http.StatusServiceUnavailable, "action cache not available")
 		return
 	}
 
-	// Prefer a pipeline explicitly named "digest"; fall back to first available.
-	var digestPipeline inference.DigestPipeline
-	for _, p := range s.registry.All() {
-		if dp, ok := p.(inference.DigestPipeline); ok {
-			if digestPipeline == nil {
-				digestPipeline = dp
-			}
-			if p.Name() == "digest" {
-				digestPipeline = dp
-				break
-			}
-		}
-	}
-	if digestPipeline == nil {
-		writeError(w, http.StatusUnprocessableEntity, "no active digest-capable model (requires an Ollama extraction model)")
+	entries := s.actionCache.AllForTrigger(model.TriggerTypeDigestRequested, nil)
+	if len(entries) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "no active digest action configured (create an action with trigger_type 'digest_requested' backed by an Ollama pipeline)")
 		return
 	}
 
@@ -213,96 +200,20 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go s.runDigestJob(job, digestPipeline, digestPipeline.Name())
-
-	writeJSON(w, http.StatusAccepted, job)
-}
-
-// runDigestJob executes the digest in the background and persists the result.
-func (s *Server) runDigestJob(job *model.DigestJob, pipeline inference.DigestPipeline, pipelineName string) {
-	ctx := s.ctx
-
-	job.Status = model.DigestStatusRunning
-	if err := s.store.UpdateDigestJob(ctx, job); err != nil {
-		s.logger.Error("api: digest job: mark running", "job_id", job.ID, "error", err)
-	}
-
-	p := job.Params
-	tweets, err := s.store.ListTweets(ctx, store.TweetFilter{
-		RuleID:   p.RuleID,
-		SourceID: p.SourceID,
-		EntityID: p.EntityID,
-		From:     p.From,
-		To:       p.To,
-		Page:     1,
-		PerPage:  p.Limit,
-	})
-
-	now := time.Now().UTC()
-	job.CompletedAt = &now
-
-	if err != nil {
-		s.logger.Error("api: digest job: list tweets", "job_id", job.ID, "error", err)
-		job.Status = model.DigestStatusError
-		job.Error = "failed to fetch tweets: " + err.Error()
-		_ = s.store.UpdateDigestJob(ctx, job)
-		s.emitDigestEvent(job, pipelineName)
-		return
-	}
-
-	job.TweetCount = len(tweets)
-
-	if len(tweets) == 0 {
-		job.Status = model.DigestStatusDone
-		job.Result = "No tweets found matching the selected filters."
-		_ = s.store.UpdateDigestJob(ctx, job)
-		s.emitDigestEvent(job, pipelineName)
-		return
-	}
-
-	formatted := make([]string, len(tweets))
-	for i, t := range tweets {
-		if t.AuthorHandle != "" {
-			formatted[i] = fmt.Sprintf("@%s: %s", t.AuthorHandle, t.Text)
-		} else {
-			formatted[i] = t.Text
+	ev, _ := json.Marshal(queue.DigestEvent{DigestJobID: job.ID})
+	for _, entry := range entries {
+		task := &queue.Task{
+			TriggerType: string(model.TriggerTypeDigestRequested),
+			Event:       ev,
+			ActionID:    entry.Action.ID,
+			Context:     map[string]any{"digest_job_id": job.ID},
+		}
+		if err := s.producer.PushTask(r.Context(), task); err != nil {
+			s.logger.Error("api: digest: push task", "action_id", entry.Action.ID, "job_id", job.ID, "error", err)
 		}
 	}
 
-	digest, err := pipeline.Digest(ctx, formatted)
-	if err != nil {
-		s.logger.Error("api: digest job: run", "job_id", job.ID, "error", err)
-		job.Status = model.DigestStatusError
-		job.Error = "digest generation failed: " + err.Error()
-		_ = s.store.UpdateDigestJob(ctx, job)
-		s.emitDigestEvent(job, pipelineName)
-		return
-	}
-
-	job.Status = model.DigestStatusDone
-	job.Result = digest
-	if err := s.store.UpdateDigestJob(ctx, job); err != nil {
-		s.logger.Error("api: digest job: save result", "job_id", job.ID, "error", err)
-	}
-	s.emitDigestEvent(job, pipelineName)
-}
-
-// emitDigestEvent fires a digest_done or digest_failed notification event.
-func (s *Server) emitDigestEvent(job *model.DigestJob, pipelineName string) {
-	if s.dispatcher == nil {
-		return
-	}
-	eventType := notifier.EventDigestDone
-	if job.Status == model.DigestStatusError {
-		eventType = notifier.EventDigestFailed
-	}
-	s.dispatcher.Emit(notifier.NotificationEvent{
-		Type:      eventType,
-		DigestJob: job,
-		ModelName: pipelineName,
-		Error:     job.Error,
-		Timestamp: time.Now().UTC(),
-	})
+	writeJSON(w, http.StatusAccepted, job)
 }
 
 // handleGetDigest returns the status and result of a digest job.

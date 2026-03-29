@@ -1,6 +1,6 @@
 import { apiFetch } from './client'
 
-export type PipelineType = 'onnx' | 'ollama' | 'internal'
+export type PipelineType = 'onnx' | 'ollama' | 'internal' | 'notification'
 
 export interface Pipeline {
   id: number

@@ -144,12 +144,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("serve: action cache loaded", "component", "actions")
 
-	var dispatcher *notifier.Dispatcher
-	var emitter notifier.EventEmitter
-	if pushClient != nil || telegramClient != nil {
-		dispatcher = notifier.NewDispatcher(s, pushClient, telegramClient, logger)
-		emitter = dispatcher
-	}
+	dispatcher := notifier.NewDispatcher(s, logger)
+	var emitter notifier.EventEmitter = dispatcher
 
 	rules := stream.NewRuleManager(cfg.X.BearerToken, nil)
 	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, cache, rules, emitter, logger)
@@ -176,7 +172,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	searchClient.WithActionCache(cache)
 	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
 
-	mgr := worker.NewManager(workerCount, q, q, s, cache, logger)
+	mgr := worker.NewManager(workerCount, q, q, s, cache, logger).WithDispatcher(dispatcher)
 
 	jwtSecret := cfg.Auth.JWTSecret
 	if jwtSecret == "" {
@@ -212,12 +208,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
-	if dispatcher != nil {
-		go func() {
-			logger.Info("serve: starting notification dispatcher", "component", "notifier")
-			dispatcher.Start(ctx)
-		}()
-	}
+	go func() {
+		logger.Info("serve: starting notification dispatcher", "component", "notifier")
+		dispatcher.Start(ctx)
+	}()
 
 	if cfg.Search.Enabled {
 		go func() {

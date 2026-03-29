@@ -115,9 +115,9 @@ func scanNotificationProvider(s notifProviderScanner) (*model.NotificationProvid
 
 func (s *sqliteStore) SaveNotificationChannel(ctx context.Context, c *model.NotificationChannel) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO notification_channels (name, provider_id, message_template, config, active, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.ProviderID, c.MessageTemplate, string(c.Config), boolToInt(c.Active),
+		`INSERT INTO notification_channels (name, provider_id, config, active, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		c.Name, c.ProviderID, string(c.Config), boolToInt(c.Active),
 		c.CreatedAt.UTC().Format(time.RFC3339),
 		c.UpdatedAt.UTC().Format(time.RFC3339),
 	)
@@ -131,7 +131,7 @@ func (s *sqliteStore) SaveNotificationChannel(ctx context.Context, c *model.Noti
 
 func (s *sqliteStore) GetNotificationChannel(ctx context.Context, id int64) (*model.NotificationChannel, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, provider_id, message_template, config, active, created_at, updated_at
+		`SELECT id, name, provider_id, config, active, created_at, updated_at
 		 FROM notification_channels WHERE id = ?`, id)
 	c, err := scanNotificationChannel(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -148,11 +148,11 @@ func (s *sqliteStore) ListNotificationChannels(ctx context.Context, providerID *
 	var err error
 	if providerID != nil {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, name, provider_id, message_template, config, active, created_at, updated_at
+			`SELECT id, name, provider_id, config, active, created_at, updated_at
 			 FROM notification_channels WHERE provider_id=? ORDER BY id`, *providerID)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, name, provider_id, message_template, config, active, created_at, updated_at
+			`SELECT id, name, provider_id, config, active, created_at, updated_at
 			 FROM notification_channels ORDER BY id`)
 	}
 	if err != nil {
@@ -173,8 +173,8 @@ func (s *sqliteStore) ListNotificationChannels(ctx context.Context, providerID *
 
 func (s *sqliteStore) UpdateNotificationChannel(ctx context.Context, c *model.NotificationChannel) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE notification_channels SET name=?, provider_id=?, message_template=?, config=?, active=?, updated_at=? WHERE id=?`,
-		c.Name, c.ProviderID, c.MessageTemplate, string(c.Config), boolToInt(c.Active),
+		`UPDATE notification_channels SET name=?, provider_id=?, config=?, active=?, updated_at=? WHERE id=?`,
+		c.Name, c.ProviderID, string(c.Config), boolToInt(c.Active),
 		c.UpdatedAt.UTC().Format(time.RFC3339), c.ID,
 	)
 	if err != nil {
@@ -210,7 +210,7 @@ func scanNotificationChannel(s notifChannelScanner) (*model.NotificationChannel,
 	var c model.NotificationChannel
 	var activeInt int
 	var configStr, createdAt, updatedAt string
-	if err := s.Scan(&c.ID, &c.Name, &c.ProviderID, &c.MessageTemplate, &configStr, &activeInt, &createdAt, &updatedAt); err != nil {
+	if err := s.Scan(&c.ID, &c.Name, &c.ProviderID, &configStr, &activeInt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	c.Config = []byte(configStr)

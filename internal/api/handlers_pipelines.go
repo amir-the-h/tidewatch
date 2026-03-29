@@ -49,10 +49,10 @@ func (s *Server) handleCreatePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch p.Type {
-	case model.PipelineTypeONNX, model.PipelineTypeOllama, model.PipelineTypeInternal:
+	case model.PipelineTypeONNX, model.PipelineTypeOllama, model.PipelineTypeInternal, model.PipelineTypeNotification:
 		// valid
 	default:
-		writeError(w, http.StatusBadRequest, "invalid type: must be onnx, ollama, or internal")
+		writeError(w, http.StatusBadRequest, "invalid type: must be onnx, ollama, internal, or notification")
 		return
 	}
 	// For Ollama pipelines: enforce usecase uniqueness and auto-fill system_prompt.
@@ -105,6 +105,7 @@ func (s *Server) handleUpdatePipeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "update pipeline: "+err.Error())
 		return
 	}
+	s.reloadCache(r.Context())
 	writeJSON(w, http.StatusOK, p)
 }
 
