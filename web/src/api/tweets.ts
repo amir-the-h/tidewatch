@@ -19,17 +19,21 @@ export interface Tweet {
 
 export interface TweetExecution {
   id: number
-  action_id: number
-  action_name: string
   status: 'success' | 'error'
   error?: string
   executed_at: string
   metadata: Record<string, any>
 }
 
+export interface TweetAction {
+  action_id: number
+  action_name: string
+  executions: TweetExecution[]
+}
+
 export interface TweetDetail {
   tweet: Tweet
-  executions: TweetExecution[]
+  actions: TweetAction[]
 }
 
 export interface TweetListFilter {
@@ -66,3 +70,9 @@ export const deleteTweets = (ids: string[]) =>
 
 export const deleteNoiseTweets = () =>
   apiFetch<{ deleted: number }>('/api/tweets/noise', { method: 'DELETE' })
+
+export const deleteExecutions = (tweetIds: string[], actionIds?: number[]) =>
+  apiFetch<{ deleted: number }>('/api/executions', {
+    method: 'DELETE',
+    body: JSON.stringify({ tweet_ids: tweetIds, action_ids: actionIds ?? [] }),
+  })
