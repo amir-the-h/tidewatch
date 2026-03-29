@@ -36,22 +36,25 @@ func NewRedisQueue(addr, password string, db int) *RedisQueue {
 	return &RedisQueue{client: client}
 }
 
-// PushTask serializes a Task to JSON and LPUSHes it onto the tasks queue.
+// PushTask serializes a Task to JSON and LPUSHes it onto the per-action tasks queue.
 func (q *RedisQueue) PushTask(ctx context.Context, task *Task) error {
 	b, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("queue: marshal task: %w", err)
 	}
-	if err := q.client.LPush(ctx, QueueTasks, b).Err(); err != nil {
+	if err := q.client.LPush(ctx, QueueTasksKey(task.ActionID), b).Err(); err != nil {
 		return fmt.Errorf("queue: push task: %w", err)
 	}
 	return nil
 }
 
-// PopTask blocks until a Task is available on the tasks queue or the timeout
-// elapses. Returns (nil, nil) on timeout.
-func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration) (*Task, error) {
-	res, err := q.client.BRPop(ctx, timeout, QueueTasks).Result()
+// PopTask blocks until a Task is available on one of the given keys or the
+// timeout elapses. Returns (nil, nil) on timeout or when no keys are provided.
+func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration, keys ...string) (*Task, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	res, err := q.client.BRPop(ctx, timeout, keys...).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
@@ -136,10 +139,8 @@ func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 	return nil
 }
 
-// FlushQueue deletes all pending entries from the tasks and raw queues.
+// FlushQueue is a no-op placeholder; per-action queues are flushed individually.
+// Callers that need to flush specific action queues should delete the keys directly.
 func (q *RedisQueue) FlushQueue(ctx context.Context) error {
-	if err := q.client.Del(ctx, QueueRaw, QueueTasks).Err(); err != nil {
-		return fmt.Errorf("queue: flush: %w", err)
-	}
 	return nil
 }

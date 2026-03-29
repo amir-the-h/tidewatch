@@ -148,7 +148,7 @@ func TestPopTask_ReturnsNilOnTimeout(t *testing.T) {
 	}
 	q := &RedisQueue{client: fake}
 
-	task, err := q.PopTask(context.Background(), 1*time.Second)
+	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:1")
 	if err != nil {
 		t.Fatalf("expected nil error on timeout, got: %v", err)
 	}
@@ -181,11 +181,29 @@ func TestPopTask_ReturnsNilOnEmptyResult(t *testing.T) {
 	}
 	q := &RedisQueue{client: fake}
 
-	task, err := q.PopTask(context.Background(), 1*time.Second)
+	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:1")
 	if err != nil {
 		t.Fatalf("expected nil error on empty result, got: %v", err)
 	}
 	if task != nil {
 		t.Fatalf("expected nil task on empty result, got: %+v", task)
+	}
+}
+
+// TestQueueTasksKey_Format verifies the per-action key format.
+func TestQueueTasksKey_Format(t *testing.T) {
+	key := QueueTasksKey(42)
+	want := "iran-watcher:tasks:42"
+	if key != want {
+		t.Errorf("QueueTasksKey(42) = %q, want %q", key, want)
+	}
+}
+
+// TestQueueTasksKey_Zero verifies key for action ID 0.
+func TestQueueTasksKey_Zero(t *testing.T) {
+	key := QueueTasksKey(0)
+	want := "iran-watcher:tasks:0"
+	if key != want {
+		t.Errorf("QueueTasksKey(0) = %q, want %q", key, want)
 	}
 }

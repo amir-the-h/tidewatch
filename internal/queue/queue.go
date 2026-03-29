@@ -3,24 +3,37 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
 const (
-	QueueTasks  = "iran-watcher:tasks"
+	// QueueTasksPrefix is the key prefix for per-action task queues.
+	// Full key: QueueTasksPrefix + strconv.FormatInt(actionID, 10)
+	QueueTasksPrefix = "iran-watcher:tasks:"
+
+	// QueueFailed is the dead-letter queue key.
 	QueueFailed = "iran-watcher:failed"
-	// QueueRaw is kept for backward-compat during transition but deprecated.
-	QueueRaw = "iran-watcher:raw"
+
+	// QueueTasks is the legacy shared task queue key, kept for backward
+	// compatibility during the transition to per-action queues.
+	// Deprecated: use QueueTasksKey(actionID) instead.
+	QueueTasks = "iran-watcher:tasks"
 )
 
-// Task is a single unit of work pushed to iran-watcher:tasks.
+// QueueTasksKey returns the Redis key for the task queue of the given action.
+func QueueTasksKey(actionID int64) string {
+	return QueueTasksPrefix + strconv.FormatInt(actionID, 10)
+}
+
+// Task is a single unit of work pushed to iran-watcher:tasks:{action_id}.
 type Task struct {
 	TriggerType string          `json:"trigger_type"`
-	Event       json.RawMessage `json:"event"`        // serialised trigger payload
+	Event       json.RawMessage `json:"event"`
 	ActionID    int64           `json:"action_id"`
-	ChainNodeID int64           `json:"chain_node_id,omitempty"` // 0 = not a chain-routed task
-	ChainID     int64           `json:"chain_id,omitempty"`      // chain the node belongs to
-	Context     map[string]any  `json:"context"`      // accumulated outputs from upstream actions
+	ChainNodeID int64           `json:"chain_node_id,omitempty"`
+	ChainID     int64           `json:"chain_id,omitempty"`
+	Context     map[string]any  `json:"context"`
 }
 
 // TweetEvent is the Event payload for trigger_type=new_tweet.
@@ -56,8 +69,10 @@ type Producer interface {
 }
 
 // Consumer pops tasks from a queue.
+// PopTask accepts one or more queue keys and performs a BRPOP across all of
+// them. Returns (nil, nil) on timeout or when keys is empty.
 type Consumer interface {
-	PopTask(ctx context.Context, timeout time.Duration) (*Task, error)
+	PopTask(ctx context.Context, timeout time.Duration, keys ...string) (*Task, error)
 	PopFailed(ctx context.Context, timeout time.Duration) (*FailedTweet, error)
 }
 
