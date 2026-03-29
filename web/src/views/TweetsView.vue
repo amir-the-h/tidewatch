@@ -8,6 +8,8 @@ import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns, DataTableRowKey } from 'naive-ui'
 import type { Tweet, TweetDetail } from '../api/tweets'
 import { deleteExecutions } from '../api/tweets'
+import { listActions } from '../api/actions'
+import type { Action } from '../api/actions'
 import { formatDateTime } from '../utils/format'
 import { EyeOutline, TrashOutline, TrashBinOutline, FunnelOutline, CloseCircleOutline, RefreshOutline, OpenOutline, ChatbubblesOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
@@ -45,6 +47,11 @@ const deleting      = ref(false)
 const reprocessing  = ref(false)
 const deletingNoise = ref(false)
 const clearingExecutions = ref(false)
+const clearingBulk           = ref(false)
+const showSelectActionsModal  = ref(false)
+const allActions              = ref<Action[]>([])
+const selectedActionIds       = ref<number[]>([])
+const loadingActions          = ref(false)
 
 // Format a single metadata value — handles nested arrays and nulls
 function fmtVal(v: unknown): string {
@@ -197,6 +204,52 @@ async function clearActionExecutions(tweetId: string, actionId: number) {
   }
 }
 
+async function bulkClearAll() {
+  const ids = checkedRowKeys.value as string[]
+  clearingBulk.value = true
+  try {
+    const { deleted } = await deleteExecutions(ids)
+    checkedRowKeys.value = []
+    msg.success(`Cleared ${deleted} execution${deleted !== 1 ? 's' : ''}`)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    clearingBulk.value = false
+  }
+}
+
+async function openSelectActionsModal() {
+  showSelectActionsModal.value = true
+  loadingActions.value = true
+  try {
+    allActions.value = await listActions()
+  } catch (e: any) {
+    msg.error('Failed to load actions: ' + e.message)
+  } finally {
+    loadingActions.value = false
+  }
+}
+
+async function bulkClearSelected() {
+  if (!selectedActionIds.value.length) {
+    msg.warning('Select at least one action')
+    return
+  }
+  const ids = checkedRowKeys.value as string[]
+  clearingBulk.value = true
+  try {
+    const { deleted } = await deleteExecutions(ids, selectedActionIds.value)
+    checkedRowKeys.value = []
+    selectedActionIds.value = []
+    showSelectActionsModal.value = false
+    msg.success(`Cleared ${deleted} execution${deleted !== 1 ? 's' : ''}`)
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    clearingBulk.value = false
+  }
+}
+
 async function deleteNoise() {
   deletingNoise.value = true
   try {
@@ -342,6 +395,30 @@ const columns: DataTableColumns<Tweet> = [
         </template>
         Chat with selected tweets
       </n-tooltip>
+      <n-button-group size="small">
+        <n-popconfirm @positive-click="bulkClearAll">
+          <template #trigger>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button size="small" :loading="clearingBulk">
+                  <template #icon><n-icon><TrashBinOutline /></n-icon></template>
+                  Clear All
+                </n-button>
+              </template>
+              Clear all executions for selected tweets
+            </n-tooltip>
+          </template>
+          Clear all execution history for {{ checkedRowKeys.length }} tweet{{ checkedRowKeys.length !== 1 ? 's' : '' }}?
+        </n-popconfirm>
+        <n-tooltip trigger="hover">
+          <template #trigger>
+            <n-button size="small" @click="openSelectActionsModal">
+              Select Actions…
+            </n-button>
+          </template>
+          Clear executions for specific actions
+        </n-tooltip>
+      </n-button-group>
     </n-space>
 
     <n-data-table
@@ -560,6 +637,39 @@ const columns: DataTableColumns<Tweet> = [
         </div>
       </n-drawer-content>
     </n-drawer>
+
+    <!-- Select Actions modal for bulk clear -->
+    <n-modal v-model:show="showSelectActionsModal" preset="card" title="Clear Executions — Select Actions" style="max-width: 480px">
+      <n-spin v-if="loadingActions" />
+      <template v-else>
+        <p style="margin: 0 0 12px; font-size: 13px; color: var(--n-text-color-2)">
+          Select which actions to clear for {{ checkedRowKeys.length }} selected tweet{{ checkedRowKeys.length !== 1 ? 's' : '' }}.
+        </p>
+        <n-checkbox-group v-model:value="selectedActionIds">
+          <n-space vertical size="small">
+            <n-checkbox
+              v-for="action in allActions"
+              :key="action.id"
+              :value="action.id"
+              :label="action.name"
+            />
+          </n-space>
+        </n-checkbox-group>
+      </template>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showSelectActionsModal = false; selectedActionIds = []">Cancel</n-button>
+          <n-popconfirm @positive-click="bulkClearSelected">
+            <template #trigger>
+              <n-button type="error" :disabled="!selectedActionIds.length" :loading="clearingBulk">
+                Clear Executions
+              </n-button>
+            </template>
+            Clear executions for {{ selectedActionIds.length }} action{{ selectedActionIds.length !== 1 ? 's' : '' }} across {{ checkedRowKeys.length }} tweet{{ checkedRowKeys.length !== 1 ? 's' : '' }}?
+          </n-popconfirm>
+        </n-space>
+      </template>
+    </n-modal>
   </n-space>
 </template>
 
