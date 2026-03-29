@@ -252,6 +252,59 @@ func (s *sqliteStore) SaveActionExecutionMetadata(ctx context.Context, execID in
 	return nil
 }
 
+func (s *sqliteStore) DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error) {
+	if len(tweetIDs) == 0 {
+		return 0, nil
+	}
+
+	// Build tweet_id IN (?) placeholders
+	tweetPlaceholders := strings.Repeat("?,", len(tweetIDs))
+	tweetPlaceholders = tweetPlaceholders[:len(tweetPlaceholders)-1]
+
+	args := make([]any, 0, len(tweetIDs)+len(actionIDs))
+	for _, id := range tweetIDs {
+		args = append(args, id)
+	}
+
+	filter := fmt.Sprintf("tweet_id IN (%s)", tweetPlaceholders)
+	if len(actionIDs) > 0 {
+		actionPlaceholders := strings.Repeat("?,", len(actionIDs))
+		actionPlaceholders = actionPlaceholders[:len(actionPlaceholders)-1]
+		filter += fmt.Sprintf(" AND action_id IN (%s)", actionPlaceholders)
+		for _, id := range actionIDs {
+			args = append(args, id)
+		}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete action executions: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Delete metadata first (FK constraint: metadata → executions)
+	if _, err := tx.ExecContext(ctx,
+		fmt.Sprintf(`DELETE FROM action_execution_metadata
+		             WHERE execution_id IN (SELECT id FROM action_executions WHERE %s)`, filter),
+		args...); err != nil {
+		return 0, fmt.Errorf("store: delete action executions: delete metadata: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx,
+		fmt.Sprintf(`DELETE FROM action_executions WHERE %s`, filter),
+		args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: delete action executions: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("store: delete action executions: commit: %w", err)
+	}
+
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 func (s *sqliteStore) ListActionExecutionMetadata(ctx context.Context, execID int64) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT key, value FROM action_execution_metadata WHERE execution_id = ?`, execID)
@@ -296,6 +349,102 @@ func (s *sqliteStore) MergeActionExecutionMetadata(ctx context.Context, actionID
 		var k, v string
 		if err := rows.Scan(&k, &v); err != nil {
 			return nil, fmt.Errorf("store: merge action execution metadata: scan: %w", err)
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// ListTweetActionSummaries returns one summary per action that had at least one
+// successful execution on tweetID, ordered by action id. Each summary contains
+// the latest value per metadata key, parsed from its stored JSON form.
+// Actions with no metadata rows are included with an empty Metadata map.
+func (s *sqliteStore) ListTweetActionSummaries(ctx context.Context, tweetID string) ([]TweetActionSummary, error) {
+	// LEFT JOIN so actions with no metadata rows still appear (key/value will be NULL).
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.id, a.name, sub.key, sub.value
+		FROM (
+			SELECT DISTINCT ae.action_id
+			FROM action_executions ae
+			WHERE ae.tweet_id = ? AND ae.status = 'success'
+		) acted
+		JOIN actions a ON a.id = acted.action_id
+		LEFT JOIN (
+			SELECT aem.key, aem.value, ae.action_id,
+			       ROW_NUMBER() OVER (PARTITION BY ae.action_id, aem.key ORDER BY ae.id DESC) AS rn
+			FROM action_execution_metadata aem
+			JOIN action_executions ae ON ae.id = aem.execution_id
+			WHERE ae.tweet_id = ? AND ae.status = 'success'
+		) sub ON sub.action_id = a.id AND sub.rn = 1
+		ORDER BY a.id, sub.key`, tweetID, tweetID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list tweet action summaries: %w", err)
+	}
+	defer rows.Close()
+
+	var order []int64
+	byID := map[int64]*TweetActionSummary{}
+
+	for rows.Next() {
+		var actionID int64
+		var actionName string
+		var key, value sql.NullString
+		if err := rows.Scan(&actionID, &actionName, &key, &value); err != nil {
+			return nil, fmt.Errorf("store: list tweet action summaries: scan: %w", err)
+		}
+		if _, exists := byID[actionID]; !exists {
+			order = append(order, actionID)
+			byID[actionID] = &TweetActionSummary{
+				ActionID:   actionID,
+				ActionName: actionName,
+				Metadata:   map[string]any{},
+			}
+		}
+		if !key.Valid {
+			continue // action ran but produced no metadata rows
+		}
+		var parsed any
+		if json.Unmarshal([]byte(value.String), &parsed) == nil {
+			byID[actionID].Metadata[key.String] = parsed
+		} else {
+			byID[actionID].Metadata[key.String] = value.String
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list tweet action summaries: rows: %w", err)
+	}
+
+	out := make([]TweetActionSummary, len(order))
+	for i, id := range order {
+		out[i] = *byID[id]
+	}
+	return out, nil
+}
+
+// MergeAllTweetExecutionMetadata returns the latest value per key across all
+// successful executions for tweetID, regardless of which action produced them.
+// Keys from actions with a later execution ID win on conflict. This gives
+// notification pipelines access to ONNX/Ollama outputs without requiring a chain.
+func (s *sqliteStore) MergeAllTweetExecutionMetadata(ctx context.Context, tweetID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key, value FROM (
+			SELECT aem.key, aem.value,
+			       ROW_NUMBER() OVER (PARTITION BY aem.key ORDER BY ae.id DESC) AS rn
+			FROM action_execution_metadata aem
+			JOIN action_executions ae ON ae.id = aem.execution_id
+			WHERE ae.tweet_id = ?
+			  AND ae.status   = 'success'
+		) WHERE rn = 1`, tweetID)
+	if err != nil {
+		return nil, fmt.Errorf("store: merge all tweet execution metadata: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, fmt.Errorf("store: merge all tweet execution metadata: scan: %w", err)
 		}
 		out[k] = v
 	}

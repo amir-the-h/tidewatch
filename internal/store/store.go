@@ -87,6 +87,16 @@ type MapPin struct {
 	CoordinatesJSON  string `json:"-"` // raw JSON [[lat,lon],...], parsed by handler
 }
 
+// TweetActionSummary is the aggregated result of all successful executions of one
+// action on a single tweet. Metadata holds the latest value per key (parsed from
+// JSON) across all executions. Empty Metadata means the action ran but produced no
+// persistent metadata (e.g. a twitter_retweet action).
+type TweetActionSummary struct {
+	ActionID   int64
+	ActionName string
+	Metadata   map[string]any
+}
+
 // ExecutionFilter defines optional filters for listing action executions.
 type ExecutionFilter struct {
 	ActionID *int64
@@ -230,7 +240,20 @@ type Store interface {
 	ListActionExecutions(ctx context.Context, filter ExecutionFilter) ([]*model.ActionExecution, error)
 	ListActionExecutionMetadata(ctx context.Context, execID int64) (map[string]string, error)
 	MergeActionExecutionMetadata(ctx context.Context, actionID int64, tweetID string) (map[string]string, error)
+	// MergeAllTweetExecutionMetadata returns the latest value per key across all
+	// successful executions for tweetID regardless of action. This gives notification
+	// pipelines access to upstream ONNX/Ollama outputs even when not triggered via chain.
+	MergeAllTweetExecutionMetadata(ctx context.Context, tweetID string) (map[string]string, error)
+	// ListTweetActionSummaries returns one TweetActionSummary per action that had at
+	// least one successful execution on tweetID. Each summary carries the latest value
+	// per metadata key (same merge logic as MergeActionExecutionMetadata). Actions with
+	// no metadata rows are included with an empty Metadata map.
+	ListTweetActionSummaries(ctx context.Context, tweetID string) ([]TweetActionSummary, error)
 	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
+	// DeleteActionExecutions deletes all execution records and their metadata for
+	// the given tweets. If actionIDs is non-empty, only executions for those actions
+	// are deleted. Returns the count of deleted execution rows.
+	DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error)
 
 	// TwitterCredentials
 	SaveTwitterCredentials(ctx context.Context, c *model.TwitterCredentials) error
