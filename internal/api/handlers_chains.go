@@ -8,16 +8,10 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
 func (s *Server) handleListChains(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	chains, err := s.store.ListActionChains(r.Context(), store.ActionChainFilter{SourceActionID: &id})
+	chains, err := s.store.ListChains(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -25,19 +19,35 @@ func (s *Server) handleListChains(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, chains)
 }
 
-func (s *Server) handleCreateChain(w http.ResponseWriter, r *http.Request) {
-	sourceID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+func (s *Server) handleGetChain(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	var c model.ActionChain
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+	chain, err := s.store.GetChain(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "chain not found")
 		return
 	}
-	c.SourceActionID = sourceID
-	if err := s.store.SaveActionChain(r.Context(), &c); err != nil {
+	writeJSON(w, http.StatusOK, chain)
+}
+
+func (s *Server) handleCreateChain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	c := &model.Chain{Name: req.Name, Description: req.Description}
+	if err := s.store.SaveChain(r.Context(), c); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -45,18 +55,29 @@ func (s *Server) handleCreateChain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateChain(w http.ResponseWriter, r *http.Request) {
-	chainID, err := strconv.ParseInt(chi.URLParam(r, "chain_id"), 10, 64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid chain_id")
+		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	var c model.ActionChain
-	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+	var req struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	c.ID = chainID
-	if err := s.store.UpdateActionChain(r.Context(), &c); err != nil {
+	c, err := s.store.GetChain(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "chain not found")
+		return
+	}
+	if req.Name != "" {
+		c.Name = req.Name
+	}
+	c.Description = req.Description
+	if err := s.store.UpdateChain(r.Context(), c); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -64,14 +85,73 @@ func (s *Server) handleUpdateChain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteChain(w http.ResponseWriter, r *http.Request) {
-	chainID, err := strconv.ParseInt(chi.URLParam(r, "chain_id"), 10, 64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid chain_id")
+		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.store.DeleteActionChain(r.Context(), chainID); err != nil {
+	if err := s.store.DeleteChain(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleActivateChain(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := s.store.SetChainActive(r.Context(), id, true); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeactivateChain(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := s.store.SetChainActive(r.Context(), id, false); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGetChainGraph(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	graph, err := s.store.GetChainGraph(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, graph)
+}
+
+func (s *Server) handleSaveChainGraph(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req model.ChainGraphRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	graph, err := s.store.SaveChainGraph(r.Context(), id, req.Nodes, req.Edges)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, graph)
 }
