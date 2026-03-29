@@ -41,6 +41,3 @@ export const listFailures = (offset = 0, limit = 50) =>
 
 export const clearFailures = () =>
   apiFetch<{ cleared: boolean }>('/api/failures', { method: 'DELETE' })
-
-export const flushQueue = () =>
-  apiFetch<{ flushed: boolean }>('/api/queue', { method: 'DELETE' })

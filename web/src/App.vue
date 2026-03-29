@@ -25,7 +25,7 @@ const adminMenuOptions = [
   { label: 'Actions',          key: '/actions' },
   { label: 'Digest',           key: '/summarize' },
   { label: 'Chat',             key: '/chat' },
-  { label: 'Queue',            key: '/failures' },
+  { label: 'Queue',            key: '/queue' },
   { label: 'Users',            key: '/users' },
 ]
 
