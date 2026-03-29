@@ -29,13 +29,13 @@ const pendingHistory = ref<PendingSample[]>([])
 
 async function fetchStats() {
   try {
-    const h = await apiFetch<any>('/api/health')
-    if (h.queue) {
-      queueStats.value = h.queue
-      pendingHistory.value.push({ t: Date.now(), v: h.queue.pending as number })
+    const health = await apiFetch<any>('/api/health')
+    if (health.queue) {
+      queueStats.value = health.queue
+      pendingHistory.value.push({ t: Date.now(), v: health.queue.pending as number })
       if (pendingHistory.value.length > 10) pendingHistory.value.shift()
     }
-    if (h.workers) workerStats.value = h.workers
+    if (health.workers) workerStats.value = health.workers
   } catch { /* ignore */ }
 }
 
