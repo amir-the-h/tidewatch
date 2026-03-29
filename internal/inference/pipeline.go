@@ -68,6 +68,15 @@ type ConcurrencyLimiter interface {
 	MaxConcurrency() int
 }
 
+// AvailabilityChecker is implemented by pipelines whose execution requires
+// a scarce resource (e.g. an Ollama backend). Pipelines that do not implement
+// this interface are treated as always available by the worker.
+type AvailabilityChecker interface {
+	// IsAvailable reports whether the pipeline can be acquired right now
+	// without blocking (non-blocking check).
+	IsAvailable() bool
+}
+
 // ChatMessage is a single turn in a multi-turn conversation.
 type ChatMessage struct {
 	Role    string `json:"role"`

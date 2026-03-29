@@ -180,6 +180,13 @@ func (p *OllamaPipeline) MaxConcurrency() int {
 	return len(p.pool.All())
 }
 
+// IsAvailable reports whether a backend is immediately acquirable for this
+// pipeline. Respects priority-ordered assignedIDs; empty slice falls back to
+// the full pool sorted by score. Satisfies inference.AvailabilityChecker.
+func (p *OllamaPipeline) IsAvailable() bool {
+	return p.pool.IsAnyAvailable(p.assignedIDs)
+}
+
 // Load treats modelPath as the Ollama model name (e.g. "qwen2.5:3b").
 // The pool manages health checking; this method just stores the model name.
 func (p *OllamaPipeline) Load(modelPath string) error {

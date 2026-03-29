@@ -208,6 +208,55 @@ func (p *BackendPool) bestEnabledIdle() *ollamaBackend {
 	return best
 }
 
+// isAnyAvailable reports whether any backend matching assignedIDs is healthy,
+// enabled, and not in use. Empty/nil assignedIDs checks the full pool.
+// Caller must hold p.mu.
+func (p *BackendPool) isAnyAvailable(assignedIDs []int64) bool {
+	if len(assignedIDs) == 0 {
+		return p.bestEnabledIdle() != nil
+	}
+	for _, id := range assignedIDs {
+		b, ok := p.backends[id]
+		if ok && b.enabled && b.healthy && !b.inUse {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAnyAvailable reports whether any backend matching assignedIDs is
+// immediately acquirable (non-blocking). Empty/nil assignedIDs checks
+// the full pool. Uses the same priority logic as AcquireAny / acquirePrioritized.
+func (p *BackendPool) IsAnyAvailable(assignedIDs []int64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.isAnyAvailable(assignedIDs)
+}
+
+// WaitForAvailability blocks until a backend matching assignedIDs is
+// available, the timeout elapses, or ctx is cancelled.
+// Empty/nil assignedIDs waits for any backend in the full pool.
+func (p *BackendPool) WaitForAvailability(ctx context.Context, timeout time.Duration, assignedIDs []int64) {
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() { p.cond.Broadcast() })
+	defer timer.Stop()
+	watchCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() { <-watchCtx.Done(); p.cond.Broadcast() }()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for {
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			return
+		}
+		if p.isAnyAvailable(assignedIDs) {
+			return
+		}
+		p.cond.Wait()
+	}
+}
+
 // runHealthChecker runs two tickers: re-probe unhealthy backends (30s) and
 // verify healthy backends (60s).
 func (p *BackendPool) runHealthChecker(ctx context.Context) {

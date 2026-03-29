@@ -110,3 +110,106 @@ func TestBackendPool_AcquireAny(t *testing.T) {
 	}
 	p.Release(got)
 }
+
+func TestBackendPool_IsAnyAvailable_TrueWhenIdleBackend(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+	p.Load([]BackendRecord{{ID: 1, Name: "b1", URL: "http://localhost:11434", Enabled: true}})
+
+	if !p.IsAnyAvailable(nil) {
+		t.Fatal("expected backend to be available after Load")
+	}
+}
+
+func TestBackendPool_IsAnyAvailable_FalseWhenAllInUse(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+	p.Load([]BackendRecord{{ID: 1, Name: "b1", URL: "http://localhost:11434", Enabled: true}})
+
+	p.mu.Lock()
+	p.backends[1].inUse = true
+	p.mu.Unlock()
+
+	if p.IsAnyAvailable(nil) {
+		t.Fatal("expected no backend when all in use")
+	}
+}
+
+func TestBackendPool_IsAnyAvailable_RespectAssignedIDs(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+	p.Load([]BackendRecord{
+		{ID: 1, Name: "b1", URL: "http://b1:11434", Enabled: true},
+		{ID: 2, Name: "b2", URL: "http://b2:11434", Enabled: true},
+	})
+
+	p.mu.Lock()
+	p.backends[1].inUse = true
+	p.mu.Unlock()
+
+	// Full pool: backend 2 is still available.
+	if !p.IsAnyAvailable(nil) {
+		t.Fatal("expected full pool to have an available backend")
+	}
+	// Assigned to backend 1 only: unavailable.
+	if p.IsAnyAvailable([]int64{1}) {
+		t.Fatal("expected assigned backend 1 to be unavailable")
+	}
+	// Assigned to backend 2 only: available.
+	if !p.IsAnyAvailable([]int64{2}) {
+		t.Fatal("expected assigned backend 2 to be available")
+	}
+}
+
+func TestBackendPool_WaitForAvailability_ReturnsWhenBackendReleased(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+	p.Load([]BackendRecord{{ID: 1, Name: "b1", URL: "http://localhost:11434", Enabled: true}})
+
+	b := p.Get(1)
+	p.mu.Lock()
+	b.inUse = true
+	p.mu.Unlock()
+
+	// Release the backend after 50ms.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		p.Release(b)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	p.WaitForAvailability(ctx, 500*time.Millisecond, nil)
+	elapsed := time.Since(start)
+
+	if elapsed < 40*time.Millisecond {
+		t.Errorf("returned too fast: %v (want ≥40ms)", elapsed)
+	}
+	if elapsed > 300*time.Millisecond {
+		t.Errorf("returned too slow: %v (want ≤300ms)", elapsed)
+	}
+}
+
+func TestBackendPool_WaitForAvailability_RespectsTimeout(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+	p.Load([]BackendRecord{{ID: 1, Name: "b1", URL: "http://localhost:11434", Enabled: true}})
+
+	b := p.Get(1)
+	p.mu.Lock()
+	b.inUse = true
+	p.mu.Unlock()
+
+	start := time.Now()
+	p.WaitForAvailability(context.Background(), 100*time.Millisecond, nil)
+	elapsed := time.Since(start)
+
+	if elapsed < 80*time.Millisecond {
+		t.Errorf("returned too fast: %v (want ≥80ms)", elapsed)
+	}
+	if elapsed > 400*time.Millisecond {
+		t.Errorf("returned too slow: %v (want ≤400ms)", elapsed)
+	}
+}
