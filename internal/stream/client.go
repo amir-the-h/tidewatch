@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
@@ -36,6 +37,7 @@ type Client struct {
 	logger      *slog.Logger
 	streamURL   string                // overridable for tests
 	emitter     notifier.EventEmitter // may be nil
+	broadcaster hub.Broadcaster       // may be nil
 
 	mu        sync.Mutex
 	connected bool
@@ -60,6 +62,11 @@ func NewClient(bearerToken string, s store.Store, p queue.Producer, cache *worke
 		streamURL: defaultStreamURL,
 		emitter:   emitter,
 	}
+}
+
+// WithBroadcaster wires a broadcaster for stream status events.
+func (c *Client) WithBroadcaster(b hub.Broadcaster) {
+	c.broadcaster = b
 }
 
 // Connected reports whether the stream is currently active.
@@ -120,6 +127,12 @@ func (c *Client) Disconnect() {
 		c.emitter.Emit(notifier.NotificationEvent{
 			Type:      notifier.EventStreamDisconnected,
 			Timestamp: time.Now(),
+		})
+	}
+	if c.broadcaster != nil {
+		c.broadcaster.Broadcast(hub.Event{
+			Type:    "stream_status",
+			Payload: map[string]bool{"connected": false},
 		})
 	}
 }
@@ -216,6 +229,12 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 		c.emitter.Emit(notifier.NotificationEvent{
 			Type:      notifier.EventStreamConnected,
 			Timestamp: time.Now(),
+		})
+	}
+	if c.broadcaster != nil {
+		c.broadcaster.Broadcast(hub.Event{
+			Type:    "stream_status",
+			Payload: map[string]bool{"connected": true},
 		})
 	}
 
