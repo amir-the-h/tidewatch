@@ -26,7 +26,7 @@ export const useQueuesStore = defineStore('queues', () => {
   function setQueues(entries: QueueEntry[]) {
     queues.value = entries.map(e => ({
       ...e,
-      workers: e.workers ?? [],
+      workers: (e.workers ?? []).map(w => ({ id: w.id, backend: w.backend ?? '' })),
     }))
   }
 

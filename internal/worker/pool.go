@@ -41,6 +41,7 @@ type Pool struct {
 }
 
 // Stats returns a snapshot of current worker pool activity.
+// Note: ActiveWorkers is always empty for Pool. Use Manager for per-worker tracking.
 func (p *Pool) Stats() PoolStats {
 	active := int(p.active.Load())
 	return PoolStats{Total: p.count, Active: active, Idle: p.count - active}
