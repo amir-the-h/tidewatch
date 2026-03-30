@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, h } from 'vue'
+import { ref, onMounted, computed, watch, h, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage, NButton, NSpace, NBadge } from 'naive-ui'
+import { useMessage, NButton, NSpace, NBadge, NSlider, NSpin } from 'naive-ui'
 import { useEntitiesStore } from '../stores/entities'
 import { useAuthStore } from '../stores/auth'
 import { useChatStore } from '../stores/chat'
@@ -9,10 +9,11 @@ import type { TrackedEntity } from '../api/entities'
 import { getEntityAliasSuggestions, searchAliasSuggestions, listEntityTracks, listTrackedEntities, type EntityCandidate } from '../api/entities'
 import { estimateTokens } from '../api/chat'
 import { formatDateTime } from '../utils/format'
-import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline, ChatbubblesOutline } from '@vicons/ionicons5'
+import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline, ChatbubblesOutline, GitNetworkOutline } from '@vicons/ionicons5'
 import IconButton from '../components/IconButton.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { useCandidatesStore } from '../stores/candidates'
+import { useConnectionsStore } from '../stores/connections'
 
 const store     = useEntitiesStore()
 const message   = useMessage()
@@ -247,7 +248,7 @@ const tracksPerPage = computed(() => store.tracks?.per_page ?? 50)
 // ── Candidates tab ────────────────────────────────────────────────────────────
 
 const candidatesStore = useCandidatesStore()
-const activeTab = ref<'entities' | 'candidates'>('entities')
+const activeTab = ref<'entities' | 'candidates' | 'connections'>('entities')
 
 // Candidates tab state
 const candFilterStatus = ref<string>('pending')
@@ -274,8 +275,57 @@ async function onTabChange(tab: string) {
   if (tab === 'candidates') {
     await loadCandidates()
     await candidatesStore.fetchPendingCount()
+  } else if (tab === 'connections') {
+    await connectionsStore.fetchConnections()
+    await nextTick()
+    renderGraph()
   }
 }
+
+// ── Connections tab ───────────────────────────────────────────────────────────
+
+const connectionsStore = useConnectionsStore()
+const graphContainer  = ref<HTMLElement | null>(null)
+const minWeight       = ref(1)
+let network: any = null
+
+function destroyNetwork() {
+  if (network) {
+    network.destroy()
+    network = null
+  }
+}
+
+async function renderGraph() {
+  if (!graphContainer.value) return
+  destroyNetwork()
+
+  const { nodes, edges } = connectionsStore.graphData(minWeight.value)
+  if (nodes.length === 0) return
+
+  const { DataSet, Network } = await import('vis-network/standalone')
+  network = new Network(
+    graphContainer.value,
+    { nodes: new DataSet(nodes), edges: new DataSet(edges) },
+    {
+      physics: { stabilization: { iterations: 100 } },
+      edges: {
+        scaling: { min: 1, max: 8 },
+        smooth: { enabled: true, type: 'dynamic', roundness: 0.5 },
+      },
+      nodes: {
+        shape: 'dot',
+        font: { size: 12, color: '#e2e8f0' },
+        color: { background: '#3b82f6', border: '#1d4ed8', highlight: { background: '#60a5fa', border: '#2563eb' } },
+      },
+      interaction: { hover: true, tooltipDelay: 200 },
+    }
+  )
+}
+
+watch(minWeight, renderGraph)
+
+onUnmounted(destroyNetwork)
 
 async function onPromote(c: EntityCandidate) {
   try {
@@ -625,6 +675,50 @@ onMounted(() => {
           :item-count="candidatesStore.response?.total ?? 0"
           style="margin-top:12px; justify-content:flex-end"
           @update:page="loadCandidates"
+        />
+      </n-tab-pane>
+      <n-tab-pane name="connections">
+        <template #tab>
+          <n-space :size="4" align="center">
+            <n-icon :component="GitNetworkOutline" />
+            Connections
+          </n-space>
+        </template>
+
+        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
+          <span style="font-size: 13px; color: var(--n-text-color-3);">Min weight:</span>
+          <n-slider
+            v-model:value="minWeight"
+            :min="1"
+            :max="Math.max(1, ...connectionsStore.connections.map(c => c.weight), 1)"
+            :step="1"
+            style="width: 200px"
+          />
+          <span style="font-size: 13px; min-width: 20px;">{{ minWeight }}</span>
+          <n-button
+            v-if="auth.isAdmin"
+            size="small"
+            type="error"
+            secondary
+            @click="connectionsStore.resetConnections().then(renderGraph)"
+          >
+            Reset
+          </n-button>
+        </div>
+
+        <div v-if="connectionsStore.loading" style="text-align: center; padding: 40px;">
+          <n-spin />
+        </div>
+        <div
+          v-else-if="connectionsStore.connections.length === 0"
+          style="text-align: center; padding: 60px; color: var(--n-text-color-3);"
+        >
+          No connections yet. Set up an <strong>entity_cooccurrence</strong> pipeline chained after entity_matcher to start building the graph.
+        </div>
+        <div
+          v-else
+          ref="graphContainer"
+          style="width: 100%; height: 600px; background: var(--n-card-color); border-radius: 8px; border: 1px solid var(--n-border-color);"
         />
       </n-tab-pane>
     </n-tabs>
