@@ -1541,7 +1541,8 @@ func (s *sqliteStore) ListMapPins(ctx context.Context) ([]*MapPin, error) {
                COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
                p.name AS model_name,
                COALESCE(aem_desc.value, '') AS description,
-               aem_loc.value AS coordinates_json
+               aem_loc.value AS coordinates_json,
+               COALESCE(json_extract(p.config, '$.map_config.coordinate_type'), '') AS coordinate_type
         FROM action_execution_metadata aem_loc
         JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
         JOIN (
@@ -1555,7 +1556,9 @@ func (s *sqliteStore) ListMapPins(ctx context.Context) ([]*MapPin, error) {
         LEFT JOIN tweets t ON t.id = ae.tweet_id
         LEFT JOIN action_execution_metadata aem_desc
                ON aem_desc.execution_id = ae.id AND aem_desc.key = 'description'
-        WHERE aem_loc.key = 'coordinates'
+        WHERE aem_loc.key = json_extract(p.config, '$.map_config.coordinate_key')
+          AND json_extract(p.config, '$.map_config.coordinate_key') IS NOT NULL
+          AND json_extract(p.config, '$.map_config.coordinate_key') != ''
           AND aem_loc.value != 'null'
           AND aem_loc.value != '[]'
         ORDER BY tweet_created_at DESC`
@@ -1569,12 +1572,14 @@ func (s *sqliteStore) ListMapPins(ctx context.Context) ([]*MapPin, error) {
 	var pins []*MapPin
 	for rows.Next() {
 		var pin MapPin
+		var coordType string
 		if err := rows.Scan(
 			&pin.TweetID, &pin.TweetCreatedAt, &pin.ModelName,
-			&pin.Description, &pin.CoordinatesJSON,
+			&pin.Description, &pin.CoordinatesJSON, &coordType,
 		); err != nil {
 			return nil, fmt.Errorf("store: list map pins: scan: %w", err)
 		}
+		pin.CoordinateType = model.CoordinateType(coordType)
 		pins = append(pins, &pin)
 	}
 	return pins, rows.Err()

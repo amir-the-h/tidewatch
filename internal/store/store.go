@@ -74,11 +74,12 @@ type ActionFilter struct {
 
 // MapPin is a geo-event pin derived from action_execution_metadata.
 type MapPin struct {
-	TweetID          string `json:"tweet_id"`
-	TweetCreatedAt   string `json:"tweet_created_at"`
-	ModelName        string `json:"model_name"`
-	Description      string `json:"description,omitempty"`
-	CoordinatesJSON  string `json:"-"` // raw JSON [[lat,lon],...], parsed by handler
+	TweetID         string               `json:"tweet_id"`
+	TweetCreatedAt  string               `json:"tweet_created_at"`
+	ModelName       string               `json:"model_name"`
+	Description     string               `json:"description,omitempty"`
+	CoordinatesJSON string               `json:"-"` // raw JSON, format indicated by CoordinateType
+	CoordinateType  model.CoordinateType `json:"-"`
 }
 
 // TweetActionSummary is the aggregated result of all successful executions of one
