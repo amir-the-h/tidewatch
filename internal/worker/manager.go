@@ -279,6 +279,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 
 	input := inference.PipelineInput{
 		Text:    ev.Text,
+		TweetID: ev.TweetID,
 		Context: mergedCtx,
 	}
 

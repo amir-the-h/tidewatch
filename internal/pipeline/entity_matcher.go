@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -47,22 +48,37 @@ func (p *EntityMatcherPipeline) Run(ctx context.Context, input inference.Pipelin
 	var matchedIDs []int64
 	for _, entity := range entities {
 		candidates := append([]string{entity.Name}, entity.Aliases...)
+		matchSource := ""
 		for _, c := range candidates {
 			cLower := strings.ToLower(c)
-			matched := false
 			for _, ne := range nerEntities {
 				if strings.ToLower(ne.Word) == cLower {
-					matched = true
+					matchSource = "ner"
 					break
 				}
 			}
-			if !matched {
-				matched = strings.Contains(textLower, cLower)
+			if matchSource == "" && strings.Contains(textLower, cLower) {
+				matchSource = "text"
 			}
-			if matched {
-				matchedIDs = append(matchedIDs, entity.ID)
+			if matchSource != "" {
 				break
 			}
+		}
+		if matchSource == "" {
+			continue
+		}
+
+		matchedIDs = append(matchedIDs, entity.ID)
+
+		if input.TweetID != "" {
+			track := &model.EntityTrack{
+				EntityID:    entity.ID,
+				TweetID:     input.TweetID,
+				MatchSource: matchSource,
+				Context:     input.Text,
+				CreatedAt:   time.Now(),
+			}
+			_ = p.store.SaveEntityTrack(ctx, track)
 		}
 	}
 

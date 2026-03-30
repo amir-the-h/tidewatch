@@ -21,6 +21,8 @@ const (
 type PipelineInput struct {
 	// Text is the primary text to process (tweet body).
 	Text string
+	// TweetID is the ID of the tweet being processed.
+	TweetID string
 	// Context is the accumulated flat map of outputs from upstream actions in a chain.
 	Context map[string]any
 	// Config is the pipeline-specific configuration from the DB pipeline row.
