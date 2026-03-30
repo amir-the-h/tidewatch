@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -165,6 +166,10 @@ func (p *EntityDiscoveryPipeline) autoPromote(ctx context.Context, c *model.Enti
 		Active:  true,
 	}
 	if err := p.store.SaveTrackedEntity(ctx, e); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			p.logger.Debug("entity_discovery: candidate already tracked, leaving pending", "word", c.Word)
+			return nil
+		}
 		return fmt.Errorf("entity_discovery: save tracked entity: %w", err)
 	}
 	if err := p.store.UpdateEntityCandidateStatus(ctx, c.ID, "promoted", &e.ID, true); err != nil {
