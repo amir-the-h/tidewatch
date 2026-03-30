@@ -48,10 +48,6 @@ export const useActionsStore = defineStore('actions', () => {
     actions.value = actions.value.filter(a => a.id !== id)
   }
 
-  async function run(id: number) {
-    return api.runAction(id)
-  }
-
   async function fetchExecutions(id: number, filter: ExecutionFilter = {}) {
     return api.listActionExecutions(id, filter)
   }
@@ -89,7 +85,7 @@ export const useActionsStore = defineStore('actions', () => {
   return {
     actions, loading, error,
     twitterStatus, twitterLoading,
-    fetchActions, createAction, updateAction, activate, deactivate, remove, run,
+    fetchActions, createAction, updateAction, activate, deactivate, remove,
     fetchExecutions, fetchAllExecutions,
     fetchTwitterStatus, startTwitterAuth, disconnectTwitter,
   }

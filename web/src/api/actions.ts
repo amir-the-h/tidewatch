@@ -59,9 +59,6 @@ export const activateAction = (id: number) =>
 export const deactivateAction = (id: number) =>
   apiFetch<Action>(`/api/actions/${id}/deactivate`, { method: 'POST' })
 
-export const runAction = (id: number) =>
-  apiFetch<{ queued: number }>(`/api/actions/${id}/run`, { method: 'POST' })
-
 // Executions
 export const listActionExecutions = (id: number, filter: ExecutionFilter = {}) => {
   const params = new URLSearchParams()

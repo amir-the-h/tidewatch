@@ -2,9 +2,10 @@
 import { ref, onMounted, h } from 'vue'
 import {
   NDataTable, NButton, NIcon, NSpace, NTag, NFormItem, NInput,
+  NModal, NRadioGroup, NRadio,
   useMessage, type DataTableColumns,
 } from 'naive-ui'
-import { CreateOutline, TrashOutline, PauseCircleOutline, CheckmarkCircleOutline } from '@vicons/ionicons5'
+import { CreateOutline, TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, PlayCircleOutline } from '@vicons/ionicons5'
 import { useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import FormDrawer from '../components/FormDrawer.vue'
@@ -20,6 +21,11 @@ const showForm = ref(false)
 const saving = ref(false)
 const formName = ref('')
 const formDescription = ref('')
+
+const runningChain = ref(false)
+const showRunModal = ref(false)
+const runChainRow  = ref<Chain | null>(null)
+const runNewOnly   = ref(false)
 
 onMounted(() => store.fetchChains())
 
@@ -41,6 +47,26 @@ async function onSave() {
   finally { saving.value = false }
 }
 
+function openRunChain(row: Chain) {
+  runChainRow.value = row
+  runNewOnly.value = false
+  showRunModal.value = true
+}
+
+async function onConfirmRunChain() {
+  if (!runChainRow.value) return
+  runningChain.value = true
+  try {
+    const res = await store.run(runChainRow.value.id, runNewOnly.value)
+    msg.success(`Queued ${res.queued} tweets for "${runChainRow.value.name}"`)
+    showRunModal.value = false
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    runningChain.value = false
+  }
+}
+
 const columns: DataTableColumns<Chain> = [
   { title: 'ID', key: 'id', width: 60, sorter: 'default' },
   { title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true } },
@@ -60,6 +86,9 @@ const columns: DataTableColumns<Chain> = [
     title: 'Actions', key: 'actions', width: 200,
     render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
+        row.active
+          ? iconBtn(PlayCircleOutline, 'Run', () => openRunChain(row), { type: 'primary' })
+          : null,
         h(NButton, { size: 'tiny', onClick: () => router.push(`/chains/${row.id}/edit`) }, {
           icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
           default: () => 'Edit',
@@ -97,4 +126,22 @@ const columns: DataTableColumns<Chain> = [
       <n-input v-model:value="formDescription" placeholder="Optional description" type="textarea" :rows="2" />
     </n-form-item>
   </FormDrawer>
+
+  <!-- Run Chain Modal -->
+  <n-modal
+    v-model:show="showRunModal"
+    preset="dialog"
+    :title="`Run chain — ${runChainRow?.name}`"
+    positive-text="Run"
+    negative-text="Cancel"
+    :loading="runningChain"
+    @positive-click="onConfirmRunChain"
+  >
+    <n-radio-group v-model:value="runNewOnly" style="margin-top: 8px;">
+      <n-space vertical :size="8">
+        <n-radio :value="false">All eligible tweets</n-radio>
+        <n-radio :value="true">Only tweets without existing chain executions</n-radio>
+      </n-space>
+    </n-radio-group>
+  </n-modal>
 </template>

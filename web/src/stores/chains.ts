@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { listChains, createChain, deleteChain, activateChain, deactivateChain, type Chain } from '../api/chains'
+import { listChains, createChain, deleteChain, activateChain, deactivateChain, runChain, type Chain } from '../api/chains'
 
 export const useChainsStore = defineStore('chains', () => {
   const chains = ref<Chain[]>([])
@@ -35,5 +35,9 @@ export const useChainsStore = defineStore('chains', () => {
     if (c) c.active = false
   }
 
-  return { chains, loading, fetchChains, create, remove, activate, deactivate }
+  async function run(id: number, newOnly: boolean): Promise<{ queued: number }> {
+    return runChain(id, newOnly)
+  }
+
+  return { chains, loading, fetchChains, create, remove, activate, deactivate, run }
 })

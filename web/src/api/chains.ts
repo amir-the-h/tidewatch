@@ -77,3 +77,8 @@ export const saveChainGraph = (id: number, nodes: ChainNodeRequest[], edges: Cha
     method: 'PUT',
     body: JSON.stringify({ nodes, edges }),
   })
+export const runChain = (id: number, newOnly: boolean) =>
+  apiFetch<{ queued: number }>(`/api/chains/${id}/run`, {
+    method: 'POST',
+    body: JSON.stringify({ new_only: newOnly }),
+  })

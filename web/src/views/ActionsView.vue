@@ -3,12 +3,12 @@ import { ref, computed, onMounted, h } from 'vue'
 import {
   NSpace, NFlex, NTag, NSelect, NInput, NSwitch, NFormItem,
   NCard, NText, NDrawer, NDrawerContent, NDataTable, NTabs, NTabPane,
-  NButton, NIcon, NSpin, NPagination,
+  NButton, NIcon, NSpin, NPagination, NModal, NRadioGroup, NRadio,
   useMessage,
   type DataTableColumns,
 } from 'naive-ui'
 import {
-  CreateOutline, TrashOutline, PauseCircleOutline, PlayOutline,
+  CreateOutline, TrashOutline, PauseCircleOutline, PlayCircleOutline,
   CheckmarkCircleOutline, ListOutline, LogoTwitter, LinkOutline,
   UnlinkOutline, AddOutline,
 } from '@vicons/ionicons5'
@@ -50,7 +50,6 @@ const saving           = ref(false)
 const editingId        = ref<number | null>(null)
 const formName         = ref('')
 const formPipelineId   = ref<number | null>(null)
-const runningIds       = ref(new Set<number>())
 
 const showExecs       = ref(false)
 const execsActionId   = ref<number | null>(null)
@@ -105,18 +104,6 @@ async function onSave() {
   finally { saving.value = false }
 }
 
-async function onRun(action: Action) {
-  runningIds.value = new Set([...runningIds.value, action.id])
-  try {
-    const res = await actionsStore.run(action.id)
-    msg.success(`Queued ${res.queued} tweets for ${action.name}`)
-  } catch (e: any) {
-    msg.error(e.message)
-  } finally {
-    runningIds.value = new Set([...runningIds.value].filter(id => id !== action.id))
-  }
-}
-
 async function openExecutions(action: Action) {
   execsActionId.value = action.id
   execsActionName.value = action.name
@@ -164,9 +151,6 @@ const actionColumns: DataTableColumns<Action> = [
     title: 'Actions', key: 'actions', width: 220,
     render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
-        row.active
-          ? iconBtn(PlayOutline, 'Run on all tweets', () => onRun(row), { type: 'primary', loading: runningIds.value.has(row.id) })
-          : null,
         iconBtn(ListOutline, 'Executions', () => openExecutions(row)),
         iconBtn(CreateOutline, 'Edit', () => openEdit(row)),
         row.active
@@ -203,6 +187,12 @@ const savingChain        = ref(false)
 const chainFormName      = ref('')
 const chainFormDesc      = ref('')
 
+const runningChainId   = ref<number | null>(null)
+const showRunModal     = ref(false)
+const runChainRow      = ref<Chain | null>(null)
+const runNewOnly       = ref(false)
+const runningChain     = ref(false)
+
 function openCreateChain() {
   chainFormName.value = ''
   chainFormDesc.value = ''
@@ -219,6 +209,26 @@ async function onSaveChain() {
     router.push(`/chains/${c.id}/edit`)
   } catch (e: any) { msg.error(e.message) }
   finally { savingChain.value = false }
+}
+
+function openRunChain(row: Chain) {
+  runChainRow.value = row
+  runNewOnly.value = false
+  showRunModal.value = true
+}
+
+async function onConfirmRunChain() {
+  if (!runChainRow.value) return
+  runningChain.value = true
+  try {
+    const res = await chainsStore.run(runChainRow.value.id, runNewOnly.value)
+    msg.success(`Queued ${res.queued} tweets for "${runChainRow.value.name}"`)
+    showRunModal.value = false
+  } catch (e: any) {
+    msg.error(e.message)
+  } finally {
+    runningChain.value = false
+  }
 }
 
 const chainColumns: DataTableColumns<Chain> = [
@@ -240,6 +250,9 @@ const chainColumns: DataTableColumns<Chain> = [
     title: 'Actions', key: 'actions', width: 200,
     render: (row) => h(NSpace, { size: 4 }, {
       default: () => [
+        row.active
+          ? iconBtn(PlayCircleOutline, 'Run', () => openRunChain(row), { type: 'primary' })
+          : null,
         h(NButton, { size: 'tiny', onClick: () => router.push(`/chains/${row.id}/edit`) }, {
           icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
           default: () => 'Edit',
@@ -509,6 +522,24 @@ onMounted(async () => {
       <n-input v-model:value="chainFormDesc" placeholder="Optional description" type="textarea" :rows="2" />
     </n-form-item>
   </FormDrawer>
+
+  <!-- Run Chain Modal -->
+  <n-modal
+    v-model:show="showRunModal"
+    preset="dialog"
+    :title="`Run chain — ${runChainRow?.name}`"
+    positive-text="Run"
+    negative-text="Cancel"
+    :loading="runningChain"
+    @positive-click="onConfirmRunChain"
+  >
+    <n-radio-group v-model:value="runNewOnly" style="margin-top: 8px;">
+      <n-space vertical :size="8">
+        <n-radio :value="false">All eligible tweets</n-radio>
+        <n-radio :value="true">Only tweets without existing chain executions</n-radio>
+      </n-space>
+    </n-radio-group>
+  </n-modal>
 
   <!-- Connect Chain to Trigger Drawer -->
   <FormDrawer
