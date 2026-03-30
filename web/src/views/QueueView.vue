@@ -1,28 +1,23 @@
 <!-- web/src/views/QueueView.vue -->
 <script setup lang="ts">
-import { h, ref, computed, onMounted, onUnmounted } from 'vue'
+import { h, ref, computed, onMounted } from 'vue'
 import { useFailuresStore } from '../stores/failures'
+import { useQueuesStore } from '../stores/queues'
 import { useMessage, NButton, NSpace, NTag, NIcon } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
 import { getQueue, flushQueue } from '../api/queue'
-import type { QueueEntry } from '../api/queue'
 import { apiFetch } from '../api/client'
+import type { QueueEntry } from '../stores/queues'
 import { formatDateTime } from '../utils/format'
 import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
 
-const store = useFailuresStore()
-const msg   = useMessage()
+const store       = useFailuresStore()
+const queuesStore = useQueuesStore()
+const msg         = useMessage()
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-
-interface QueueStats { pending: number; failed: number }
-interface WorkerStats { total: number; active: number; idle: number }
-
-const queueStats  = ref<QueueStats | null>(null)
-const workerStats = ref<WorkerStats | null>(null)
-const queues      = ref<QueueEntry[]>([])
 
 interface PendingSample { t: number; v: number }
 const pendingHistory = ref<PendingSample[]>([])
@@ -30,19 +25,26 @@ const pendingHistory = ref<PendingSample[]>([])
 async function fetchStats() {
   try {
     const health = await apiFetch<any>('/api/health')
-    if (health.queue) {
-      queueStats.value = health.queue
-      pendingHistory.value.push({ t: Date.now(), v: health.queue.pending as number })
-      if (pendingHistory.value.length > 10) pendingHistory.value.shift()
+    if (health.workers) {
+      queuesStore.setWorkerStats({
+        Total:         health.workers.total,
+        Active:        health.workers.active,
+        Idle:          health.workers.idle,
+        ActiveWorkers: health.workers.active_workers ?? [],
+      })
     }
-    if (health.workers) workerStats.value = health.workers
   } catch { /* ignore */ }
 }
 
 async function fetchQueues() {
   try {
     const data = await getQueue()
-    queues.value = data.queues
+    queuesStore.setQueues(data.queues.map(e => ({
+      ...e,
+      worker: e.worker ? { id: e.worker.id, backend: e.worker.backend ?? '' } : null,
+    })))
+    pendingHistory.value.push({ t: Date.now(), v: queuesStore.totalPending })
+    if (pendingHistory.value.length > 10) pendingHistory.value.shift()
   } catch { /* ignore */ }
 }
 
@@ -215,15 +217,11 @@ const pagination = computed(() => ({
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
 onMounted(() => {
   store.fetch()
   fetchStats()
   fetchQueues()
-  pollTimer = setInterval(() => { fetchStats(); fetchQueues() }, 3000)
 })
-onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 </script>
 
 <template>
@@ -276,8 +274,8 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
         <n-card size="small" embedded>
           <n-statistic label="Redis Pending">
             <template #default>
-              <span :style="{ color: (queueStats?.pending ?? 0) > 0 ? '#f9e2af' : '#cdd6f4' }">
-                {{ queueStats?.pending ?? '—' }}
+              <span :style="{ color: queuesStore.totalPending > 0 ? '#f9e2af' : '#cdd6f4' }">
+                {{ queuesStore.totalPending }}
               </span>
             </template>
             <template #suffix>
@@ -292,8 +290,8 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
         <n-card size="small" embedded>
           <n-statistic label="Dead-Letter">
             <template #default>
-              <span :style="{ color: (queueStats?.failed ?? 0) > 0 ? '#f38ba8' : '#cdd6f4' }">
-                {{ queueStats?.failed ?? '—' }}
+              <span :style="{ color: store.total > 0 ? '#f38ba8' : '#cdd6f4' }">
+                {{ store.total > 0 ? store.total : '—' }}
               </span>
             </template>
           </n-statistic>
@@ -303,22 +301,22 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
         <n-card size="small" embedded>
           <n-statistic label="Workers">
             <template #default>
-              <span :style="{ color: (workerStats?.active ?? 0) > 0 ? '#a6e3a1' : '#cdd6f4' }">
-                {{ workerStats?.active ?? '—' }}
+              <span :style="{ color: (queuesStore.workerStats?.Active ?? 0) > 0 ? '#a6e3a1' : '#cdd6f4' }">
+                {{ queuesStore.workerStats?.Active ?? '—' }}
               </span>
-              <span style="color: #585b70; font-size: 14px;"> / {{ workerStats?.total ?? '—' }}</span>
+              <span style="color: #585b70; font-size: 14px;"> / {{ queuesStore.workerStats?.Total ?? '—' }}</span>
             </template>
             <template #suffix>
-              <span v-if="workerStats" style="color: #585b70; font-size: 12px; margin-left: 8px;">
-                {{ workerStats.idle }} idle
+              <span v-if="queuesStore.workerStats" style="color: #585b70; font-size: 12px; margin-left: 8px;">
+                {{ queuesStore.workerStats.Idle }} idle
               </span>
             </template>
           </n-statistic>
-          <div v-if="workerStats" style="margin-top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
+          <div v-if="queuesStore.workerStats" style="margin-top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
             <div :style="{
               height: '100%',
-              width: workerStats.total > 0 ? (workerStats.active / workerStats.total * 100) + '%' : '0%',
-              background: workerStats.active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
+              width: queuesStore.workerStats.Total > 0 ? (queuesStore.workerStats.Active / queuesStore.workerStats.Total * 100) + '%' : '0%',
+              background: queuesStore.workerStats.Active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
               transition: 'width 0.5s ease',
             }" />
           </div>
@@ -329,14 +327,14 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
     <!-- Per-action queues table -->
     <n-card size="small" title="Action Queues">
       <n-empty
-        v-if="queues.length === 0"
+        v-if="queuesStore.queues.length === 0"
         description="No active actions"
         style="padding: 16px 0;"
       />
       <n-data-table
         v-else
         :columns="queueColumns"
-        :data="queues"
+        :data="queuesStore.queues"
         :pagination="false"
         size="small"
       />
