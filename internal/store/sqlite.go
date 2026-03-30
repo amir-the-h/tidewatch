@@ -1846,3 +1846,67 @@ func scanEntityCandidate(row scanner) (*model.EntityCandidate, error) {
 	}
 	return &c, nil
 }
+
+// UpsertEntityConnection inserts a new connection or increments its weight.
+// Always normalises pair order so from_id < to_id.
+func (s *sqliteStore) UpsertEntityConnection(ctx context.Context, fromID, toID int64) error {
+	if fromID > toID {
+		fromID, toID = toID, fromID
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO entity_connections (from_id, to_id, weight, updated_at)
+		 VALUES (?, ?, 1, ?)
+		 ON CONFLICT(from_id, to_id) DO UPDATE SET
+		   weight     = weight + 1,
+		   updated_at = excluded.updated_at`,
+		fromID, toID, now,
+	)
+	if err != nil {
+		return fmt.Errorf("store: upsert entity connection: %w", err)
+	}
+	return nil
+}
+
+// ListEntityConnections returns all connection edges with entity names joined.
+func (s *sqliteStore) ListEntityConnections(ctx context.Context) ([]*model.EntityConnection, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT ec.from_id, ec.to_id, ec.weight, ec.updated_at,
+		        f.name, f.type, t.name, t.type
+		 FROM entity_connections ec
+		 JOIN tracked_entities f ON f.id = ec.from_id
+		 JOIN tracked_entities t ON t.id = ec.to_id
+		 ORDER BY ec.weight DESC, ec.from_id, ec.to_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list entity connections: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*model.EntityConnection
+	for rows.Next() {
+		var c model.EntityConnection
+		var updatedAt string
+		if err := rows.Scan(
+			&c.FromID, &c.ToID, &c.Weight, &updatedAt,
+			&c.FromName, &c.FromType, &c.ToName, &c.ToType,
+		); err != nil {
+			return nil, fmt.Errorf("store: list entity connections: scan: %w", err)
+		}
+		c.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		out = append(out, &c)
+	}
+	if out == nil {
+		out = []*model.EntityConnection{}
+	}
+	return out, rows.Err()
+}
+
+// DeleteAllEntityConnections removes every row from entity_connections.
+func (s *sqliteStore) DeleteAllEntityConnections(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM entity_connections`)
+	if err != nil {
+		return fmt.Errorf("store: delete all entity connections: %w", err)
+	}
+	return nil
+}

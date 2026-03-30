@@ -608,3 +608,106 @@ func TestEntityCandidate_Delete(t *testing.T) {
 		t.Fatal("expected error after delete, got nil")
 	}
 }
+
+func seedTrackedEntity(t *testing.T, s Store, name string) *model.TrackedEntity {
+	t.Helper()
+	e := &model.TrackedEntity{Name: name, Type: "PER", Aliases: []string{}, Active: true}
+	if err := s.SaveTrackedEntity(context.Background(), e); err != nil {
+		t.Fatalf("SaveTrackedEntity(%q): %v", name, err)
+	}
+	return e
+}
+
+func TestUpsertEntityConnection_NewPair(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+
+	if err := s.UpsertEntityConnection(ctx, a.ID, b.ID); err != nil {
+		t.Fatalf("UpsertEntityConnection: %v", err)
+	}
+
+	conns, err := s.ListEntityConnections(ctx)
+	if err != nil {
+		t.Fatalf("ListEntityConnections: %v", err)
+	}
+	if len(conns) != 1 {
+		t.Fatalf("want 1 connection, got %d", len(conns))
+	}
+	if conns[0].Weight != 1 {
+		t.Errorf("want weight=1, got %d", conns[0].Weight)
+	}
+}
+
+func TestUpsertEntityConnection_IncrementsWeight(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+
+	for i := 0; i < 3; i++ {
+		if err := s.UpsertEntityConnection(ctx, a.ID, b.ID); err != nil {
+			t.Fatalf("UpsertEntityConnection (iter %d): %v", i, err)
+		}
+	}
+
+	conns, _ := s.ListEntityConnections(ctx)
+	if conns[0].Weight != 3 {
+		t.Errorf("want weight=3, got %d", conns[0].Weight)
+	}
+}
+
+func TestUpsertEntityConnection_NormalizesOrder(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+
+	// Insert with reversed order — should still produce one row.
+	_ = s.UpsertEntityConnection(ctx, b.ID, a.ID)
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID)
+
+	conns, _ := s.ListEntityConnections(ctx)
+	if len(conns) != 1 {
+		t.Fatalf("want 1 connection (deduped), got %d", len(conns))
+	}
+	if conns[0].Weight != 2 {
+		t.Errorf("want weight=2, got %d", conns[0].Weight)
+	}
+}
+
+func TestListEntityConnections_JoinsNames(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID)
+
+	conns, _ := s.ListEntityConnections(ctx)
+	if conns[0].FromName == "" || conns[0].ToName == "" {
+		t.Errorf("want joined names, got from=%q to=%q", conns[0].FromName, conns[0].ToName)
+	}
+}
+
+func TestDeleteAllEntityConnections(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID)
+
+	if err := s.DeleteAllEntityConnections(ctx); err != nil {
+		t.Fatalf("DeleteAllEntityConnections: %v", err)
+	}
+
+	conns, _ := s.ListEntityConnections(ctx)
+	if len(conns) != 0 {
+		t.Errorf("want 0 connections after delete, got %d", len(conns))
+	}
+}
