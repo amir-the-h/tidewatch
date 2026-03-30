@@ -5,20 +5,31 @@ import (
 	"sort"
 
 	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 type queueEntry struct {
-	ActionID     int64      `json:"action_id"`
-	ActionName   string     `json:"action_name"`
-	PipelineName string     `json:"pipeline_name"`
-	PipelineType string     `json:"pipeline_type"`
-	Pending      int64      `json:"pending"`
-	Worker       *workerRef `json:"worker,omitempty"`
+	ActionID     int64       `json:"action_id"`
+	ActionName   string      `json:"action_name"`
+	PipelineName string      `json:"pipeline_name"`
+	PipelineType string      `json:"pipeline_type"`
+	Pending      int64       `json:"pending"`
+	Workers      []workerRef `json:"workers,omitempty"`
 }
 
 type workerRef struct {
 	ID      int    `json:"id"`
 	Backend string `json:"backend,omitempty"`
+}
+
+// buildWorkerRefs groups WorkerInfo entries by action name into a map of
+// workerRef slices. Multiple workers on the same action are all included.
+func buildWorkerRefs(workerInfos []worker.WorkerInfo) map[string][]workerRef {
+	m := make(map[string][]workerRef)
+	for _, wi := range workerInfos {
+		m[wi.Action] = append(m[wi.Action], workerRef{ID: wi.ID, Backend: wi.Backend})
+	}
+	return m
 }
 
 func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
@@ -29,12 +40,9 @@ func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 
 	entries := s.actionCache.All()
 
-	// Build worker lookup: action name → workerRef.
-	workerByAction := make(map[string]workerRef)
+	workerByAction := make(map[string][]workerRef)
 	if s.pool != nil {
-		for _, wi := range s.pool.Stats().ActiveWorkers {
-			workerByAction[wi.Action] = workerRef{ID: wi.ID, Backend: wi.Backend}
-		}
+		workerByAction = buildWorkerRefs(s.pool.Stats().ActiveWorkers)
 	}
 
 	result := make([]queueEntry, 0, len(entries))
@@ -50,18 +58,17 @@ func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 			PipelineType: string(e.Pipeline.Type()),
 			Pending:      pending,
 		}
-		if ref, ok := workerByAction[e.Action.Name]; ok {
-			qe.Worker = &ref
+		if refs, ok := workerByAction[e.Action.Name]; ok {
+			qe.Workers = refs
 		}
 		result = append(result, qe)
 	}
 
-	// Sort: rows with activity (worker assigned or pending > 0) first,
-	// then by pending desc, then alphabetically by action name.
+	// Sort: active rows (worker or pending) first, then by pending desc, then name.
 	sort.Slice(result, func(i, j int) bool {
 		ri, rj := result[i], result[j]
-		iActive := ri.Worker != nil || ri.Pending > 0
-		jActive := rj.Worker != nil || rj.Pending > 0
+		iActive := len(ri.Workers) > 0 || ri.Pending > 0
+		jActive := len(rj.Workers) > 0 || rj.Pending > 0
 		if iActive != jActive {
 			return iActive
 		}
