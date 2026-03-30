@@ -649,6 +649,22 @@ const columns: DataTableColumns<Pipeline> = [
         </n-form-item>
       </template>
 
+      <!-- Map Output — available for all pipeline types -->
+      <n-divider style="margin: 4px 0">Map Output <span style="font-size:11px;color:#6c7086">(optional)</span></n-divider>
+      <n-form-item label="Coordinate key">
+        <n-input
+          v-model:value="formMapCoordinateKey"
+          placeholder="e.g. geo_coordinates"
+          clearable
+        />
+      </n-form-item>
+      <n-form-item v-if="formMapCoordinateKey.trim()" label="Coordinate type">
+        <n-select
+          v-model:value="formMapCoordinateType"
+          :options="coordinateTypeOptions"
+        />
+      </n-form-item>
+
       <!-- Transformers — available for all pipeline types -->
       <n-divider style="margin: 4px 0" />
       <n-form-item label="Transformers">
