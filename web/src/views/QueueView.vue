@@ -13,14 +13,24 @@ import { formatDateTime } from '../utils/format'
 import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
 
+function fmtEta(secs: number): string {
+  if (secs < 60) return `~${secs}s`
+  const m = Math.floor(secs / 60), s = secs % 60
+  if (m < 60) return s > 0 ? `~${m}m ${s}s` : `~${m}m`
+  const hr = Math.floor(m / 60), rm = m % 60
+  return rm > 0 ? `~${hr}h ${rm}m` : `~${hr}h`
+}
+
+function perActionEta(entry: QueueEntry): string | null {
+  if (entry.throughput === 0 || entry.pending === 0) return null
+  return fmtEta(Math.ceil(entry.pending / entry.throughput))
+}
+
 const store       = useFailuresStore()
 const queuesStore = useQueuesStore()
 const msg         = useMessage()
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
-
-interface PendingSample { t: number; v: number }
-const pendingHistory = ref<PendingSample[]>([])
 
 async function fetchStats() {
   try {
@@ -34,29 +44,14 @@ async function fetchStats() {
 async function fetchQueues() {
   try {
     const data = await getQueue()
-    queuesStore.setQueues(data.queues.map(e => ({
-      ...e,
-      workers: (e.workers ?? []).map(w => ({ id: w.id, backend: w.backend ?? '' })),
-    })))
-    pendingHistory.value.push({ t: Date.now(), v: queuesStore.totalPending })
-    if (pendingHistory.value.length > 10) pendingHistory.value.shift()
+    queuesStore.setQueues(data.queues)
   } catch { /* ignore */ }
 }
 
 const drainEta = computed<string | null>(() => {
-  const hist = pendingHistory.value
-  if (hist.length < 2) return null
-  const first = hist[0], last = hist[hist.length - 1]
-  const dt = (last.t - first.t) / 1000
-  const dv = first.v - last.v
-  if (dt <= 0 || dv <= 0) return null
-  const rate = dv / dt
-  const secs = Math.ceil(last.v / rate)
-  if (secs < 60) return `~${secs}s`
-  const m = Math.floor(secs / 60), s = secs % 60
-  if (m < 60) return s > 0 ? `~${m}m ${s}s` : `~${m}m`
-  const hr = Math.floor(m / 60), rm = m % 60
-  return rm > 0 ? `~${hr}h ${rm}m` : `~${hr}h`
+  const totalThroughput = queuesStore.queues.reduce((s, q) => s + q.throughput, 0)
+  if (totalThroughput === 0 || queuesStore.totalPending === 0) return null
+  return fmtEta(Math.ceil(queuesStore.totalPending / totalThroughput))
 })
 
 // ── Actions ───────────────────────────────────────────────────────────────────
@@ -134,6 +129,25 @@ const queueColumns = [
           fontVariantNumeric: 'tabular-nums',
         },
       }, row.pending > 0 ? String(row.pending) : '—'),
+  },
+  {
+    title: 'ETA',
+    key: 'eta',
+    width: 130,
+    render: (row: QueueEntry) => {
+      const eta = perActionEta(row)
+      const rate = row.throughput > 0
+        ? h('span', { style: { color: '#585b70', fontSize: '11px', marginLeft: '6px' } },
+            `(${row.throughput < 1 ? row.throughput.toFixed(2) : row.throughput.toFixed(1)}/s)`)
+        : null
+      if (!eta) {
+        return h('span', { style: { color: '#585b70' } }, '—')
+      }
+      return h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, [
+        h('span', { style: { color: '#cba6f7' } }, eta),
+        rate,
+      ])
+    },
   },
   {
     title: 'Worker',
