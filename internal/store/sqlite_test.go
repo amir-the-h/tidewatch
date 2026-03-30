@@ -711,3 +711,105 @@ func TestDeleteAllEntityConnections(t *testing.T) {
 		t.Errorf("want 0 connections after delete, got %d", len(conns))
 	}
 }
+
+func TestGetEntityConnectionSubgraph_Depth1(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+	c := seedTrackedEntity(t, s, "Gamma")
+
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID) // A-B weight=1
+	_ = s.UpsertEntityConnection(ctx, b.ID, c.ID) // B-C weight=1
+
+	conns, err := s.GetEntityConnectionSubgraph(ctx, a.ID, 1, 1)
+	if err != nil {
+		t.Fatalf("GetEntityConnectionSubgraph: %v", err)
+	}
+	// Depth 1 from A: reachable = {A, B}. Edge A-B qualifies; B-C does not (C unreachable).
+	if len(conns) != 1 {
+		t.Fatalf("want 1 edge, got %d", len(conns))
+	}
+	if conns[0].FromID != a.ID || conns[0].ToID != b.ID {
+		t.Errorf("want edge A-B, got from_id=%d to_id=%d", conns[0].FromID, conns[0].ToID)
+	}
+}
+
+func TestGetEntityConnectionSubgraph_Depth2(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+	c := seedTrackedEntity(t, s, "Gamma")
+
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID)
+	_ = s.UpsertEntityConnection(ctx, b.ID, c.ID)
+
+	conns, err := s.GetEntityConnectionSubgraph(ctx, a.ID, 2, 1)
+	if err != nil {
+		t.Fatalf("GetEntityConnectionSubgraph: %v", err)
+	}
+	// Depth 2: reachable = {A, B, C}. Both edges qualify.
+	if len(conns) != 2 {
+		t.Fatalf("want 2 edges, got %d: %+v", len(conns), conns)
+	}
+}
+
+func TestGetEntityConnectionSubgraph_MinWeightFilters(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+	c := seedTrackedEntity(t, s, "Gamma")
+
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID) // weight=1 after one upsert
+	// Upsert b-c three times to get weight=3
+	for i := 0; i < 3; i++ {
+		_ = s.UpsertEntityConnection(ctx, b.ID, c.ID)
+	}
+
+	conns, err := s.GetEntityConnectionSubgraph(ctx, a.ID, 2, 2)
+	if err != nil {
+		t.Fatalf("GetEntityConnectionSubgraph: %v", err)
+	}
+	// min_weight=2: A-B (weight=1) excluded from adjacency, so only {A} reachable.
+	// Result: empty (no edges meet threshold AND have both endpoints reachable).
+	if len(conns) != 0 {
+		t.Fatalf("want 0 edges, got %d", len(conns))
+	}
+}
+
+func TestGetEntityConnectionSubgraph_UnknownEntityReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+	b := seedTrackedEntity(t, s, "Beta")
+	_ = s.UpsertEntityConnection(ctx, a.ID, b.ID)
+
+	conns, err := s.GetEntityConnectionSubgraph(ctx, 9999, 2, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conns) != 0 {
+		t.Fatalf("want empty for unknown entity, got %d", len(conns))
+	}
+}
+
+func TestGetEntityConnectionSubgraph_EntityWithNoConnectionsReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	a := seedTrackedEntity(t, s, "Alpha")
+
+	conns, err := s.GetEntityConnectionSubgraph(ctx, a.ID, 2, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(conns) != 0 {
+		t.Fatalf("want empty slice, got %d", len(conns))
+	}
+}

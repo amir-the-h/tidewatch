@@ -1910,3 +1910,54 @@ func (s *sqliteStore) DeleteAllEntityConnections(ctx context.Context) error {
 	}
 	return nil
 }
+
+// GetEntityConnectionSubgraph returns the subgraph of entity connections reachable
+// from entityID within depth hops, including only edges with weight >= minWeight.
+func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID int64, depth, minWeight int) ([]*model.EntityConnection, error) {
+	all, err := s.ListEntityConnections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: get entity connection subgraph: %w", err)
+	}
+
+	if depth < 1 {
+		depth = 1
+	}
+
+	if minWeight < 1 {
+		minWeight = 1
+	}
+
+	// Build adjacency list using only edges that meet the weight threshold.
+	adj := make(map[int64][]int64)
+	for _, c := range all {
+		if c.Weight >= minWeight {
+			adj[c.FromID] = append(adj[c.FromID], c.ToID)
+			adj[c.ToID] = append(adj[c.ToID], c.FromID)
+		}
+	}
+
+	// BFS from entityID up to depth hops.
+	visited := map[int64]bool{entityID: true}
+	frontier := []int64{entityID}
+	for d := 0; d < depth && len(frontier) > 0; d++ {
+		var next []int64
+		for _, id := range frontier {
+			for _, neighbor := range adj[id] {
+				if !visited[neighbor] {
+					visited[neighbor] = true
+					next = append(next, neighbor)
+				}
+			}
+		}
+		frontier = next
+	}
+
+	// Return only edges where both endpoints are reachable and weight qualifies.
+	out := make([]*model.EntityConnection, 0)
+	for _, c := range all {
+		if c.Weight >= minWeight && visited[c.FromID] && visited[c.ToID] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}

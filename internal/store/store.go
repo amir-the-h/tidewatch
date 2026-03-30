@@ -205,6 +205,7 @@ type Store interface {
 	// EntityConnections
 	UpsertEntityConnection(ctx context.Context, fromID, toID int64) error
 	ListEntityConnections(ctx context.Context) ([]*model.EntityConnection, error)
+	GetEntityConnectionSubgraph(ctx context.Context, entityID int64, depth, minWeight int) ([]*model.EntityConnection, error)
 	DeleteAllEntityConnections(ctx context.Context) error
 
 	// Summaries
