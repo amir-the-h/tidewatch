@@ -3,7 +3,7 @@
 import { h, ref, computed, onMounted } from 'vue'
 import { useFailuresStore } from '../stores/failures'
 import { useQueuesStore } from '../stores/queues'
-import { useMessage, NButton, NSpace, NTag, NIcon } from 'naive-ui'
+import { useMessage, NButton, NSpace, NTag, NIcon, NTooltip } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
 import { getQueue, flushQueue } from '../api/queue'
@@ -34,10 +34,7 @@ async function fetchStats() {
 async function fetchQueues() {
   try {
     const data = await getQueue()
-    queuesStore.setQueues(data.queues.map(e => ({
-      ...e,
-      worker: e.worker ? { id: e.worker.id, backend: e.worker.backend ?? '' } : null,
-    })))
+    queuesStore.setQueues(data.queues)
     pendingHistory.value.push({ t: Date.now(), v: queuesStore.totalPending })
     if (pendingHistory.value.length > 10) pendingHistory.value.shift()
   } catch { /* ignore */ }
@@ -137,20 +134,40 @@ const queueColumns = [
   },
   {
     title: 'Worker',
-    key: 'worker',
+    key: 'workers',
     width: 220,
     render: (row: QueueEntry) => {
-      if (!row.worker) return h('span', { style: { color: '#585b70' } }, '—')
-      const { id, backend } = row.worker
-      let suffix = ''
-      if (backend === 'waiting') suffix = ' · waiting…'
-      else if (backend) suffix = ` · ${backend.replace(/^https?:\/\//, '')}`
-      return h('span', {
-        style: { color: '#a6e3a1', fontVariantNumeric: 'tabular-nums' },
-      }, `#${id}${suffix}`)
+      const workers = row.workers ?? []
+      if (workers.length === 0) return h('span', { style: { color: '#585b70' } }, '—')
+
+      function workerLabel(w: { id: number; backend: string }) {
+        if (w.backend === 'waiting') return `#${w.id} · waiting…`
+        if (w.backend) return `#${w.id} · ${w.backend.replace(/^https?:\/\//, '')}`
+        return `#${w.id}`
+      }
+
+      if (workers.length === 1) {
+        return h('span', {
+          style: { color: '#a6e3a1', fontVariantNumeric: 'tabular-nums' },
+        }, workerLabel(workers[0]))
+      }
+
+      // Multiple workers: count badge with tooltip listing each one.
+      return h(NTooltip, { trigger: 'hover' }, {
+        trigger: () => h('span', {
+          style: { color: '#a6e3a1', fontVariantNumeric: 'tabular-nums', cursor: 'default' },
+        }, `${workers.length} workers`),
+        default: () => h('div', {}, workers.map(w =>
+          h('div', { style: { whiteSpace: 'nowrap', lineHeight: '1.6' } }, workerLabel(w))
+        )),
+      })
     },
   },
 ]
+
+// Split active (pending or workers) from idle rows.
+const activeQueues   = computed(() => queuesStore.queues.filter(q => q.pending > 0 || q.workers.length > 0))
+const inactiveQueues = computed(() => queuesStore.queues.filter(q => q.pending === 0 && q.workers.length === 0))
 
 // ── Failures table ────────────────────────────────────────────────────────────
 
@@ -326,13 +343,34 @@ onMounted(() => {
         description="No active actions"
         style="padding: 16px 0;"
       />
-      <n-data-table
-        v-else
-        :columns="queueColumns"
-        :data="queuesStore.queues"
-        :pagination="false"
-        size="small"
-      />
+      <template v-else>
+        <!-- Active rows (pending > 0 or workers assigned) -->
+        <n-empty
+          v-if="activeQueues.length === 0"
+          description="All queues idle"
+          style="padding: 12px 0 4px;"
+        />
+        <n-data-table
+          v-else
+          :columns="queueColumns"
+          :data="activeQueues"
+          :pagination="false"
+          size="small"
+        />
+
+        <!-- Inactive rows — collapsed by default -->
+        <n-collapse v-if="inactiveQueues.length > 0" style="margin-top: 8px;">
+          <n-collapse-item :title="`${inactiveQueues.length} inactive`" name="inactive">
+            <n-data-table
+              :columns="queueColumns"
+              :data="inactiveQueues"
+              :pagination="false"
+              size="small"
+              :row-props="() => ({ style: 'opacity: 0.5;' })"
+            />
+          </n-collapse-item>
+        </n-collapse>
+      </template>
     </n-card>
 
     <!-- Dead-letter failures -->
