@@ -12,11 +12,6 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
 
-interface PinWithCoords {
-  pin: MapPin
-  coords: [number, number]
-}
-
 const mapEl    = ref<HTMLDivElement | null>(null)
 const loading  = ref(true)
 const pinCount = ref(0)
