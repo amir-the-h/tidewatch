@@ -11,6 +11,7 @@ import { estimateTokens } from '../api/chat'
 import { formatDateTime } from '../utils/format'
 import { TimeOutline, CreateOutline, TrashOutline, AddCircleOutline, ChatbubblesOutline } from '@vicons/ionicons5'
 import IconButton from '../components/IconButton.vue'
+import PageHeader from '../components/PageHeader.vue'
 import { useCandidatesStore } from '../stores/candidates'
 
 const store     = useEntitiesStore()
