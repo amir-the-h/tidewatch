@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { darkTheme } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
-import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { apiFetch } from './api/client'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useAuthStore } from './stores/auth'
 import { useStreamStore } from './stores/stream'
-import { WifiOutline, LogOutOutline, TrashBinOutline } from '@vicons/ionicons5'
+import { useQueuesStore } from './stores/queues'
+import { useFailuresStore } from './stores/failures'
+import { disconnect as wsDisconnect, resetAndConnect } from './composables/useWebSocket'
+import { WifiOutline, LogOutOutline } from '@vicons/ionicons5'
 
 const route  = useRoute()
 const router = useRouter()
 const auth   = useAuthStore()
 const stream = useStreamStore()
+const queues = useQueuesStore()
+const failures = useFailuresStore()
 
 const adminMenuOptions = [
   { label: 'Map',              key: '/map' },
@@ -46,30 +50,13 @@ function navigate(key: string) {
 }
 
 function logout() {
+  wsDisconnect()
   auth.logout()
   router.push('/login')
   drawerOpen.value = false
 }
 
-// ── Stats polling (admin only) ────────────────────────────────────────────────
-
-interface QueueStats  { pending: number; failed: number }
-interface WorkerStats { total: number; active: number; idle: number; queued: number; pipelines?: Record<string, number>; pipeline_active?: Record<string, number> }
-
-const queueStats  = ref<QueueStats | null>(null)
-const workerStats = ref<WorkerStats | null>(null)
-
-async function fetchStats() {
-  if (!auth.isAuthenticated) return
-  try {
-    const h = await apiFetch<any>('/api/health')
-    if (h.queue)   queueStats.value  = h.queue
-    if (h.workers) workerStats.value = h.workers
-  } catch { /* server unreachable */ }
-  if (auth.isAdmin) {
-    try { await stream.fetchStatus() } catch { /* ignore */ }
-  }
-}
+// ── Stream controls ───────────────────────────────────────────────────────────
 
 async function connectStream() {
   try { await stream.connect() } catch { /* error visible via stream.error */ }
@@ -79,21 +66,26 @@ async function disconnectStream() {
   try { await stream.disconnect() } catch { /* error visible via stream.error */ }
 }
 
-const flushing = ref(false)
-async function flushWorkerBuffer() {
-  if (flushing.value || !auth.isAdmin) return
-  flushing.value = true
-  try {
-    await apiFetch('/api/workers/buffer', { method: 'DELETE' })
-    await fetchStats()
-  } catch { /* ignore */ } finally {
-    flushing.value = false
-  }
-}
+// ── Stats from stores (populated via WebSocket events) ───────────────────────
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { fetchStats(); pollTimer = setInterval(fetchStats, 3000) })
-onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
+const workerStats = computed(() => queues.workerStats)
+const totalPending = computed(() => queues.totalPending)
+const failedCount  = computed(() => failures.total)
+
+// ── WS lifecycle ─────────────────────────────────────────────────────────────
+
+onMounted(() => {
+  if (auth.isAuthenticated) {
+    resetAndConnect()
+  }
+})
+
+// Connect WS when user logs in (App is already mounted on the login page)
+watch(() => auth.isAuthenticated, (authenticated) => {
+  if (authenticated) {
+    resetAndConnect()
+  }
+})
 </script>
 
 <template>
@@ -130,18 +122,15 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
         <span style="font-weight: 700; font-size: 14px; color: #cdd6f4;">Iran Watcher</span>
 
         <!-- Inline stats badges (admin only) -->
-        <div v-if="auth.isAdmin && (queueStats || workerStats)" style="
+        <div v-if="auth.isAdmin" style="
           display: flex; align-items: center; gap: 12px;
           font-size: 11px; color: #a6adc8;
         ">
-          <span v-if="queueStats">
+          <span>
             Q:
-            <span :style="{ color: queueStats.pending > 0 ? '#f9e2af' : '#a6adc8' }">{{ queueStats.pending }}</span>
+            <span :style="{ color: totalPending > 0 ? '#f9e2af' : '#a6adc8' }">{{ totalPending }}</span>
             <span style="color: #585b70"> / </span>
-            <span :style="{ color: queueStats.failed > 0 ? '#f38ba8' : '#a6adc8' }">{{ queueStats.failed }}</span>
-          </span>
-          <span v-if="workerStats && workerStats.queued > 0" :style="{ color: '#f9e2af' }">
-            Buf: {{ workerStats.queued }}
+            <span :style="{ color: failedCount > 0 ? '#f38ba8' : '#a6adc8' }">{{ failedCount }}</span>
           </span>
           <span v-if="workerStats">
             W: {{ workerStats.active }}/{{ workerStats.total }}
@@ -213,7 +202,7 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
           />
 
           <!-- Stats panel (admin only) pinned to drawer bottom -->
-          <div v-if="auth.isAdmin && (queueStats || workerStats)" style="
+          <div v-if="auth.isAdmin" style="
             margin-top: auto;
             padding: 12px 14px;
             border-top: 1px solid rgba(255,255,255,0.08);
@@ -221,10 +210,10 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
             color: #a6adc8;
             line-height: 1.8;
           ">
-            <div v-if="queueStats">
+            <div>
               <div style="color: #89dceb; font-weight: 600; margin-bottom: 2px;">Queue</div>
-              <div>Pending: <span :style="{ color: queueStats.pending > 0 ? '#f9e2af' : '#a6adc8' }">{{ queueStats.pending }}</span></div>
-              <div>Failed: <span :style="{ color: queueStats.failed > 0 ? '#f38ba8' : '#a6adc8' }">{{ queueStats.failed }}</span></div>
+              <div>Pending: <span :style="{ color: totalPending > 0 ? '#f9e2af' : '#a6adc8' }">{{ totalPending }}</span></div>
+              <div>Failed: <span :style="{ color: failedCount > 0 ? '#f38ba8' : '#a6adc8' }">{{ failedCount }}</span></div>
             </div>
             <div v-if="workerStats" style="margin-top: 8px;">
               <div style="color: #89dceb; font-weight: 600; margin-bottom: 2px;">Workers</div>
@@ -238,35 +227,12 @@ onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
                 }" />
               </div>
             </div>
-            <div v-if="workerStats && workerStats.pipelines" style="margin-top: 8px;">
-              <div style="color: #89dceb; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
-                Pipelines
-                <span v-if="workerStats.queued > 0" style="color: #f9e2af; font-weight: 400;"> · {{ workerStats.queued }} buffered</span>
-                <n-tooltip v-if="workerStats.queued > 0" trigger="hover">
-                  <template #trigger>
-                    <n-button
-                      size="tiny"
-                      :loading="flushing"
-                      :disabled="flushing"
-                      style="margin-left: auto; background: rgba(243,139,168,0.15); border-color: rgba(243,139,168,0.4); color: #f38ba8;"
-                      @click="flushWorkerBuffer"
-                    >
-                      <template #icon><n-icon><TrashBinOutline /></n-icon></template>
-                    </n-button>
-                  </template>
-                  Flush worker buffer
-                </n-tooltip>
-              </div>
-              <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0 8px; align-items: center;">
-                <span style="color: #585b70; font-size: 10px;">name</span>
-                <span style="color: #585b70; font-size: 10px; text-align: right;">W</span>
-                <span style="color: #585b70; font-size: 10px; text-align: right;">Q</span>
-                <template v-for="(buffered, name) in workerStats.pipelines" :key="name">
-                  <span style="color: #6c7086; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ name }}</span>
-                  <span :style="{ color: (workerStats.pipeline_active?.[name] ?? 0) > 0 ? '#a6e3a1' : '#585b70', textAlign: 'right' }">
-                    {{ workerStats.pipeline_active?.[name] ?? 0 }}
-                  </span>
-                  <span :style="{ color: buffered > 0 ? '#f9e2af' : '#585b70', textAlign: 'right' }">{{ buffered }}</span>
+            <div v-if="workerStats && workerStats.active_workers && workerStats.active_workers.length > 0" style="margin-top: 8px;">
+              <div style="color: #89dceb; font-weight: 600; margin-bottom: 4px;">Active Workers</div>
+              <div style="display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: center;">
+                <template v-for="w in workerStats.active_workers" :key="w.id">
+                  <span style="color: #a6e3a1;">#{{ w.id }}</span>
+                  <span style="color: #6c7086; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ w.action }}</span>
                 </template>
               </div>
             </div>
