@@ -240,6 +240,14 @@ func NewServer(
 				r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
 				r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
 
+				// Entity Candidates
+				r.Get("/entity-candidates", srv.handleListEntityCandidates)
+				r.Get("/entity-candidates/{id}", srv.handleGetEntityCandidate)
+				r.Post("/entity-candidates/{id}/promote", srv.handlePromoteEntityCandidate)
+				r.Post("/entity-candidates/{id}/reject", srv.handleRejectEntityCandidate)
+				r.Post("/entity-candidates/{id}/merge", srv.handleMergeEntityCandidate)
+				r.Delete("/entity-candidates/{id}", srv.handleDeleteEntityCandidate)
+
 				// Summaries
 				r.Get("/summaries", srv.handleListSummaries)
 				r.Post("/summaries/run", srv.handleRunSummaries)
