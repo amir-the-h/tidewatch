@@ -54,3 +54,17 @@ type EntityCandidate struct {
 	FirstSeenAt      time.Time `json:"first_seen_at"`
 	LastSeenAt       time.Time `json:"last_seen_at"`
 }
+
+// EntityConnection records the co-occurrence weight between two tracked entities.
+// from_id is always less than to_id (enforced by the DB CHECK constraint).
+type EntityConnection struct {
+	FromID    int64     `json:"from_id"`
+	ToID      int64     `json:"to_id"`
+	Weight    int       `json:"weight"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// Joined fields populated by ListEntityConnections.
+	FromName string `json:"from_name,omitempty"`
+	FromType string `json:"from_type,omitempty"`
+	ToName   string `json:"to_name,omitempty"`
+	ToType   string `json:"to_type,omitempty"`
+}
