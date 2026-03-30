@@ -21,6 +21,12 @@ func TestParseCoordinates(t *testing.T) {
 			want:      [][2]float64{{35.6892, 51.389}, {32.4279, 53.688}},
 		},
 		{
+			name:      "array_of_pairs — empty array returns empty slice, no error",
+			raw:       `[]`,
+			coordType: model.CoordinateTypeArrayOfPairs,
+			want:      [][2]float64{},
+		},
+		{
 			name:      "array_of_pairs — empty type defaults to array_of_pairs",
 			raw:       `[[35.6892,51.389]]`,
 			coordType: "",
@@ -39,6 +45,12 @@ func TestParseCoordinates(t *testing.T) {
 			want:      [][2]float64{{35.6892, 51.389}},
 		},
 		{
+			name:      "object — unknown field lng is silently zeroed",
+			raw:       `{"lat":35.6892,"lng":51.389}`,
+			coordType: model.CoordinateTypeObject,
+			want:      [][2]float64{{35.6892, 0.0}},
+		},
+		{
 			name:      "array_of_objects — two points",
 			raw:       `[{"lat":35.6892,"lon":51.389},{"lat":32.4279,"lon":53.688}]`,
 			coordType: model.CoordinateTypeArrayOfObjects,
@@ -54,6 +66,12 @@ func TestParseCoordinates(t *testing.T) {
 			name:      "invalid JSON returns error",
 			raw:       `not-json`,
 			coordType: model.CoordinateTypeArrayOfPairs,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid JSON — single_pair branch also errors",
+			raw:       `not-json`,
+			coordType: model.CoordinateTypeSinglePair,
 			wantErr:   true,
 		},
 	}
