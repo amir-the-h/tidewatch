@@ -52,6 +52,10 @@ async function chatWithEntity(e: TrackedEntity) {
 const filterText       = ref('')
 const filterEntityType = ref<string | null>(null)
 const filterActiveOnly = ref(false)
+watch([filterText, filterEntityType, filterActiveOnly], () => { entityPage.value = 1 })
+
+const entityPage    = ref(1)
+const entityPerPage = ref(50)
 
 const filteredEntities = computed(() => {
   let list = store.items
@@ -63,6 +67,11 @@ const filteredEntities = computed(() => {
   if (filterEntityType.value) list = list.filter(e => e.type === filterEntityType.value)
   if (filterActiveOnly.value) list = list.filter(e => e.active)
   return list
+})
+
+const pagedEntities = computed(() => {
+  const start = (entityPage.value - 1) * entityPerPage.value
+  return filteredEntities.value.slice(start, start + entityPerPage.value)
 })
 
 // ── add / edit modal ──────────────────────────────────────────────────────────
@@ -395,7 +404,7 @@ onMounted(() => {
                   No tracked entities. Add one to start watching.
                 </td>
               </tr>
-              <tr v-for="e in filteredEntities" :key="e.id">
+              <tr v-for="e in pagedEntities" :key="e.id">
                 <td>
                   <n-text strong>{{ e.name }}</n-text>
                   <div v-if="e.notes" style="font-size: 12px; color: #888">{{ e.notes }}</div>
@@ -459,6 +468,14 @@ onMounted(() => {
             </tbody>
           </n-table>
         </n-spin>
+
+        <n-pagination
+          v-if="filteredEntities.length > entityPerPage"
+          v-model:page="entityPage"
+          :page-size="entityPerPage"
+          :item-count="filteredEntities.length"
+          style="margin-top:12px; justify-content:flex-end"
+        />
 
         <!-- Add / Edit modal -->
         <n-modal v-model:show="showModal" preset="card" :title="editTarget ? 'Edit Entity' : 'Add Entity'" style="width: 480px">

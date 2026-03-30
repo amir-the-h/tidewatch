@@ -88,8 +88,12 @@ func (p *EntityDiscoveryPipeline) Run(ctx context.Context, input inference.Pipel
 	autoPromotedCount := 0
 
 	for _, ne := range nerEntities {
+		word := normalizeNERWord(ne.Word)
+		if len([]rune(word)) < 2 {
+			continue // skip tokenizer artifacts and single chars
+		}
 		c := &model.EntityCandidate{
-			Word:          ne.Word,
+			Word:          word,
 			Type:          ne.Label,
 			AvgConfidence: float64(ne.Score),
 			Sources:       []string{p.name},
@@ -178,4 +182,17 @@ func (p *EntityDiscoveryPipeline) autoPromote(ctx context.Context, c *model.Enti
 	c.Status = "promoted"
 	c.PromotedEntityID = &e.ID
 	return nil
+}
+
+// normalizeNERWord strips tokenizer artifacts produced by HuggingFace BPE/WordPiece models:
+// leading Ċ/Ġ/▁ (sentencepiece/BPE continuation markers), ## (BERT wordpiece prefix), and #.
+func normalizeNERWord(word string) string {
+	// Strip leading Unicode continuation markers (Ġ U+0120, Ċ U+010A, ▁ U+2581)
+	word = strings.TrimLeftFunc(word, func(r rune) bool {
+		return r == '\u0120' || r == '\u010A' || r == '\u2581'
+	})
+	// Strip BERT wordpiece prefix and stray hash characters
+	word = strings.TrimPrefix(word, "##")
+	word = strings.TrimLeft(word, "#")
+	return strings.TrimSpace(word)
 }
