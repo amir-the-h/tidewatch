@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/amir-the-h/iran-watcher/internal/auth"
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
@@ -86,6 +87,7 @@ type Server struct {
 	failureLister           queue.FailureLister
 	logger                  *slog.Logger
 	modelsDir               string
+	hub                     *hub.Hub
 	router                  chi.Router
 	http                    *http.Server
 	ctx                     context.Context
@@ -148,6 +150,7 @@ func NewServer(
 		// Public — no auth required.
 		r.Post("/auth/login", srv.handleLogin)
 		r.Get("/twitter/auth/callback", srv.handleTwitterAuthCallback)
+		r.Get("/ws", srv.handleWS)
 
 		// All routes below require a valid JWT.
 		r.Group(func(r chi.Router) {
@@ -332,6 +335,12 @@ func NewServer(
 	}
 
 	return srv
+}
+
+// WithHub wires the WebSocket hub for live event push.
+func (s *Server) WithHub(h *hub.Hub) *Server {
+	s.hub = h
+	return s
 }
 
 // Start begins listening. Blocks until ctx is cancelled or an error occurs.
