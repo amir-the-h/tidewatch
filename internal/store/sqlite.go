@@ -1548,12 +1548,6 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
                COALESCE(json_extract(p.config, '$.map_config.popup_template'), '') AS popup_template
         FROM action_execution_metadata aem_loc
         JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
-        JOIN (
-            SELECT tweet_id, action_id, MAX(id) AS latest_id
-            FROM action_executions
-            WHERE status = 'success'
-            GROUP BY tweet_id, action_id
-        ) latest ON latest.latest_id = ae.id
         JOIN actions a ON a.id = ae.action_id
         JOIN pipelines p ON p.id = a.pipeline_id
         LEFT JOIN tweets t ON t.id = ae.tweet_id
