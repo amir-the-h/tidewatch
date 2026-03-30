@@ -9,13 +9,14 @@ import (
 
 // TweetFilter defines optional filters for listing tweets.
 type TweetFilter struct {
-	RuleID   *int64
-	SourceID *int64
-	EntityID *int64
-	From     *time.Time
-	To       *time.Time
-	Page     int
-	PerPage  int
+	RuleID         *int64
+	SourceID       *int64
+	EntityID       *int64
+	HasEntityTrack bool
+	From           *time.Time
+	To             *time.Time
+	Page           int
+	PerPage        int
 }
 
 // SummaryFilter defines optional filters for listing tweet+summary pairs.

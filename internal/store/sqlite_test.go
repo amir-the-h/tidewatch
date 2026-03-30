@@ -390,6 +390,50 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	}
 }
 
+func TestListTweets_HasEntityTrack(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tw1 := &model.Tweet{ID: "t1", AuthorID: "a1", AuthorHandle: "h1", Text: "tweet 1", RawJSON: []byte(`{}`), CreatedAt: time.Now()}
+	tw2 := &model.Tweet{ID: "t2", AuthorID: "a2", AuthorHandle: "h2", Text: "tweet 2", RawJSON: []byte(`{}`), CreatedAt: time.Now()}
+	if err := s.SaveTweet(ctx, tw1); err != nil {
+		t.Fatalf("SaveTweet tw1: %v", err)
+	}
+	if err := s.SaveTweet(ctx, tw2); err != nil {
+		t.Fatalf("SaveTweet tw2: %v", err)
+	}
+
+	// Create a tracked entity so the foreign key constraint is satisfied.
+	entity := &model.TrackedEntity{Name: "test-entity", Type: "PER", Active: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := s.SaveTrackedEntity(ctx, entity); err != nil {
+		t.Fatalf("SaveTrackedEntity: %v", err)
+	}
+
+	// Only tw1 has an entity track
+	if err := s.SaveEntityTrack(ctx, &model.EntityTrack{EntityID: entity.ID, TweetID: "t1", MatchSource: "ner", CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("SaveEntityTrack: %v", err)
+	}
+
+	all, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100})
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected 2 tweets, got %d", len(all))
+	}
+
+	tracked, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100, HasEntityTrack: true})
+	if err != nil {
+		t.Fatalf("list tracked: %v", err)
+	}
+	if len(tracked) != 1 {
+		t.Fatalf("expected 1 tracked tweet, got %d", len(tracked))
+	}
+	if tracked[0].ID != "t1" {
+		t.Errorf("expected tweet t1, got %s", tracked[0].ID)
+	}
+}
+
 func openTestDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")

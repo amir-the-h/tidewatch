@@ -151,6 +151,8 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
 		where = append(where, "et.entity_id = ?")
 		args = append(args, *filter.EntityID)
+	} else if filter.HasEntityTrack {
+		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
 	}
 	if filter.From != nil {
 		where = append(where, "t.created_at >= ?")

@@ -423,6 +423,17 @@ func outgoingEdges(g *model.ChainGraph, nodeID int64) []*model.ChainEdge {
 	return out
 }
 
+// FirstLevelActionNodes returns the action nodes directly reachable from the
+// chain's start node. Used by the run-chain handler to determine the initial
+// dispatch targets without duplicating the graph-walk logic.
+func FirstLevelActionNodes(g *model.ChainGraph) []*model.ChainNode {
+	start := findStartNode(g)
+	if start == nil {
+		return nil
+	}
+	return directActionTargets(g, start.ID)
+}
+
 // directActionTargets returns action nodes reachable from nodeID in one hop
 // (not through condition nodes).
 func directActionTargets(g *model.ChainGraph, nodeID int64) []*model.ChainNode {
