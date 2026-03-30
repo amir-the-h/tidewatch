@@ -13,6 +13,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/api"
 	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/config"
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
@@ -64,6 +65,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	h := hub.New(logger)
+	go h.Run(ctx)
+
 	s, err := store.NewSQLiteStore(cfg.SQLite.Path, migrations.FS)
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite: %w", err)
@@ -75,6 +79,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}()
 
 	q := queue.NewRedisQueue(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
+	q.WithBroadcaster(h)
 
 	if err := inference.InitRuntime(cfg.Inference.ONNXLibPath); err != nil {
 		return fmt.Errorf("failed to initialize ONNX runtime: %w", err)
@@ -93,6 +98,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load ollama backends: %w", err)
 	}
 	pool := inference.NewBackendPool()
+	pool.WithBroadcaster(h)
 	pool.Load(toBackendRecords(rawBackends))
 	defer pool.Close()
 
@@ -149,6 +155,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	rules := stream.NewRuleManager(cfg.X.BearerToken, nil)
 	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, cache, rules, emitter, logger)
+	streamClient.WithBroadcaster(h)
 
 	workerCount := cfg.Worker.Count
 	if workerCount < 1 {
@@ -172,7 +179,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	searchClient.WithActionCache(cache)
 	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
 
-	mgr := worker.NewManager(workerCount, q, q, s, cache, logger).WithDispatcher(dispatcher)
+	mgr := worker.NewManager(workerCount, q, q, s, cache, logger).WithDispatcher(dispatcher).WithBroadcaster(h)
 
 	jwtSecret := cfg.Auth.JWTSecret
 	if jwtSecret == "" {
@@ -186,6 +193,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir)
+	srv.WithHub(h)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
