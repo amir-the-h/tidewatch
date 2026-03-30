@@ -727,7 +727,7 @@ onMounted(() => {
         <div
           v-else
           ref="graphContainer"
-          style="width: 100%; height: 600px; background: var(--n-card-color); border-radius: 8px; border: 1px solid var(--n-border-color);"
+          style="width: 100%; height: calc(100vh - 200px); min-height: 400px; background: var(--n-card-color); border-radius: 8px; border: 1px solid var(--n-border-color);"
         />
       </n-tab-pane>
     </n-tabs>
