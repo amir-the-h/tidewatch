@@ -71,5 +71,9 @@ export const useModelsStore = defineStore('models', () => {
     return api.runModelPipeline(id)
   }
 
-  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel, addRule, removeRule, run }
+  function setAll(items: typeof models.value) {
+    models.value = items
+  }
+
+  return { models, loading, error, fetchModels, createModel, downloadModel, activate, deactivate, remove, listLabels, addLabel, removeLabel, addRule, removeRule, run, setAll }
 })

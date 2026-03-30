@@ -39,5 +39,9 @@ export const useChainsStore = defineStore('chains', () => {
     return runChain(id, newOnly)
   }
 
-  return { chains, loading, fetchChains, create, remove, activate, deactivate, run }
+  function setAll(items: typeof chains.value) {
+    chains.value = items
+  }
+
+  return { chains, loading, fetchChains, create, remove, activate, deactivate, run, setAll }
 })

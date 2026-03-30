@@ -40,5 +40,9 @@ export const useSourcesStore = defineStore('sources', () => {
     sources.value = sources.value.filter(s => s.id !== id)
   }
 
-  return { sources, loading, error, fetchSources, createSource, update, deactivate, remove }
+  function setAll(items: typeof sources.value) {
+    sources.value = items
+  }
+
+  return { sources, loading, error, fetchSources, createSource, update, deactivate, remove, setAll }
 })

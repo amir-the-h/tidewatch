@@ -72,9 +72,13 @@ export const useEntitiesStore = defineStore('entities', () => {
     }
   }
 
+  function setAll(newItems: typeof items.value) {
+    items.value = newItems
+  }
+
   return {
     items, loading, error,
     tracks, tracksLoading,
-    fetchEntities, create, update, remove, activate, deactivate, fetchTracks,
+    fetchEntities, create, update, remove, activate, deactivate, fetchTracks, setAll,
   }
 })

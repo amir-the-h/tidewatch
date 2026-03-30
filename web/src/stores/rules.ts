@@ -46,5 +46,9 @@ export const useRulesStore = defineStore('rules', () => {
     rules.value = rules.value.filter(r => r.id !== id)
   }
 
-  return { rules, loading, error, fetchRules, createRule, updateRule, activate, deactivate, remove }
+  function setAll(items: typeof rules.value) {
+    rules.value = items
+  }
+
+  return { rules, loading, error, fetchRules, createRule, updateRule, activate, deactivate, remove, setAll }
 })

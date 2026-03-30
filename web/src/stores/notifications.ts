@@ -85,10 +85,19 @@ export const useNotificationsStore = defineStore('notifications', () => {
     if (c) c.active = false
   }
 
+  function setProviders(items: typeof providers.value) {
+    providers.value = items
+  }
+
+  function setChannels(items: typeof channels.value) {
+    channels.value = items
+  }
+
   return {
     providers, channels, loading, error,
     fetchProviders, fetchChannels,
     createProvider, updateProvider, removeProvider, activateProvider, deactivateProvider,
     createChannel, updateChannel, removeChannel, activateChannel, deactivateChannel,
+    setProviders, setChannels,
   }
 })

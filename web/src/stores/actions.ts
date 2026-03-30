@@ -82,10 +82,14 @@ export const useActionsStore = defineStore('actions', () => {
     twitterStatus.value = null
   }
 
+  function setAll(items: typeof actions.value) {
+    actions.value = items
+  }
+
   return {
     actions, loading, error,
     twitterStatus, twitterLoading,
-    fetchActions, createAction, updateAction, activate, deactivate, remove,
+    fetchActions, createAction, updateAction, activate, deactivate, remove, setAll,
     fetchExecutions, fetchAllExecutions,
     fetchTwitterStatus, startTwitterAuth, disconnectTwitter,
   }
