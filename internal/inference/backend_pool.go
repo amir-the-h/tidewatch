@@ -4,8 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
+
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 )
 
 // BackendRecord is DB data for a single Ollama backend, used to populate the pool.
@@ -20,10 +23,11 @@ type BackendRecord struct {
 // A single mutex and condition variable are shared so state changes broadcast
 // to all waiting pipelines.
 type BackendPool struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	backends map[int64]*ollamaBackend
-	cancel   context.CancelFunc
+	mu          sync.Mutex
+	cond        *sync.Cond
+	backends    map[int64]*ollamaBackend
+	cancel      context.CancelFunc
+	broadcaster hub.Broadcaster
 }
 
 // NewBackendPool creates an empty BackendPool. Call Load to populate it.
@@ -33,6 +37,12 @@ func NewBackendPool() *BackendPool {
 	}
 	p.cond = sync.NewCond(&p.mu)
 	return p
+}
+
+// WithBroadcaster wires a broadcaster for live backend health updates.
+// Must be called before Load().
+func (p *BackendPool) WithBroadcaster(b hub.Broadcaster) {
+	p.broadcaster = b
 }
 
 // Load rebuilds the pool from DB records.
@@ -67,6 +77,10 @@ func (p *BackendPool) Load(records []BackendRecord) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	go p.runHealthChecker(ctx)
+
+	if p.broadcaster != nil {
+		p.broadcaster.Broadcast(hub.Event{Type: "ollama_backends", Payload: p.Stats()})
+	}
 }
 
 // Get returns the backend for id, or nil if not found or disabled.
@@ -270,9 +284,19 @@ func (p *BackendPool) runHealthChecker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-unhealthyTick.C:
+			before := p.Stats()
 			p.probeUnhealthy()
+			after := p.Stats()
+			if !reflect.DeepEqual(before, after) && p.broadcaster != nil {
+				p.broadcaster.Broadcast(hub.Event{Type: "ollama_backends", Payload: after})
+			}
 		case <-healthyTick.C:
+			before := p.Stats()
 			p.probeHealthy()
+			after := p.Stats()
+			if !reflect.DeepEqual(before, after) && p.broadcaster != nil {
+				p.broadcaster.Broadcast(hub.Event{Type: "ollama_backends", Payload: after})
+			}
 		}
 	}
 }
