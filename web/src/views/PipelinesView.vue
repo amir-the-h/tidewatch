@@ -74,6 +74,7 @@ interface TransformerSpec {
 const formTransformers = ref<TransformerSpec[]>([])
 const formMapCoordinateKey  = ref('')
 const formMapCoordinateType = ref('array_of_pairs')
+const formMapPopupTemplate  = ref('')
 const transformerTypeOptions = [
   { label: 'Zip Arrays',     value: 'zip_arrays'     },
   { label: 'Normalize',      value: 'normalize'      },
@@ -203,6 +204,7 @@ function openCreate() {
   formTgDisableNotification.value = false; formTgThreadId.value = null
   formMapCoordinateKey.value = ''
   formMapCoordinateType.value = 'array_of_pairs'
+  formMapPopupTemplate.value = ''
   showForm.value = true
 }
 
@@ -258,6 +260,7 @@ function openEdit(row: Pipeline) {
   formTgThreadId.value = row.config?.message_thread_id ?? null
   formMapCoordinateKey.value  = row.config?.map_config?.coordinate_key  ?? ''
   formMapCoordinateType.value = row.config?.map_config?.coordinate_type ?? 'array_of_pairs'
+  formMapPopupTemplate.value  = row.config?.map_config?.popup_template  ?? ''
   showForm.value = true
 }
 
@@ -376,6 +379,7 @@ async function onSave() {
     config.map_config = {
       coordinate_key:  formMapCoordinateKey.value.trim(),
       coordinate_type: formMapCoordinateType.value,
+      ...(formMapPopupTemplate.value.trim() ? { popup_template: formMapPopupTemplate.value.trim() } : {}),
     }
   }
 
@@ -664,6 +668,18 @@ const columns: DataTableColumns<Pipeline> = [
           :options="coordinateTypeOptions"
         />
       </n-form-item>
+      <n-form-item v-if="formMapCoordinateKey.trim()" label="Popup template (optional)">
+        <n-input
+          v-model:value="formMapPopupTemplate"
+          type="textarea"
+          :rows="3"
+          placeholder="${description}&#10;Confidence: ${confidence}"
+          style="font-family: monospace; font-size: 12px"
+        />
+      </n-form-item>
+      <n-text v-if="formMapCoordinateKey.trim()" depth="3" style="font-size:12px; margin-top:-8px; display:block">
+        Use <code>${key}</code> for any execution metadata key. Built-ins: ${tweet_id}, ${tweet_created_at}, ${model_name}. Leave blank for default layout.
+      </n-text>
 
       <!-- Transformers — available for all pipeline types -->
       <n-divider style="margin: 4px 0" />

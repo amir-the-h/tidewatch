@@ -95,13 +95,7 @@ onMounted(async () => {
           weight: 1.5,
         })
 
-        const lines: string[] = []
-        if (pin.description) lines.push(escHtml(pin.description))
-        lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
-        lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
-        lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
-
-        marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })
+        marker.bindPopup(buildPopup(pin, color), { maxWidth: 280 })
         marker.addTo(map!)
       }
       pinCount.value = Math.min(i + RENDER_BATCH, items.length)
@@ -129,6 +123,31 @@ function escHtml(s: string): string {
 
 function fmtDate(d: Date): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// buildPopup returns the HTML string for a pin popup.
+// If the pin has a popup_template, ${key} placeholders are substituted with
+// HTML-escaped values from metadata and built-in variables.
+// Built-ins: ${tweet_id}, ${tweet_created_at}, ${model_name}.
+// Without a template the default layout is rendered.
+function buildPopup(pin: import('../api/map').MapPin, color: string): string {
+  const builtins: Record<string, string> = {
+    tweet_id:        pin.tweet_id,
+    tweet_created_at: fmtDate(new Date(pin.tweet_created_at)),
+    model_name:      pin.model_name,
+  }
+  if (pin.popup_template) {
+    const vars = { ...pin.metadata, ...builtins }
+    return pin.popup_template.replace(/\$\{([^}]+)\}/g, (_, key: string) =>
+      key in vars ? escHtml(vars[key] ?? '') : `\${${key}}`
+    )
+  }
+  const lines: string[] = []
+  if (pin.metadata?.description) lines.push(escHtml(pin.metadata.description))
+  lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
+  lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
+  lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
+  return lines.join('<br>')
 }
 </script>
 

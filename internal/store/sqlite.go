@@ -1540,9 +1540,12 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
         SELECT ae.tweet_id,
                COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
                p.name AS model_name,
-               COALESCE(aem_desc.value, '') AS description,
                aem_loc.value AS coordinates_json,
-               COALESCE(json_extract(p.config, '$.map_config.coordinate_type'), '') AS coordinate_type
+               COALESCE(json_extract(p.config, '$.map_config.coordinate_type'), '') AS coordinate_type,
+               COALESCE((SELECT json_group_object(key, json(value))
+                         FROM action_execution_metadata
+                         WHERE execution_id = ae.id), '{}') AS metadata_json,
+               COALESCE(json_extract(p.config, '$.map_config.popup_template'), '') AS popup_template
         FROM action_execution_metadata aem_loc
         JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
         JOIN (
@@ -1554,8 +1557,6 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
         JOIN actions a ON a.id = ae.action_id
         JOIN pipelines p ON p.id = a.pipeline_id
         LEFT JOIN tweets t ON t.id = ae.tweet_id
-        LEFT JOIN action_execution_metadata aem_desc
-               ON aem_desc.execution_id = ae.id AND aem_desc.key = 'description'
         WHERE aem_loc.key = json_extract(p.config, '$.map_config.coordinate_key')
           AND json_extract(p.config, '$.map_config.coordinate_key') IS NOT NULL
           AND json_extract(p.config, '$.map_config.coordinate_key') != ''
@@ -1576,7 +1577,8 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
 		var coordType string
 		if err := rows.Scan(
 			&pin.TweetID, &pin.TweetCreatedAt, &pin.ModelName,
-			&pin.Description, &pin.CoordinatesJSON, &coordType,
+			&pin.CoordinatesJSON, &coordType,
+			&pin.MetadataJSON, &pin.PopupTemplate,
 		); err != nil {
 			return nil, fmt.Errorf("store: list map pins: scan: %w", err)
 		}

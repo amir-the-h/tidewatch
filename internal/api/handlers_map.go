@@ -12,11 +12,37 @@ import (
 const defaultMapPageSize = 50
 
 type mapPinResponse struct {
-	TweetID        string       `json:"tweet_id"`
-	TweetCreatedAt string       `json:"tweet_created_at"`
-	ModelName      string       `json:"model_name"`
-	Description    string       `json:"description,omitempty"`
-	Coordinates    [][2]float64 `json:"coordinates"`
+	TweetID        string            `json:"tweet_id"`
+	TweetCreatedAt string            `json:"tweet_created_at"`
+	ModelName      string            `json:"model_name"`
+	Coordinates    [][2]float64      `json:"coordinates"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	PopupTemplate  string            `json:"popup_template,omitempty"`
+}
+
+// decodeMetadata parses the JSON object produced by json_group_object into a
+// string map. Each value in action_execution_metadata is itself JSON-encoded;
+// json(value) in the SQL unwraps one level, so string values arrive as JSON
+// strings and are decoded to plain strings here. Non-string values (arrays,
+// numbers) are kept as their compact JSON representation.
+func decodeMetadata(raw string) map[string]string {
+	if raw == "" || raw == "null" || raw == "{}" {
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		var s string
+		if json.Unmarshal(v, &s) == nil {
+			out[k] = s
+		} else {
+			out[k] = string(v)
+		}
+	}
+	return out
 }
 
 // parseCoordinates normalises a raw JSON coordinate value to [][2]float64{lat, lon}.
@@ -101,20 +127,13 @@ func (s *Server) handleListMapPins(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		desc := pin.Description
-		if len(desc) > 0 {
-			var decoded string
-			if json.Unmarshal([]byte(desc), &decoded) == nil {
-				desc = decoded
-			}
-		}
-
 		out = append(out, mapPinResponse{
 			TweetID:        pin.TweetID,
 			TweetCreatedAt: pin.TweetCreatedAt,
 			ModelName:      pin.ModelName,
-			Description:    desc,
 			Coordinates:    coords,
+			Metadata:       decodeMetadata(pin.MetadataJSON),
+			PopupTemplate:  pin.PopupTemplate,
 		})
 	}
 

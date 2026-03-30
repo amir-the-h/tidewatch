@@ -77,9 +77,10 @@ type MapPin struct {
 	TweetID         string               `json:"tweet_id"`
 	TweetCreatedAt  string               `json:"tweet_created_at"`
 	ModelName       string               `json:"model_name"`
-	Description     string               `json:"description,omitempty"`
 	CoordinatesJSON string               `json:"-"` // raw JSON, format indicated by CoordinateType
 	CoordinateType  model.CoordinateType `json:"-"`
+	MetadataJSON    string               `json:"-"` // JSON object of all execution metadata keys
+	PopupTemplate   string               `json:"-"` // from map_config.popup_template, may be empty
 }
 
 // TweetActionSummary is the aggregated result of all successful executions of one
