@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
@@ -25,6 +26,7 @@ type Manager struct {
 	store         store.Store
 	cache         *ActionCache
 	dispatcher    notifier.EventEmitter
+	broadcaster   hub.Broadcaster
 	logger        *slog.Logger
 	active        atomic.Int32
 	workerActions sync.Map // key: int (worker ID), value: WorkerInfo
@@ -34,6 +36,28 @@ type Manager struct {
 func (m *Manager) WithDispatcher(d notifier.EventEmitter) *Manager {
 	m.dispatcher = d
 	return m
+}
+
+// WithBroadcaster sets an optional WebSocket broadcaster for live UI updates.
+func (m *Manager) WithBroadcaster(b hub.Broadcaster) *Manager {
+	m.broadcaster = b
+	return m
+}
+
+// broadcastWorkerStats pushes the current pool stats to all connected WS clients.
+func (m *Manager) broadcastWorkerStats() {
+	if m.broadcaster == nil {
+		return
+	}
+	s := m.Stats()
+	m.broadcaster.Broadcast(hub.Event{
+		Type: "worker_stats",
+		Payload: map[string]int{
+			"total":  s.Total,
+			"active": s.Active,
+			"idle":   s.Idle,
+		},
+	})
 }
 
 func NewManager(
@@ -151,7 +175,11 @@ func (m *Manager) buildReadyKeys() []string {
 
 func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Task) {
 	m.active.Add(1)
-	defer m.active.Add(-1)
+	m.broadcastWorkerStats()
+	defer func() {
+		m.active.Add(-1)
+		m.broadcastWorkerStats()
+	}()
 
 	entry := m.cache.Get(task.ActionID)
 	if entry == nil {
@@ -270,8 +298,15 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 				"pipeline", entry.Pipeline.Name(), "error", runErr)
 		}
 	}
-	if saveErr := m.store.SaveActionExecution(ctx, exec); saveErr != nil && m.logger != nil {
-		m.logger.Warn("worker: save action execution", "error", saveErr)
+	if saveErr := m.store.SaveActionExecution(ctx, exec); saveErr != nil {
+		if m.logger != nil {
+			m.logger.Warn("worker: save action execution", "error", saveErr)
+		}
+	} else if m.broadcaster != nil {
+		m.broadcaster.Broadcast(hub.Event{
+			Type:    "action_execution",
+			Payload: exec,
+		})
 	}
 
 	if runErr != nil {
