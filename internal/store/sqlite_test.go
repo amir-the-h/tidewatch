@@ -443,3 +443,158 @@ func openTestDB(t *testing.T) (*sql.DB, error) {
 	t.Cleanup(func() { _ = db.Close() })
 	return db, nil
 }
+
+func TestEntityCandidate_InsertAndGet(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := &model.EntityCandidate{
+		Word:          "Tehran",
+		Type:          "LOC",
+		AvgConfidence: 0.9,
+		Sources:       []string{"ner-pipeline"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(ctx, c); err != nil {
+		t.Fatalf("UpsertEntityCandidate (insert): %v", err)
+	}
+	if c.ID == 0 {
+		t.Fatal("expected non-zero ID after insert")
+	}
+	if c.OccurrenceCount != 1 {
+		t.Errorf("occurrence_count: got %d, want 1", c.OccurrenceCount)
+	}
+	if c.Status != "pending" {
+		t.Errorf("status: got %q, want \"pending\"", c.Status)
+	}
+
+	got, err := s.GetEntityCandidate(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetEntityCandidate: %v", err)
+	}
+	if got.Word != "Tehran" {
+		t.Errorf("word: got %q, want \"Tehran\"", got.Word)
+	}
+}
+
+func TestEntityCandidate_UpsertUpdatesPendingOnly(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := &model.EntityCandidate{
+		Word:          "IRGC",
+		Type:          "ORG",
+		AvgConfidence: 0.8,
+		Sources:       []string{"pipe-a"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(ctx, c); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	// Second upsert — should increment count and recalculate avg
+	c2 := &model.EntityCandidate{
+		Word:          "IRGC",
+		Type:          "ORG",
+		AvgConfidence: 0.6,
+		Sources:       []string{"pipe-b"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(ctx, c2); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	if c2.OccurrenceCount != 2 {
+		t.Errorf("occurrence_count: got %d, want 2", c2.OccurrenceCount)
+	}
+	// avg = (0.8*1 + 0.6) / 2 = 0.7
+	if c2.AvgConfidence < 0.69 || c2.AvgConfidence > 0.71 {
+		t.Errorf("avg_confidence: got %f, want ~0.7", c2.AvgConfidence)
+	}
+	if len(c2.Sources) != 2 {
+		t.Errorf("sources len: got %d, want 2", len(c2.Sources))
+	}
+
+	// Promote the candidate, then upsert again — count should NOT change
+	if err := s.UpdateEntityCandidateStatus(ctx, c2.ID, "promoted", nil, true); err != nil {
+		t.Fatalf("UpdateEntityCandidateStatus: %v", err)
+	}
+	c3 := &model.EntityCandidate{
+		Word:          "IRGC",
+		Type:          "ORG",
+		AvgConfidence: 0.95,
+		Sources:       []string{"pipe-c"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(ctx, c3); err != nil {
+		t.Fatalf("third upsert on promoted: %v", err)
+	}
+	// Status is promoted — should not have updated count
+	got, _ := s.GetEntityCandidate(ctx, c2.ID)
+	if got.OccurrenceCount != 2 {
+		t.Errorf("promoted candidate count changed: got %d, want 2", got.OccurrenceCount)
+	}
+}
+
+func TestEntityCandidate_ListAndCount(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	for _, word := range []string{"Tehran", "IRGC", "Khamenei"} {
+		c := &model.EntityCandidate{
+			Word:          word,
+			Type:          "LOC",
+			AvgConfidence: 0.8,
+			Sources:       []string{"test"},
+			FirstSeenAt:   time.Now().UTC(),
+			LastSeenAt:    time.Now().UTC(),
+		}
+		if err := s.UpsertEntityCandidate(ctx, c); err != nil {
+			t.Fatalf("upsert %s: %v", word, err)
+		}
+	}
+
+	pending := "pending"
+	list, err := s.ListEntityCandidates(ctx, EntityCandidateFilter{Status: &pending, Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatalf("ListEntityCandidates: %v", err)
+	}
+	if len(list) != 3 {
+		t.Errorf("list len: got %d, want 3", len(list))
+	}
+
+	n, err := s.CountEntityCandidates(ctx, EntityCandidateFilter{Status: &pending})
+	if err != nil {
+		t.Fatalf("CountEntityCandidates: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("count: got %d, want 3", n)
+	}
+}
+
+func TestEntityCandidate_Delete(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	c := &model.EntityCandidate{
+		Word:          "test",
+		Type:          "MISC",
+		AvgConfidence: 0.5,
+		Sources:       []string{"x"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(ctx, c); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := s.DeleteEntityCandidate(ctx, c.ID); err != nil {
+		t.Fatalf("DeleteEntityCandidate: %v", err)
+	}
+	_, err := s.GetEntityCandidate(ctx, c.ID)
+	if err == nil {
+		t.Fatal("expected error after delete, got nil")
+	}
+}

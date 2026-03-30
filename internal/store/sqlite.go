@@ -1581,3 +1581,236 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
 	}
 	return pins, rows.Err()
 }
+
+// ── EntityCandidates ──────────────────────────────────────────────────────────
+
+// UpsertEntityCandidate inserts a new candidate or updates an existing pending
+// one. Promoted and rejected candidates are left untouched.
+// After the call, c.ID, c.OccurrenceCount, c.AvgConfidence, c.Sources, and
+// c.Status are set to the final stored values.
+func (s *sqliteStore) UpsertEntityCandidate(ctx context.Context, c *model.EntityCandidate) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Read existing candidate.
+	var existing struct {
+		id      int64
+		count   int
+		avg     float64
+		sources string
+		status  string
+	}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, occurrence_count, avg_confidence, sources, status
+		 FROM entity_candidates WHERE word = ? AND type = ?`,
+		c.Word, c.Type,
+	).Scan(&existing.id, &existing.count, &existing.avg, &existing.sources, &existing.status)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		// Insert new candidate.
+		srcJSON, _ := json.Marshal(c.Sources)
+		res, err := s.db.ExecContext(ctx,
+			`INSERT INTO entity_candidates
+			 (word, type, occurrence_count, avg_confidence, sources, status, first_seen_at, last_seen_at)
+			 VALUES (?, ?, 1, ?, ?, 'pending', ?, ?)`,
+			c.Word, c.Type, c.AvgConfidence, string(srcJSON), now, now,
+		)
+		if err != nil {
+			return fmt.Errorf("store: upsert entity candidate: insert: %w", err)
+		}
+		id, _ := res.LastInsertId()
+		c.ID = id
+		c.OccurrenceCount = 1
+		c.Status = "pending"
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("store: upsert entity candidate: query: %w", err)
+	}
+
+	c.ID = existing.id
+	c.Status = existing.status
+
+	// Only update pending candidates.
+	if existing.status != "pending" {
+		return nil
+	}
+
+	newCount := existing.count + 1
+	newAvg := (existing.avg*float64(existing.count) + c.AvgConfidence) / float64(newCount)
+
+	var sources []string
+	_ = json.Unmarshal([]byte(existing.sources), &sources)
+	// Append each source name that is not already present.
+	for _, src := range c.Sources {
+		found := false
+		for _, src2 := range sources {
+			if src2 == src {
+				found = true
+				break
+			}
+		}
+		if !found {
+			sources = append(sources, src)
+		}
+	}
+	newSourcesJSON, _ := json.Marshal(sources)
+
+	_, err = s.db.ExecContext(ctx,
+		`UPDATE entity_candidates
+		 SET occurrence_count=?, avg_confidence=?, sources=?, last_seen_at=?
+		 WHERE id=?`,
+		newCount, newAvg, string(newSourcesJSON), now, existing.id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: upsert entity candidate: update: %w", err)
+	}
+
+	c.OccurrenceCount = newCount
+	c.AvgConfidence = newAvg
+	c.Sources = sources
+	return nil
+}
+
+func (s *sqliteStore) GetEntityCandidate(ctx context.Context, id int64) (*model.EntityCandidate, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, word, type, occurrence_count, avg_confidence, sources, status,
+		        promoted_entity_id, auto_promoted, first_seen_at, last_seen_at
+		 FROM entity_candidates WHERE id = ?`, id)
+	c, err := scanEntityCandidate(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("store: get entity candidate: not found: %w", err)
+		}
+		return nil, fmt.Errorf("store: get entity candidate: %w", err)
+	}
+	return c, nil
+}
+
+func (s *sqliteStore) ListEntityCandidates(ctx context.Context, filter EntityCandidateFilter) ([]*model.EntityCandidate, error) {
+	query := `SELECT id, word, type, occurrence_count, avg_confidence, sources, status,
+	                 promoted_entity_id, auto_promoted, first_seen_at, last_seen_at
+	          FROM entity_candidates`
+	var args []any
+	var where []string
+
+	if filter.Status != nil {
+		where = append(where, "status = ?")
+		args = append(args, *filter.Status)
+	}
+	if filter.Type != nil {
+		where = append(where, "type = ?")
+		args = append(args, *filter.Type)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY occurrence_count DESC, last_seen_at DESC"
+
+	page := filter.Page
+	if page < 1 {
+		page = 1
+	}
+	perPage := filter.PerPage
+	if perPage < 1 {
+		perPage = 50
+	}
+	query += fmt.Sprintf(" LIMIT %d OFFSET %d", perPage, (page-1)*perPage)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: list entity candidates: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]*model.EntityCandidate, 0)
+	for rows.Next() {
+		c, err := scanEntityCandidate(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list entity candidates: scan: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	return candidates, rows.Err()
+}
+
+func (s *sqliteStore) CountEntityCandidates(ctx context.Context, filter EntityCandidateFilter) (int, error) {
+	query := `SELECT COUNT(*) FROM entity_candidates`
+	var args []any
+	var where []string
+
+	if filter.Status != nil {
+		where = append(where, "status = ?")
+		args = append(args, *filter.Status)
+	}
+	if filter.Type != nil {
+		where = append(where, "type = ?")
+		args = append(args, *filter.Type)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	var n int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count entity candidates: %w", err)
+	}
+	return n, nil
+}
+
+func (s *sqliteStore) UpdateEntityCandidateStatus(ctx context.Context, id int64, status string, promotedEntityID *int64, autoPromoted bool) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE entity_candidates SET status=?, promoted_entity_id=?, auto_promoted=? WHERE id=?`,
+		status, promotedEntityID, boolToInt(autoPromoted), id,
+	)
+	if err != nil {
+		return fmt.Errorf("store: update entity candidate status: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) DeleteEntityCandidate(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM entity_candidates WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete entity candidate: %w", err)
+	}
+	return nil
+}
+
+// scanEntityCandidate scans a single entity_candidates row from rows or a row.
+type entityCandidateScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanEntityCandidate(row entityCandidateScanner) (*model.EntityCandidate, error) {
+	var c model.EntityCandidate
+	var sourcesJSON string
+	var promotedEntityID sql.NullInt64
+	var autoPromoted int
+	var firstSeenAt, lastSeenAt string
+
+	if err := row.Scan(
+		&c.ID, &c.Word, &c.Type, &c.OccurrenceCount, &c.AvgConfidence,
+		&sourcesJSON, &c.Status, &promotedEntityID, &autoPromoted,
+		&firstSeenAt, &lastSeenAt,
+	); err != nil {
+		return nil, err
+	}
+
+	_ = json.Unmarshal([]byte(sourcesJSON), &c.Sources)
+	if c.Sources == nil {
+		c.Sources = []string{}
+	}
+	if promotedEntityID.Valid {
+		v := promotedEntityID.Int64
+		c.PromotedEntityID = &v
+	}
+	c.AutoPromoted = autoPromoted == 1
+
+	if t, err := time.Parse(time.RFC3339, firstSeenAt); err == nil {
+		c.FirstSeenAt = t
+	}
+	if t, err := time.Parse(time.RFC3339, lastSeenAt); err == nil {
+		c.LastSeenAt = t
+	}
+	return &c, nil
+}

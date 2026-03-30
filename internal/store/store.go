@@ -59,6 +59,14 @@ type EntityTrackFilter struct {
 	PerPage  int
 }
 
+// EntityCandidateFilter filters entity candidate queries.
+type EntityCandidateFilter struct {
+	Status  *string
+	Type    *string
+	Page    int
+	PerPage int
+}
+
 // PipelineFilter defines optional filters for listing pipelines.
 type PipelineFilter struct {
 	Type    *model.PipelineType
@@ -185,6 +193,14 @@ type Store interface {
 	CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error)
 	ListNERSuggestionsForEntity(ctx context.Context, entityID int64) ([]string, error)
 	SearchNERSuggestions(ctx context.Context, name string, entityType string) ([]string, error)
+
+	// EntityCandidates
+	UpsertEntityCandidate(ctx context.Context, c *model.EntityCandidate) error
+	GetEntityCandidate(ctx context.Context, id int64) (*model.EntityCandidate, error)
+	ListEntityCandidates(ctx context.Context, filter EntityCandidateFilter) ([]*model.EntityCandidate, error)
+	CountEntityCandidates(ctx context.Context, filter EntityCandidateFilter) (int, error)
+	UpdateEntityCandidateStatus(ctx context.Context, id int64, status string, promotedEntityID *int64, autoPromoted bool) error
+	DeleteEntityCandidate(ctx context.Context, id int64) error
 
 	// Summaries
 	ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error)
