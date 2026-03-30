@@ -312,7 +312,7 @@ async function renderGraph() {
     if (!graphContainer.value) return
     network = new Network(
       graphContainer.value,
-      { nodes: new DataSet(nodes), edges: new DataSet(edges) },
+      { nodes: new DataSet(nodes as any[]), edges: new DataSet(edges as any[]) },
       {
         physics: { stabilization: { iterations: 100 } },
         edges: {
