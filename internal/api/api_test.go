@@ -23,24 +23,26 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	sources      map[int64]*model.Source
-	rules        map[int64]*model.Rule
-	tweets       map[string]*model.Tweet
-	tweetRules   []*model.TweetRule
-	chains       map[int64]*model.Chain
-	chainGraphs  map[int64]*model.ChainGraph
-	triggerLinks []*model.TriggerChainLink
-	executions   []*model.ActionExecution
-	nextID       int64
+	sources             map[int64]*model.Source
+	rules               map[int64]*model.Rule
+	tweets              map[string]*model.Tweet
+	tweetRules          []*model.TweetRule
+	chains              map[int64]*model.Chain
+	chainGraphs         map[int64]*model.ChainGraph
+	triggerLinks        []*model.TriggerChainLink
+	executions          []*model.ActionExecution
+	entityTrackedTweets map[string]bool
+	nextID              int64
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		sources:     make(map[int64]*model.Source),
-		rules:       make(map[int64]*model.Rule),
-		tweets:      make(map[string]*model.Tweet),
-		chains:      make(map[int64]*model.Chain),
-		chainGraphs: make(map[int64]*model.ChainGraph),
+		sources:             make(map[int64]*model.Source),
+		rules:               make(map[int64]*model.Rule),
+		tweets:              make(map[string]*model.Tweet),
+		chains:              make(map[int64]*model.Chain),
+		chainGraphs:         make(map[int64]*model.ChainGraph),
+		entityTrackedTweets: make(map[string]bool),
 	}
 }
 
@@ -55,9 +57,12 @@ func (m *mockStore) GetTweet(_ context.Context, id string) (*model.Tweet, error)
 	}
 	return t, nil
 }
-func (m *mockStore) ListTweets(_ context.Context, _ store.TweetFilter) ([]*model.Tweet, error) {
+func (m *mockStore) ListTweets(_ context.Context, f store.TweetFilter) ([]*model.Tweet, error) {
 	out := make([]*model.Tweet, 0, len(m.tweets))
 	for _, t := range m.tweets {
+		if f.HasEntityTrack && !m.entityTrackedTweets[t.ID] {
+			continue
+		}
 		out = append(out, t)
 	}
 	return out, nil
@@ -773,6 +778,47 @@ func TestRunChain_NewOnly(t *testing.T) {
 	}
 	if mp.pushed[0].ActionID != 5 {
 		t.Errorf("expected ActionID=5, got %d", mp.pushed[0].ActionID)
+	}
+}
+
+func TestRunChain_EntityMatched(t *testing.T) {
+	srv, ms, mp, _ := newTestServer(t)
+
+	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: true}
+	ms.triggerLinks = []*model.TriggerChainLink{
+		{ID: 1, ChainID: 1, TriggerType: "entity_matched", Active: true},
+	}
+	actionID := int64(5)
+	ms.chainGraphs[1] = &model.ChainGraph{
+		Nodes: []*model.ChainNode{
+			{ID: 9, ChainID: 1, Type: model.ChainNodeTypeStart},
+			{ID: 10, ChainID: 1, Type: model.ChainNodeTypeAction, ActionID: &actionID},
+		},
+		Edges: []*model.ChainEdge{
+			{ID: 1, ChainID: 1, SourceNodeID: 9, TargetNodeID: 10},
+		},
+	}
+	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
+	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+	ms.tweets["t3"] = &model.Tweet{ID: "t3", Text: "tweet 3", AuthorHandle: "h3"}
+	ms.entityTrackedTweets = map[string]bool{"t1": true, "t2": true}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	var result map[string]any
+	_ = json.NewDecoder(w.Body).Decode(&result)
+	if result["queued"] != float64(2) {
+		t.Errorf("expected queued=2 (only entity-tracked tweets), got %v", result["queued"])
+	}
+	if len(mp.pushed) != 2 {
+		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
 	}
 }
 
