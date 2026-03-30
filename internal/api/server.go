@@ -249,6 +249,7 @@ func NewServer(
 				r.Delete("/entity-candidates/{id}", srv.handleDeleteEntityCandidate)
 
 				// Entity Connections
+				r.Get("/entity-connections/subgraph", srv.handleGetEntityConnectionSubgraph)
 				r.Get("/entity-connections", srv.handleListEntityConnections)
 				r.Delete("/entity-connections", srv.handleDeleteEntityConnections)
 
