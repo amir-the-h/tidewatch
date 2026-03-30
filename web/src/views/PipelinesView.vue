@@ -210,7 +210,9 @@ function openEdit(row: Pipeline) {
   editingId.value = row.id
   formName.value = row.name
   formType.value = row.type
-  formConfigText.value = JSON.stringify(row.config ?? {}, null, 2)
+  const configWithoutMap = { ...(row.config ?? {}) }
+  delete configWithoutMap.map_config
+  formConfigText.value = JSON.stringify(configWithoutMap, null, 2)
   // Ollama-specific
   formModel.value = row.config?.model ?? ''
   formUsecase.value = row.config?.usecase ?? 'custom'
