@@ -1593,17 +1593,28 @@ func (s *sqliteStore) UpsertEntityCandidate(ctx context.Context, c *model.Entity
 
 	// Read existing candidate.
 	var existing struct {
-		id      int64
-		count   int
-		avg     float64
-		sources string
-		status  string
+		id            int64
+		count         int
+		avg           float64
+		sources       string
+		status        string
+		word          string
+		typ           string
+		autoPromoted  int
+		promotedEntID sql.NullInt64
+		firstSeenAt   string
+		lastSeenAt    string
 	}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, occurrence_count, avg_confidence, sources, status
+		`SELECT id, occurrence_count, avg_confidence, sources, status,
+		        word, type, auto_promoted, promoted_entity_id, first_seen_at, last_seen_at
 		 FROM entity_candidates WHERE word = ? AND type = ?`,
 		c.Word, c.Type,
-	).Scan(&existing.id, &existing.count, &existing.avg, &existing.sources, &existing.status)
+	).Scan(
+		&existing.id, &existing.count, &existing.avg, &existing.sources, &existing.status,
+		&existing.word, &existing.typ, &existing.autoPromoted, &existing.promotedEntID,
+		&existing.firstSeenAt, &existing.lastSeenAt,
+	)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		// Insert new candidate.
@@ -1627,8 +1638,33 @@ func (s *sqliteStore) UpsertEntityCandidate(ctx context.Context, c *model.Entity
 		return fmt.Errorf("store: upsert entity candidate: query: %w", err)
 	}
 
+	// Save caller-provided values before populating c from the stored row.
+	// Use append to copy the slice — json.Unmarshal reuses backing arrays in-place.
+	callerConfidence := c.AvgConfidence
+	callerSources := append([]string(nil), c.Sources...)
+
+	// Populate c with all stored values so the caller always sees the real state.
 	c.ID = existing.id
 	c.Status = existing.status
+	c.OccurrenceCount = existing.count
+	c.AvgConfidence = existing.avg
+	c.Word = existing.word
+	c.Type = existing.typ
+	c.AutoPromoted = existing.autoPromoted == 1
+	if existing.promotedEntID.Valid {
+		v := existing.promotedEntID.Int64
+		c.PromotedEntityID = &v
+	}
+	_ = json.Unmarshal([]byte(existing.sources), &c.Sources)
+	if c.Sources == nil {
+		c.Sources = []string{}
+	}
+	if t, err2 := time.Parse(time.RFC3339, existing.firstSeenAt); err2 == nil {
+		c.FirstSeenAt = t
+	}
+	if t, err2 := time.Parse(time.RFC3339, existing.lastSeenAt); err2 == nil {
+		c.LastSeenAt = t
+	}
 
 	// Only update pending candidates.
 	if existing.status != "pending" {
@@ -1636,12 +1672,12 @@ func (s *sqliteStore) UpsertEntityCandidate(ctx context.Context, c *model.Entity
 	}
 
 	newCount := existing.count + 1
-	newAvg := (existing.avg*float64(existing.count) + c.AvgConfidence) / float64(newCount)
+	newAvg := (existing.avg*float64(existing.count) + callerConfidence) / float64(newCount)
 
 	var sources []string
 	_ = json.Unmarshal([]byte(existing.sources), &sources)
 	// Append each source name that is not already present.
-	for _, src := range c.Sources {
+	for _, src := range callerSources {
 		found := false
 		for _, src2 := range sources {
 			if src2 == src {
@@ -1777,11 +1813,7 @@ func (s *sqliteStore) DeleteEntityCandidate(ctx context.Context, id int64) error
 }
 
 // scanEntityCandidate scans a single entity_candidates row from rows or a row.
-type entityCandidateScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanEntityCandidate(row entityCandidateScanner) (*model.EntityCandidate, error) {
+func scanEntityCandidate(row scanner) (*model.EntityCandidate, error) {
 	var c model.EntityCandidate
 	var sourcesJSON string
 	var promotedEntityID sql.NullInt64

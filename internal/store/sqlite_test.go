@@ -532,10 +532,20 @@ func TestEntityCandidate_UpsertUpdatesPendingOnly(t *testing.T) {
 	if err := s.UpsertEntityCandidate(ctx, c3); err != nil {
 		t.Fatalf("third upsert on promoted: %v", err)
 	}
-	// Status is promoted — should not have updated count
+	// Status is promoted — should not have updated count.
 	got, _ := s.GetEntityCandidate(ctx, c2.ID)
 	if got.OccurrenceCount != 2 {
 		t.Errorf("promoted candidate count changed: got %d, want 2", got.OccurrenceCount)
+	}
+	// Regression guard: c3 struct must reflect stored values, not stale caller values.
+	if c3.OccurrenceCount != 2 {
+		t.Errorf("c3.OccurrenceCount: got %d, want 2 (stale struct not populated)", c3.OccurrenceCount)
+	}
+	if c3.AvgConfidence < 0.69 || c3.AvgConfidence > 0.71 {
+		t.Errorf("c3.AvgConfidence: got %f, want ~0.7 (stale struct not populated)", c3.AvgConfidence)
+	}
+	if len(c3.Sources) != 2 {
+		t.Errorf("c3.Sources len: got %d, want 2 (stale struct not populated)", len(c3.Sources))
 	}
 }
 
