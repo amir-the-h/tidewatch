@@ -138,7 +138,7 @@ const queueColumns = [
       const eta = perActionEta(row)
       const rate = row.throughput > 0
         ? h('span', { style: { color: '#585b70', fontSize: '11px', marginLeft: '6px' } },
-            `(${row.throughput < 1 ? row.throughput.toFixed(2) : row.throughput.toFixed(1)}/s)`)
+            `(${row.throughput < 0.01 ? row.throughput.toFixed(3) : row.throughput < 1 ? row.throughput.toFixed(2) : row.throughput.toFixed(1)}/s)`)
         : null
       if (!eta) {
         return h('span', { style: { color: '#585b70' } }, '—')
