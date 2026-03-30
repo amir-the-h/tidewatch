@@ -419,6 +419,9 @@ func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityCon
 func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error {
 	return nil
 }
+func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
+	return []*model.EntityConnection{}, nil
+}
 
 func (m *mockStore) Close() error { return nil }
 

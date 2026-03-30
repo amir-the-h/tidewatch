@@ -334,6 +334,9 @@ func (m *mockStore) CountEntityCandidates(_ context.Context, _ store.EntityCandi
 func (m *mockStore) UpsertEntityConnection(_ context.Context, _, _ int64) error { return nil }
 func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityConnection, error) { return nil, nil }
 func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return nil }
+func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
+	return []*model.EntityConnection{}, nil
+}
 func (m *mockStore) Close() error { return nil }
 
 // --- stubPipeline ---
