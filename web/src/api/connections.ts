@@ -15,8 +15,10 @@ export interface EntityConnectionsResponse {
   connections: EntityConnection[]
 }
 
-export const listEntityConnections = () =>
-  apiFetch<EntityConnectionsResponse>('/api/entity-connections')
-
 export const deleteEntityConnections = () =>
   apiFetch<void>('/api/entity-connections', { method: 'DELETE' })
+
+export const getEntitySubgraph = (entityID: number, depth: number, minWeight: number) =>
+  apiFetch<EntityConnectionsResponse>(
+    `/api/entity-connections/subgraph?entity_id=${entityID}&depth=${depth}&min_weight=${minWeight}`
+  )

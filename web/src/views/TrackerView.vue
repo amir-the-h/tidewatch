@@ -276,23 +276,27 @@ async function onTabChange(tab: string) {
     await loadCandidates()
     await candidatesStore.fetchPendingCount()
   } else if (tab === 'connections') {
-    try {
-      await connectionsStore.fetchConnections()
-      await nextTick()
-      await renderGraph()
-    } catch (e: any) {
-      message.error('Failed to load connections: ' + (e?.message ?? 'unknown error'))
-    }
+    // Nothing to fetch until an entity is selected.
   }
 }
 
 // ── Connections tab ───────────────────────────────────────────────────────────
 
 const connectionsStore = useConnectionsStore()
-const graphContainer  = ref<HTMLElement | null>(null)
-const minWeight       = ref(1)
+const graphContainer   = ref<HTMLElement | null>(null)
+const selectedEntityId = ref<number | null>(null)
+const depth            = ref(2)
+const minWeight        = ref(1)
 let network: any = null
 let renderInFlight = false
+let debounceTimer = 0
+
+const entityPickerOptions = computed(() =>
+  store.items.map(e => ({
+    label: e.type ? `${e.name} (${e.type})` : e.name,
+    value: e.id,
+  }))
+)
 
 function destroyNetwork() {
   if (network) {
@@ -306,7 +310,7 @@ async function renderGraph() {
   renderInFlight = true
   destroyNetwork()
   try {
-    const { nodes, edges } = connectionsStore.graphData(minWeight.value)
+    const { nodes, edges } = connectionsStore.graphData()
     if (nodes.length === 0) return
     const { DataSet, Network } = await import('vis-network/standalone')
     if (!graphContainer.value) return
@@ -332,9 +336,31 @@ async function renderGraph() {
   }
 }
 
-watch(minWeight, renderGraph)
+watch([selectedEntityId, depth, minWeight], ([eid]) => {
+  clearTimeout(debounceTimer)
+  if (!eid) {
+    destroyNetwork()
+    return
+  }
+  debounceTimer = window.setTimeout(async () => {
+    try {
+      await connectionsStore.fetchSubgraph(eid as number, depth.value, minWeight.value)
+      await nextTick()
+      await renderGraph()
+    } catch (e: any) {
+      message.error('Failed to load connections: ' + (e?.message ?? 'unknown error'))
+    }
+  }, 300)
+})
 
-onUnmounted(destroyNetwork)
+watch(selectedEntityId, () => {
+  minWeight.value = 1
+})
+
+onUnmounted(() => {
+  clearTimeout(debounceTimer)
+  destroyNetwork()
+})
 
 async function onPromote(c: EntityCandidate) {
   try {
@@ -694,14 +720,33 @@ onMounted(() => {
           </n-space>
         </template>
 
-        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px;">
+        <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+          <n-select
+            v-model:value="selectedEntityId"
+            :options="entityPickerOptions"
+            filterable
+            clearable
+            placeholder="Select an entity…"
+            style="width: 240px"
+          />
+          <span style="font-size: 13px; color: var(--n-text-color-3);">Depth:</span>
+          <n-slider
+            v-model:value="depth"
+            :min="1"
+            :max="5"
+            :step="1"
+            :disabled="!selectedEntityId"
+            style="width: 120px"
+          />
+          <span style="font-size: 13px; min-width: 12px;">{{ depth }}</span>
           <span style="font-size: 13px; color: var(--n-text-color-3);">Min weight:</span>
           <n-slider
             v-model:value="minWeight"
             :min="1"
-            :max="connectionsStore.connections.reduce((m, c) => c.weight > m ? c.weight : m, 1)"
+            :max="connectionsStore.subgraph.reduce((m, c) => c.weight > m ? c.weight : m, 1)"
             :step="1"
-            style="width: 200px"
+            :disabled="!selectedEntityId"
+            style="width: 120px"
           />
           <span style="font-size: 13px; min-width: 20px;">{{ minWeight }}</span>
           <n-button
@@ -709,7 +754,7 @@ onMounted(() => {
             size="small"
             type="error"
             secondary
-            @click="destroyNetwork(); connectionsStore.resetConnections().catch((e: any) => message.error('Reset failed: ' + e?.message))"
+            @click="selectedEntityId = null; destroyNetwork(); connectionsStore.resetConnections().catch((e: any) => message.error('Reset failed: ' + e?.message))"
           >
             Reset
           </n-button>
@@ -719,10 +764,16 @@ onMounted(() => {
           <n-spin />
         </div>
         <div
-          v-else-if="connectionsStore.connections.length === 0"
+          v-else-if="!selectedEntityId"
           style="text-align: center; padding: 60px; color: var(--n-text-color-3);"
         >
-          No connections yet. Set up an <strong>entity_cooccurrence</strong> pipeline chained after entity_matcher to start building the graph.
+          Select an entity to explore its connections.
+        </div>
+        <div
+          v-else-if="connectionsStore.subgraph.length === 0 && !connectionsStore.loading"
+          style="text-align: center; padding: 60px; color: var(--n-text-color-3);"
+        >
+          No connections found for this entity with the current filters.
         </div>
         <div
           v-else

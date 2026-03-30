@@ -1,16 +1,16 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { listEntityConnections, deleteEntityConnections, type EntityConnection } from '../api/connections'
+import { getEntitySubgraph, deleteEntityConnections, type EntityConnection } from '../api/connections'
 
 export const useConnectionsStore = defineStore('connections', () => {
-  const connections = ref<EntityConnection[]>([])
+  const subgraph = ref<EntityConnection[]>([])
   const loading = ref(false)
 
-  async function fetchConnections() {
+  async function fetchSubgraph(entityID: number, depth: number, minWeight: number) {
     loading.value = true
     try {
-      const resp = await listEntityConnections()
-      connections.value = resp.connections
+      const resp = await getEntitySubgraph(entityID, depth, minWeight)
+      subgraph.value = resp.connections
     } finally {
       loading.value = false
     }
@@ -18,16 +18,13 @@ export const useConnectionsStore = defineStore('connections', () => {
 
   async function resetConnections() {
     await deleteEntityConnections()
-    connections.value = []
+    subgraph.value = []
   }
 
-  // Builds vis-network nodes/edges for a given minimum weight threshold.
-  const graphData = computed(() => (minWeight: number) => {
-    const filtered = connections.value.filter(c => c.weight >= minWeight)
-
-    // Collect unique node IDs from filtered edges only.
+  // Builds vis-network nodes/edges from the current subgraph.
+  const graphData = computed(() => () => {
     const nodeMap = new Map<number, { id: number; label: string; type: string; totalWeight: number }>()
-    for (const c of filtered) {
+    for (const c of subgraph.value) {
       for (const [id, name, type] of [[c.from_id, c.from_name, c.from_type], [c.to_id, c.to_name, c.to_type]] as [number, string, string][]) {
         const existing = nodeMap.get(id)
         if (existing) {
@@ -38,7 +35,6 @@ export const useConnectionsStore = defineStore('connections', () => {
       }
     }
 
-    // Scale node size between 10 and 40 based on totalWeight.
     const weights = [...nodeMap.values()].map(n => n.totalWeight)
     const maxW = Math.max(...weights, 1)
 
@@ -49,7 +45,7 @@ export const useConnectionsStore = defineStore('connections', () => {
       size: 10 + Math.round((n.totalWeight / maxW) * 30),
     }))
 
-    const edges = filtered.map(c => ({
+    const edges = subgraph.value.map(c => ({
       from: c.from_id,
       to: c.to_id,
       value: c.weight,
@@ -59,5 +55,5 @@ export const useConnectionsStore = defineStore('connections', () => {
     return { nodes, edges }
   })
 
-  return { connections, loading, fetchConnections, resetConnections, graphData }
+  return { subgraph, loading, fetchSubgraph, resetConnections, graphData }
 })
