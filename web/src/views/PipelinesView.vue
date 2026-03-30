@@ -72,11 +72,20 @@ interface TransformerSpec {
   score_field: string
 }
 const formTransformers = ref<TransformerSpec[]>([])
+const formMapCoordinateKey  = ref('')
+const formMapCoordinateType = ref('array_of_pairs')
 const transformerTypeOptions = [
   { label: 'Zip Arrays',     value: 'zip_arrays'     },
   { label: 'Normalize',      value: 'normalize'      },
   { label: 'Multiply',       value: 'multiply'       },
   { label: 'Group Entities', value: 'group_entities' },
+]
+const coordinateTypeOptions = [
+  { label: 'Array of pairs  [[lat,lon],...]',           value: 'array_of_pairs'   },
+  { label: 'Single pair  [lat,lon]',                    value: 'single_pair'      },
+  { label: 'Object  {"lat":x,"lon":x}',                 value: 'object'           },
+  { label: 'Array of objects  [{"lat":x,"lon":x},...]', value: 'array_of_objects' },
+  { label: 'GeoJSON Point',                             value: 'geojson_point'    },
 ]
 const normalizeMethodOptions = [
   { label: 'Sum (probabilities)',  value: 'sum'     },
@@ -192,6 +201,8 @@ function openCreate() {
   formPushHtml.value = false; formPushRetry.value = null; formPushExpire.value = null
   formTgParseMode.value = null; formTgDisablePreview.value = false
   formTgDisableNotification.value = false; formTgThreadId.value = null
+  formMapCoordinateKey.value = ''
+  formMapCoordinateType.value = 'array_of_pairs'
   showForm.value = true
 }
 
@@ -243,6 +254,8 @@ function openEdit(row: Pipeline) {
   formTgDisablePreview.value = row.config?.disable_web_page_preview ?? false
   formTgDisableNotification.value = row.config?.disable_notification ?? false
   formTgThreadId.value = row.config?.message_thread_id ?? null
+  formMapCoordinateKey.value  = row.config?.map_config?.coordinate_key  ?? ''
+  formMapCoordinateType.value = row.config?.map_config?.coordinate_type ?? 'array_of_pairs'
   showForm.value = true
 }
 
@@ -355,6 +368,13 @@ async function onSave() {
         }
         return spec
       })
+  }
+
+  if (formMapCoordinateKey.value.trim()) {
+    config.map_config = {
+      coordinate_key:  formMapCoordinateKey.value.trim(),
+      coordinate_type: formMapCoordinateType.value,
+    }
   }
 
   saving.value = true
