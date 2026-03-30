@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -29,7 +30,13 @@ type scanner interface {
 // RedisQueue implements both Producer and Consumer using Redis lists.
 // PushTask uses LPUSH; PopTask uses BRPOP (blocking right-pop from a left-push queue).
 type RedisQueue struct {
-	client redisClient
+	client      redisClient
+	broadcaster hub.Broadcaster
+}
+
+// WithBroadcaster wires a broadcaster for live queue-depth updates.
+func (q *RedisQueue) WithBroadcaster(b hub.Broadcaster) {
+	q.broadcaster = b
 }
 
 // NewRedisQueue constructs a RedisQueue connected to the given Redis address.
@@ -48,8 +55,18 @@ func (q *RedisQueue) PushTask(ctx context.Context, task *Task) error {
 	if err != nil {
 		return fmt.Errorf("queue: marshal task: %w", err)
 	}
-	if err := q.client.LPush(ctx, QueueTasksKey(task.ActionID), b).Err(); err != nil {
+	cmd := q.client.LPush(ctx, QueueTasksKey(task.ActionID), b)
+	if err := cmd.Err(); err != nil {
 		return fmt.Errorf("queue: push task: %w", err)
+	}
+	if q.broadcaster != nil {
+		q.broadcaster.Broadcast(hub.Event{
+			Type: "queue_update",
+			Payload: map[string]int64{
+				"action_id": task.ActionID,
+				"pending":   cmd.Val(),
+			},
+		})
 	}
 	return nil
 }
@@ -83,8 +100,15 @@ func (q *RedisQueue) PushFailed(ctx context.Context, ft *FailedTweet) error {
 	if err != nil {
 		return fmt.Errorf("queue: push failed: marshal: %w", err)
 	}
-	if err := q.client.LPush(ctx, QueueFailed, data).Err(); err != nil {
+	cmd := q.client.LPush(ctx, QueueFailed, data)
+	if err := cmd.Err(); err != nil {
 		return fmt.Errorf("queue: push failed: %w", err)
+	}
+	if q.broadcaster != nil {
+		q.broadcaster.Broadcast(hub.Event{
+			Type:    "failed_count",
+			Payload: map[string]int64{"count": cmd.Val()},
+		})
 	}
 	return nil
 }
@@ -141,6 +165,12 @@ func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*Fa
 func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 	if err := q.client.Del(ctx, QueueFailed).Err(); err != nil {
 		return fmt.Errorf("queue: clear failed: %w", err)
+	}
+	if q.broadcaster != nil {
+		q.broadcaster.Broadcast(hub.Event{
+			Type:    "failed_count",
+			Payload: map[string]int64{"count": 0},
+		})
 	}
 	return nil
 }
