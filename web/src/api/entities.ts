@@ -85,3 +85,52 @@ export const searchAliasSuggestions = (name: string, entityType: string) => {
   if (entityType) params.set('type', entityType)
   return apiFetch<string[]>(`/api/alias-suggestions?${params}`)
 }
+
+export interface EntityCandidate {
+  id: number
+  word: string
+  type: string
+  occurrence_count: number
+  avg_confidence: number
+  sources: string[]
+  status: 'pending' | 'promoted' | 'rejected'
+  promoted_entity_id?: number
+  auto_promoted: boolean
+  first_seen_at: string
+  last_seen_at: string
+}
+
+export interface EntityCandidatesResponse {
+  candidates: EntityCandidate[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export interface EntityCandidateFilter {
+  status?: string
+  type?: string
+}
+
+export const listEntityCandidates = (filter: EntityCandidateFilter = {}, page = 1, perPage = 50) => {
+  const params = new URLSearchParams({ page: String(page), per_page: String(perPage) })
+  if (filter.status) params.set('status', filter.status)
+  if (filter.type)   params.set('type',   filter.type)
+  return apiFetch<EntityCandidatesResponse>(`/api/entity-candidates?${params}`)
+}
+
+export const promoteEntityCandidate = (id: number) =>
+  apiFetch<TrackedEntity>(`/api/entity-candidates/${id}/promote`, { method: 'POST' })
+
+export const rejectEntityCandidate = (id: number) =>
+  apiFetch<void>(`/api/entity-candidates/${id}/reject`, { method: 'POST' })
+
+export const mergeEntityCandidate = (id: number, entityId: number) =>
+  apiFetch<TrackedEntity>(`/api/entity-candidates/${id}/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entity_id: entityId }),
+  })
+
+export const deleteEntityCandidate = (id: number) =>
+  apiFetch<void>(`/api/entity-candidates/${id}`, { method: 'DELETE' })
