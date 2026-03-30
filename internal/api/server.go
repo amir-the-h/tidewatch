@@ -369,6 +369,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.http.Shutdown(ctx)
 }
 
+// broadcastEvent fans out a typed event to all connected WebSocket clients.
+// No-op if no hub is configured.
+func (s *Server) broadcastEvent(eventType string, payload any) {
+	if s.hub == nil {
+		return
+	}
+	s.hub.Broadcast(hub.Event{Type: eventType, Payload: payload})
+}
+
 // reloadCache reloads the action cache from the store.
 // Called after any change that affects pipeline or action configuration.
 func (s *Server) reloadCache(ctx context.Context) {

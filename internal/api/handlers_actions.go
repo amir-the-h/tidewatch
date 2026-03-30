@@ -53,6 +53,9 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 	if err := s.actionCache.Load(r.Context()); err != nil {
 		s.logger.Warn("api: reload action cache after create", "error", err)
 	}
+	if list, err := s.store.ListActions(r.Context(), store.ActionFilter{}); err == nil {
+		s.broadcastEvent("actions", list)
+	}
 	writeJSON(w, http.StatusCreated, a)
 }
 
@@ -88,6 +91,9 @@ func (s *Server) handleUpdateAction(w http.ResponseWriter, r *http.Request) {
 	if err := s.actionCache.Load(r.Context()); err != nil {
 		s.logger.Warn("api: reload action cache after update", "error", err)
 	}
+	if list, err := s.store.ListActions(r.Context(), store.ActionFilter{}); err == nil {
+		s.broadcastEvent("actions", list)
+	}
 	writeJSON(w, http.StatusOK, a)
 }
 
@@ -113,6 +119,9 @@ func (s *Server) handleDeleteAction(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("api: delete action: reload cache", "error", err)
 	}
 
+	if list, err := s.store.ListActions(r.Context(), store.ActionFilter{}); err == nil {
+		s.broadcastEvent("actions", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -150,6 +159,9 @@ func (s *Server) setActionActive(w http.ResponseWriter, r *http.Request, active 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve updated action")
 		return
+	}
+	if list, err := s.store.ListActions(r.Context(), store.ActionFilter{}); err == nil {
+		s.broadcastEvent("actions", list)
 	}
 	writeJSON(w, http.StatusOK, a)
 }

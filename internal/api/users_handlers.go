@@ -66,6 +66,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "username already exists")
 		return
 	}
+	if list, err := s.store.ListUsers(r.Context()); err == nil {
+		s.broadcastEvent("users", list)
+	}
 	writeJSON(w, http.StatusCreated, u)
 }
 
@@ -119,6 +122,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if list, err := s.store.ListUsers(r.Context()); err == nil {
+		s.broadcastEvent("users", list)
+	}
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -156,6 +162,9 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("users: delete", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+	if list, err := s.store.ListUsers(r.Context()); err == nil {
+		s.broadcastEvent("users", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

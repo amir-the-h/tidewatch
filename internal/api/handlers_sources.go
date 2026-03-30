@@ -84,6 +84,9 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if list, err := s.store.ListSources(r.Context(), store.SourceFilter{}); err == nil {
+		s.broadcastEvent("sources", list)
+	}
 	writeJSON(w, http.StatusCreated, src)
 }
 
@@ -134,6 +137,9 @@ func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if list, err := s.store.ListSources(r.Context(), store.SourceFilter{}); err == nil {
+		s.broadcastEvent("sources", list)
+	}
 	writeJSON(w, http.StatusOK, existing)
 }
 
@@ -167,6 +173,9 @@ func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if list, err := s.store.ListSources(r.Context(), store.SourceFilter{}); err == nil {
+		s.broadcastEvent("sources", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -200,5 +209,8 @@ func (s *Server) handleDeactivateSource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if list, err := s.store.ListSources(r.Context(), store.SourceFilter{}); err == nil {
+		s.broadcastEvent("sources", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

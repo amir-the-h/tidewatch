@@ -70,6 +70,9 @@ func (s *Server) handleCreateOllamaBackend(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.reloadBackendPool(r.Context())
+	if s.backendPool != nil {
+		s.broadcastEvent("ollama_backends", s.backendPool.Stats())
+	}
 	writeJSON(w, http.StatusCreated, b)
 }
 
@@ -105,6 +108,9 @@ func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.reloadBackendPool(r.Context())
+	if s.backendPool != nil {
+		s.broadcastEvent("ollama_backends", s.backendPool.Stats())
+	}
 	b, err := s.store.GetOllamaBackend(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -126,6 +132,9 @@ func (s *Server) handleDeleteOllamaBackend(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.reloadBackendPool(r.Context())
+	if s.backendPool != nil {
+		s.broadcastEvent("ollama_backends", s.backendPool.Stats())
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -152,6 +161,9 @@ func (s *Server) setOllamaBackendEnabled(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	s.reloadBackendPool(r.Context())
+	if s.backendPool != nil {
+		s.broadcastEvent("ollama_backends", s.backendPool.Stats())
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

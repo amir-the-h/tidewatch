@@ -65,6 +65,9 @@ func (s *Server) handleCreateTrackedEntity(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to create tracked entity")
 		return
 	}
+	if list, err := s.store.ListTrackedEntities(r.Context(), store.TrackedEntityFilter{}); err == nil {
+		s.broadcastEvent("tracked_entities", list)
+	}
 	writeJSON(w, http.StatusCreated, e)
 }
 
@@ -121,6 +124,9 @@ func (s *Server) handleUpdateTrackedEntity(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to update tracked entity")
 		return
 	}
+	if list, err := s.store.ListTrackedEntities(r.Context(), store.TrackedEntityFilter{}); err == nil {
+		s.broadcastEvent("tracked_entities", list)
+	}
 	writeJSON(w, http.StatusOK, e)
 }
 
@@ -135,6 +141,9 @@ func (s *Server) handleDeleteTrackedEntity(w http.ResponseWriter, r *http.Reques
 		s.logger.Error("api: delete tracked entity", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete tracked entity")
 		return
+	}
+	if list, err := s.store.ListTrackedEntities(r.Context(), store.TrackedEntityFilter{}); err == nil {
+		s.broadcastEvent("tracked_entities", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -151,6 +160,9 @@ func (s *Server) handleActivateTrackedEntity(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to activate tracked entity")
 		return
 	}
+	if list, err := s.store.ListTrackedEntities(r.Context(), store.TrackedEntityFilter{}); err == nil {
+		s.broadcastEvent("tracked_entities", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -165,6 +177,9 @@ func (s *Server) handleDeactivateTrackedEntity(w http.ResponseWriter, r *http.Re
 		s.logger.Error("api: deactivate tracked entity", "id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to deactivate tracked entity")
 		return
+	}
+	if list, err := s.store.ListTrackedEntities(r.Context(), store.TrackedEntityFilter{}); err == nil {
+		s.broadcastEvent("tracked_entities", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

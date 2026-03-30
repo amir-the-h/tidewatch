@@ -110,6 +110,9 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		}
 		rule.Active = true
 
+		if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+			s.broadcastEvent("rules", list)
+		}
 		writeJSON(w, http.StatusCreated, rule)
 		return
 	}
@@ -148,6 +151,9 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	rule.XRuleID = xRuleID
 	rule.Active = true
 
+	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+		s.broadcastEvent("rules", list)
+	}
 	writeJSON(w, http.StatusCreated, rule)
 }
 
@@ -254,6 +260,9 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		go s.cascadeRecompile(s.ctx, id)
 	}
 
+	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+		s.broadcastEvent("rules", list)
+	}
 	writeJSON(w, http.StatusOK, existing)
 }
 
@@ -295,6 +304,9 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+		s.broadcastEvent("rules", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -323,6 +335,9 @@ func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rule.Active = true
+		if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+			s.broadcastEvent("rules", list)
+		}
 		writeJSON(w, http.StatusOK, rule)
 		return
 	}
@@ -360,6 +375,9 @@ func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
 	rule.Active = true
 	rule.XRuleID = xRuleID
 
+	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+		s.broadcastEvent("rules", list)
+	}
 	writeJSON(w, http.StatusOK, rule)
 }
 
@@ -387,6 +405,9 @@ func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to deactivate rule")
 			return
 		}
+		if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+			s.broadcastEvent("rules", list)
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -404,6 +425,9 @@ func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
+		s.broadcastEvent("rules", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

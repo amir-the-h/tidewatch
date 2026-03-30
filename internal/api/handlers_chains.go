@@ -57,6 +57,9 @@ func (s *Server) handleCreateChain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if list, err := s.store.ListChains(r.Context()); err == nil {
+		s.broadcastEvent("chains", list)
+	}
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -87,6 +90,9 @@ func (s *Server) handleUpdateChain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if list, err := s.store.ListChains(r.Context()); err == nil {
+		s.broadcastEvent("chains", list)
+	}
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -99,6 +105,9 @@ func (s *Server) handleDeleteChain(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteChain(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if list, err := s.store.ListChains(r.Context()); err == nil {
+		s.broadcastEvent("chains", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -113,6 +122,9 @@ func (s *Server) handleActivateChain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if list, err := s.store.ListChains(r.Context()); err == nil {
+		s.broadcastEvent("chains", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -125,6 +137,9 @@ func (s *Server) handleDeactivateChain(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SetChainActive(r.Context(), id, false); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if list, err := s.store.ListChains(r.Context()); err == nil {
+		s.broadcastEvent("chains", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -158,6 +173,9 @@ func (s *Server) handleSaveChainGraph(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if list, err := s.store.ListChains(r.Context()); err == nil {
+		s.broadcastEvent("chains", list)
 	}
 	writeJSON(w, http.StatusOK, graph)
 }

@@ -52,6 +52,9 @@ func (s *Server) handleCreateNotificationProvider(w http.ResponseWriter, r *http
 		writeError(w, http.StatusInternalServerError, "failed to save notification provider")
 		return
 	}
+	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
+		s.broadcastEvent("notification_providers", list)
+	}
 	writeJSON(w, http.StatusCreated, &p)
 }
 
@@ -97,6 +100,9 @@ func (s *Server) handleUpdateNotificationProvider(w http.ResponseWriter, r *http
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
+		s.broadcastEvent("notification_providers", list)
+	}
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -109,6 +115,9 @@ func (s *Server) handleDeleteNotificationProvider(w http.ResponseWriter, r *http
 		s.logger.Error("api: delete notification provider", "provider_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete notification provider")
 		return
+	}
+	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
+		s.broadcastEvent("notification_providers", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -124,6 +133,9 @@ func (s *Server) handleActivateNotificationProvider(w http.ResponseWriter, r *ht
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
+		s.broadcastEvent("notification_providers", list)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
 }
 
@@ -138,6 +150,9 @@ func (s *Server) handleDeactivateNotificationProvider(w http.ResponseWriter, r *
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
+		s.broadcastEvent("notification_providers", list)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
 
@@ -192,6 +207,9 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to save notification channel")
 		return
 	}
+	if list, err := s.store.ListNotificationChannels(r.Context(), nil); err == nil {
+		s.broadcastEvent("notification_channels", list)
+	}
 	writeJSON(w, http.StatusCreated, &c)
 }
 
@@ -233,6 +251,9 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListNotificationChannels(r.Context(), nil); err == nil {
+		s.broadcastEvent("notification_channels", list)
+	}
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -245,6 +266,9 @@ func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.
 		s.logger.Error("api: delete notification channel", "channel_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete notification channel")
 		return
+	}
+	if list, err := s.store.ListNotificationChannels(r.Context(), nil); err == nil {
+		s.broadcastEvent("notification_channels", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -260,6 +284,9 @@ func (s *Server) handleActivateNotificationChannel(w http.ResponseWriter, r *htt
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListNotificationChannels(r.Context(), nil); err == nil {
+		s.broadcastEvent("notification_channels", list)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
 }
 
@@ -274,6 +301,9 @@ func (s *Server) handleDeactivateNotificationChannel(w http.ResponseWriter, r *h
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListNotificationChannels(r.Context(), nil); err == nil {
+		s.broadcastEvent("notification_channels", list)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }
 

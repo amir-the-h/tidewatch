@@ -86,6 +86,9 @@ func (s *Server) handleCreatePipeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "save pipeline: "+err.Error())
 		return
 	}
+	if list, err := s.store.ListPipelines(r.Context(), store.PipelineFilter{}); err == nil {
+		s.broadcastEvent("pipelines", list)
+	}
 	writeJSON(w, http.StatusCreated, p)
 }
 
@@ -106,6 +109,9 @@ func (s *Server) handleUpdatePipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListPipelines(r.Context(), store.PipelineFilter{}); err == nil {
+		s.broadcastEvent("pipelines", list)
+	}
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -125,6 +131,9 @@ func (s *Server) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "delete pipeline: "+err.Error())
 		return
 	}
+	if list, err := s.store.ListPipelines(r.Context(), store.PipelineFilter{}); err == nil {
+		s.broadcastEvent("pipelines", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -139,6 +148,9 @@ func (s *Server) handleActivatePipeline(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListPipelines(r.Context(), store.PipelineFilter{}); err == nil {
+		s.broadcastEvent("pipelines", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -153,6 +165,9 @@ func (s *Server) handleDeactivatePipeline(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.reloadCache(r.Context())
+	if list, err := s.store.ListPipelines(r.Context(), store.PipelineFilter{}); err == nil {
+		s.broadcastEvent("pipelines", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
