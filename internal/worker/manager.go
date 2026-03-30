@@ -52,10 +52,11 @@ func (m *Manager) broadcastWorkerStats() {
 	s := m.Stats()
 	m.broadcaster.Broadcast(hub.Event{
 		Type: "worker_stats",
-		Payload: map[string]int{
-			"total":  s.Total,
-			"active": s.Active,
-			"idle":   s.Idle,
+		Payload: map[string]any{
+			"total":          s.Total,
+			"active":         s.Active,
+			"idle":           s.Idle,
+			"active_workers": s.ActiveWorkers,
 		},
 	})
 }
