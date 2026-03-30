@@ -25,7 +25,7 @@ const adminMenuOptions = [
   { label: 'Pipelines',        key: '/pipelines' },
   { label: 'Ollama Backends',  key: '/ollama' },
   { label: 'Notifications',    key: '/notifications' },
-  { label: 'Tracked Entities', key: '/tracked-entities' },
+  { label: 'Tracker',          key: '/tracker' },
   { label: 'Actions',          key: '/actions' },
   { label: 'Digest',           key: '/summarize' },
   { label: 'Chat',             key: '/chat' },
@@ -34,9 +34,9 @@ const adminMenuOptions = [
 ]
 
 const viewerMenuOptions = [
-  { label: 'Map',              key: '/map' },
-  { label: 'Tweets',           key: '/tweets' },
-  { label: 'Tracked Entities', key: '/tracked-entities' },
+  { label: 'Map',     key: '/map' },
+  { label: 'Tweets',  key: '/tweets' },
+  { label: 'Tracker', key: '/tracker' },
 ]
 
 const menuOptions = computed(() => auth.isAdmin ? adminMenuOptions : viewerMenuOptions)
