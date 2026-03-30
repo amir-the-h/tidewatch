@@ -20,13 +20,13 @@ import (
 
 // Manager launches N worker goroutines that pop Tasks from Redis.
 type Manager struct {
-	totalWorkers  int
-	consumer      queue.Consumer
-	producer      queue.Producer
-	store         store.Store
-	cache         *ActionCache
-	dispatcher    notifier.EventEmitter
-	broadcaster   hub.Broadcaster
+	totalWorkers       int
+	consumer           queue.Consumer
+	producer           queue.Producer
+	store              store.Store
+	cache              *ActionCache
+	dispatcher         notifier.EventEmitter
+	broadcaster        hub.Broadcaster
 	logger             *slog.Logger
 	active             atomic.Int32
 	workerActions      sync.Map // key: int (worker ID), value: WorkerInfo
@@ -217,6 +217,8 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	}
 
 	if task.TriggerType == "digest_requested" {
+		// Digest tasks are excluded from the throughput tracker — they are long-running
+		// one-offs with a different completion profile and would skew per-action rate estimates.
 		m.processDigestTask(ctx, workerID, task, entry)
 		return
 	}
