@@ -310,7 +310,6 @@ func NewServer(
 				r.Delete("/actions/{id}", srv.handleDeleteAction)
 				r.Post("/actions/{id}/activate", srv.handleActivateAction)
 				r.Post("/actions/{id}/deactivate", srv.handleDeactivateAction)
-				r.Post("/actions/{id}/run", srv.handleRunAction)
 
 				// Action execution log
 				r.Get("/actions/{id}/executions", srv.handleListActionExecutions)

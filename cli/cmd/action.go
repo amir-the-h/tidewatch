@@ -206,28 +206,6 @@ func actionLifecycle(action string) func(*cobra.Command, []string) error {
 	}
 }
 
-var actionRunCmd = &cobra.Command{
-	Use:   "run <id>",
-	Short: "Queue all matching tweets through an action",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := apiPost(baseURL+"/api/actions/"+url.PathEscape(args[0])+"/run", nil)
-		if err != nil {
-			return fmt.Errorf("action run: %w", err)
-		}
-		defer resp.Body.Close()
-		if err := handleAPIError(cmd, resp); err != nil {
-			return err
-		}
-		var result map[string]any
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			return fmt.Errorf("action run: decode: %w", err)
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Queued %s tweets\n", formatField(result["queued"]))
-		return nil
-	},
-}
-
 var actionExecutionsCmd = &cobra.Command{
 	Use:   "executions <id>",
 	Short: "List executions for an action",
@@ -286,7 +264,6 @@ func init() {
 	actionCmd.AddCommand(actionRemoveCmd)
 	actionCmd.AddCommand(actionActivateCmd)
 	actionCmd.AddCommand(actionDeactivateCmd)
-	actionCmd.AddCommand(actionRunCmd)
 	actionCmd.AddCommand(actionExecutionsCmd)
 	rootCmd.AddCommand(actionCmd)
 }

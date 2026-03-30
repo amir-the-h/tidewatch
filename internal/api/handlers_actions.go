@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
@@ -216,60 +215,6 @@ func applyExecutionQueryParams(r *http.Request, filter *store.ExecutionFilter) {
 			filter.To = &t
 		}
 	}
-}
-
-func (s *Server) handleRunAction(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid action ID")
-		return
-	}
-
-	a, err := s.store.GetAction(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "action not found")
-		return
-	}
-	if !a.Active {
-		writeError(w, http.StatusUnprocessableEntity, "action is not active")
-		return
-	}
-
-	// Collect all tweets for manual re-run.
-	tweets, err := s.tweetsForAction(r.Context(), a)
-	if err != nil {
-		s.logger.Error("api: run action: fetch tweets", "action_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to fetch tweets")
-		return
-	}
-
-	count := 0
-	for _, tweet := range tweets {
-		ev, _ := json.Marshal(queue.TweetEvent{
-			TweetID:      tweet.ID,
-			Text:         tweet.Text,
-			AuthorHandle: tweet.AuthorHandle,
-		})
-		task := &queue.Task{
-			TriggerType: "new_tweet",
-			Event:       ev,
-			ActionID:    a.ID,
-			Context:     map[string]any{},
-		}
-		if err := s.producer.PushTask(r.Context(), task); err != nil {
-			s.logger.Error("api: run action: push", "tweet_id", tweet.ID, "error", err)
-			continue
-		}
-		count++
-	}
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
-}
-
-// tweetsForAction returns all tweets for manual action re-run.
-func (s *Server) tweetsForAction(ctx context.Context, a *model.Action) ([]*model.Tweet, error) {
-	const pageSize = 5000
-	return s.store.ListTweets(ctx, store.TweetFilter{Page: 1, PerPage: pageSize})
 }
 
 // handleGetExecutionMetadata returns the metadata key-value pairs for a single execution.
