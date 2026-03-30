@@ -15,11 +15,13 @@ import (
 
 // PushInitialChainTasks dispatches tasks for the first-level action nodes in all active
 // chains linked to triggerType. Called by the stream listener and search client when a
-// new tweet arrives.
+// new tweet arrives. cache is used to skip tasks for disabled actions; pass nil to
+// disable the check (tasks will still be dropped by the worker if the action is inactive).
 func PushInitialChainTasks(
 	ctx context.Context,
 	st store.Store,
 	producer queue.Producer,
+	cache *ActionCache,
 	triggerType string,
 	ev queue.TweetEvent,
 	logger *slog.Logger,
@@ -97,6 +99,14 @@ func PushInitialChainTasks(
 				}
 				continue
 			}
+			if cache != nil && cache.Get(*actionNode.ActionID) == nil {
+				if logger != nil {
+					logger.Info("chain: skipping task for inactive action",
+						"chain_id", link.ChainID, "node_id", actionNode.ID,
+						"action_id", *actionNode.ActionID)
+				}
+				continue
+			}
 			task := &queue.Task{
 				TriggerType: triggerType,
 				Event:       eventPayload,
@@ -127,11 +137,13 @@ func PushInitialChainTasks(
 
 // PushContinuationTasks is called by the worker after successfully running an action.
 // It evaluates outgoing edges from task.ChainNodeID and pushes tasks for downstream
-// action nodes whose conditions are satisfied.
+// action nodes whose conditions are satisfied. cache is used to skip tasks for disabled
+// actions; pass nil to disable the check.
 func PushContinuationTasks(
 	ctx context.Context,
 	st store.Store,
 	producer queue.Producer,
+	cache *ActionCache,
 	task *queue.Task,
 	mergedCtx map[string]any,
 	logger *slog.Logger,
@@ -222,6 +234,14 @@ func PushContinuationTasks(
 				}
 				continue
 			}
+			if cache != nil && cache.Get(*targetNode.ActionID) == nil {
+				if logger != nil {
+					logger.Info("chain: skipping downstream task for inactive action",
+						"chain_id", chainID, "node_id", targetNode.ID,
+						"action_id", *targetNode.ActionID)
+				}
+				continue
+			}
 			if logger != nil {
 				logger.Info("chain: pushing downstream action task",
 					"chain_id", chainID,
@@ -265,6 +285,14 @@ func PushContinuationTasks(
 							"node_id", nextNode.ID,
 							"type", nextNode.Type,
 						)
+					}
+					continue
+				}
+				if cache != nil && cache.Get(*nextNode.ActionID) == nil {
+					if logger != nil {
+						logger.Info("chain: skipping downstream task for inactive action (post-condition)",
+							"chain_id", chainID, "node_id", nextNode.ID,
+							"action_id", *nextNode.ActionID)
 					}
 					continue
 				}

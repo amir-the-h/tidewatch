@@ -53,5 +53,12 @@ export const useTweetsStore = defineStore('tweets', () => {
     return result
   }
 
-  return { tweets, total, loading, error, page, perPage, fetchTweets, goToPage, getTweet, reprocess, remove, deleteNoise }
+  function prependTweet(tweet: Tweet) {
+    total.value++
+    if (page.value === 1) {
+      tweets.value = [tweet, ...tweets.value].slice(0, perPage.value)
+    }
+  }
+
+  return { tweets, total, loading, error, page, perPage, fetchTweets, goToPage, getTweet, reprocess, remove, deleteNoise, prependTweet }
 })

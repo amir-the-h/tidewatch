@@ -327,6 +327,14 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		})
 	}
 
+	// 2c. Broadcast new tweet to connected WebSocket clients.
+	if c.broadcaster != nil {
+		c.broadcaster.Broadcast(hub.Event{
+			Type:    "new_tweet",
+			Payload: st.Tweet,
+		})
+	}
+
 	// Dispatch tasks for all action nodes in chains linked to "new_tweet".
 	ev := queue.TweetEvent{
 		TweetID:      st.Tweet.ID,
@@ -334,7 +342,7 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		AuthorHandle: st.Tweet.AuthorHandle,
 		RuleIDs:      resolvedRuleIDs,
 	}
-	if err := worker.PushInitialChainTasks(ctx, c.store, c.producer, "new_tweet", ev, c.logger); err != nil {
+	if err := worker.PushInitialChainTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger); err != nil {
 		c.logger.Warn("stream: chain dispatch failed",
 			"component", "stream",
 			"tweet_id", st.Tweet.ID,

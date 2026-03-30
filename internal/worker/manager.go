@@ -390,7 +390,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	}
 
 	// Continue chain: push tasks for downstream action nodes whose conditions pass.
-	PushContinuationTasks(ctx, m.store, m.producer, task, mergedCtx, m.logger)
+	PushContinuationTasks(ctx, m.store, m.producer, m.cache, task, mergedCtx, m.logger)
 }
 
 func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *queue.Task, entry *CacheEntry) {
