@@ -75,6 +75,12 @@ const formTransformers = ref<TransformerSpec[]>([])
 const formMapCoordinateKey  = ref('')
 const formMapCoordinateType = ref('array_of_pairs')
 const formMapPopupTemplate  = ref('')
+
+// entity_discovery-specific config
+const formDiscoveryMinConfidence    = ref(0.75)
+const formDiscoveryMinFrequency     = ref(3)
+const formDiscoveryAutoPromoteTypes = ref<string[]>([])
+const formDiscoveryEntityKey        = ref('entities')
 const transformerTypeOptions = [
   { label: 'Zip Arrays',     value: 'zip_arrays'     },
   { label: 'Normalize',      value: 'normalize'      },
@@ -205,6 +211,10 @@ function openCreate() {
   formMapCoordinateKey.value = ''
   formMapCoordinateType.value = 'array_of_pairs'
   formMapPopupTemplate.value = ''
+  formDiscoveryMinConfidence.value    = 0.75
+  formDiscoveryMinFrequency.value     = 3
+  formDiscoveryAutoPromoteTypes.value = []
+  formDiscoveryEntityKey.value        = 'entities'
   showForm.value = true
 }
 
@@ -221,6 +231,10 @@ function openEdit(row: Pipeline) {
   formSystemPrompt.value = row.config?.system_prompt ?? ''
   // Internal-specific
   formHandler.value = row.config?.handler ?? null
+  formDiscoveryMinConfidence.value    = row.config?.min_confidence    ?? 0.75
+  formDiscoveryMinFrequency.value     = row.config?.min_frequency     ?? 3
+  formDiscoveryAutoPromoteTypes.value = Array.isArray(row.config?.auto_promote_types) ? [...row.config.auto_promote_types] : []
+  formDiscoveryEntityKey.value        = row.config?.entity_key        ?? 'entities'
   // ONNX-specific
   formPath.value = row.config?.path ?? ''
   formLabels.value = Array.isArray(row.config?.labels) ? [...row.config.labels] : []
@@ -343,6 +357,12 @@ async function onSave() {
     }
     if (formType.value === 'internal' && formHandler.value) {
       config.handler = formHandler.value
+    }
+    if (formHandler.value === 'entity_discovery') {
+      config.min_confidence     = formDiscoveryMinConfidence.value
+      config.min_frequency      = formDiscoveryMinFrequency.value
+      config.auto_promote_types = formDiscoveryAutoPromoteTypes.value
+      config.entity_key         = formDiscoveryEntityKey.value
     }
   }
 
@@ -525,6 +545,43 @@ const columns: DataTableColumns<Pipeline> = [
           clearable
         />
       </n-form-item>
+
+      <!-- entity_discovery config fields -->
+      <template v-if="formType === 'internal' && formHandler === 'entity_discovery'">
+        <n-form-item label="Min Confidence (0–1)">
+          <n-input-number
+            v-model:value="formDiscoveryMinConfidence"
+            :min="0" :max="1" :step="0.05"
+            placeholder="0.75"
+            style="width:160px"
+          />
+        </n-form-item>
+        <n-form-item label="Min Frequency">
+          <n-input-number
+            v-model:value="formDiscoveryMinFrequency"
+            :min="1" :step="1"
+            placeholder="3"
+            style="width:120px"
+          />
+        </n-form-item>
+        <n-form-item label="Auto-Promote Types">
+          <n-select
+            v-model:value="formDiscoveryAutoPromoteTypes"
+            multiple
+            clearable
+            :options="[
+              { label: 'LOC — Location',     value: 'LOC'  },
+              { label: 'PER — Person',       value: 'PER'  },
+              { label: 'ORG — Organization', value: 'ORG'  },
+              { label: 'MISC — Misc',        value: 'MISC' },
+            ]"
+            placeholder="None (all queue for review)"
+          />
+        </n-form-item>
+        <n-form-item label="Entity Key">
+          <n-input v-model:value="formDiscoveryEntityKey" placeholder="entities" />
+        </n-form-item>
+      </template>
 
       <!-- Ollama-specific fields -->
       <template v-if="formType === 'ollama'">

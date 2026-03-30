@@ -37,3 +37,20 @@ type NEREntity struct {
 	Label string  `json:"label"`
 	Score float32 `json:"score"`
 }
+
+// EntityCandidate is an entity discovered from tweet text that has not yet
+// been reviewed. Candidates are upserted on every extraction run; once they
+// cross confidence + frequency thresholds they are auto-promoted to TrackedEntity.
+type EntityCandidate struct {
+	ID               int64     `json:"id"`
+	Word             string    `json:"word"`
+	Type             string    `json:"type"`
+	OccurrenceCount  int       `json:"occurrence_count"`
+	AvgConfidence    float64   `json:"avg_confidence"`
+	Sources          []string  `json:"sources"` // pipeline names that contributed
+	Status           string    `json:"status"`  // pending | promoted | rejected
+	PromotedEntityID *int64    `json:"promoted_entity_id,omitempty"`
+	AutoPromoted     bool      `json:"auto_promoted"`
+	FirstSeenAt      time.Time `json:"first_seen_at"`
+	LastSeenAt       time.Time `json:"last_seen_at"`
+}

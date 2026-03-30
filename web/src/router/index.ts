@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 // Routes accessible to viewers (read-only access).
-const VIEWER_ROUTES = new Set(['/map', '/tweets', '/tracked-entities'])
+const VIEWER_ROUTES = new Set(['/map', '/tweets', '/tracker'])
 
 export default createRouter({
   history: createWebHistory(),
@@ -16,7 +16,8 @@ export default createRouter({
     { path: '/sources', component: () => import('../views/SourcesView.vue') },
     { path: '/pipelines', component: () => import('../views/PipelinesView.vue') },
     { path: '/notifications', component: () => import('../views/NotificationsView.vue') },
-    { path: '/tracked-entities', component: () => import('../views/TrackedEntitiesView.vue') },
+    { path: '/tracked-entities', redirect: '/tracker' },
+    { path: '/tracker', component: () => import('../views/TrackerView.vue') },
     { path: '/queue', component: () => import('../views/QueueView.vue') },
     { path: '/failures', redirect: '/queue' },
     { path: '/summarize', component: () => import('../views/SummarizeView.vue') },

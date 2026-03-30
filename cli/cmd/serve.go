@@ -131,6 +131,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Build internal pipeline registry.
 	pipeReg := pipeline.NewRegistry()
 	pipeReg.Register("entity_matcher", pipeline.NewEntityMatcherFactory(s))
+	pipeReg.Register("entity_discovery", pipeline.NewEntityDiscoveryFactory(s))
 	if twitterClient != nil {
 		pipeReg.Register("twitter_retweet", pipeline.NewRetweetFactory(twitterClient))
 		pipeReg.Register("twitter_like", pipeline.NewLikeFactory(twitterClient))
