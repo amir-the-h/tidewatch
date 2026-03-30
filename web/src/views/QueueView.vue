@@ -34,7 +34,10 @@ async function fetchStats() {
 async function fetchQueues() {
   try {
     const data = await getQueue()
-    queuesStore.setQueues(data.queues)
+    queuesStore.setQueues(data.queues.map(e => ({
+      ...e,
+      workers: (e.workers ?? []).map(w => ({ id: w.id, backend: w.backend ?? '' })),
+    })))
     pendingHistory.value.push({ t: Date.now(), v: queuesStore.totalPending })
     if (pendingHistory.value.length > 10) pendingHistory.value.shift()
   } catch { /* ignore */ }
