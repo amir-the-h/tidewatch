@@ -91,6 +91,16 @@ func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration, keys ..
 	if err := json.Unmarshal([]byte(res[1]), &t); err != nil {
 		return nil, fmt.Errorf("queue: pop task: unmarshal: %w", err)
 	}
+	if q.broadcaster != nil {
+		pending, _ := q.client.LLen(ctx, res[0]).Result()
+		q.broadcaster.Broadcast(hub.Event{
+			Type: "queue_update",
+			Payload: map[string]int64{
+				"action_id": t.ActionID,
+				"pending":   pending,
+			},
+		})
+	}
 	return &t, nil
 }
 

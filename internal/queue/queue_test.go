@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -317,4 +318,86 @@ func TestQueueTasksKey_Zero(t *testing.T) {
 	if key != want {
 		t.Errorf("QueueTasksKey(0) = %q, want %q", key, want)
 	}
+}
+
+// captureBroadcaster records all Broadcast calls for test assertions.
+type captureBroadcaster struct {
+	events []hub.Event
+}
+
+func (b *captureBroadcaster) Broadcast(e hub.Event) {
+	b.events = append(b.events, e)
+}
+
+// brpopSuccessFakeClient returns a successful BRPOP result with a configurable LLEN.
+type brpopSuccessFakeClient struct {
+	fakeRedisClient
+	brpopKey   string
+	brpopVal   string
+	llenResult int64
+}
+
+func (f *brpopSuccessFakeClient) BRPop(_ context.Context, _ time.Duration, _ ...string) *redis.StringSliceCmd {
+	return redis.NewStringSliceResult([]string{f.brpopKey, f.brpopVal}, nil)
+}
+
+func (f *brpopSuccessFakeClient) LLen(_ context.Context, _ string) *redis.IntCmd {
+	return redis.NewIntResult(f.llenResult, nil)
+}
+
+func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
+	ev, _ := json.Marshal(TweetEvent{TweetID: "1", Text: "test", AuthorHandle: "user"})
+	taskJSON, _ := json.Marshal(&Task{
+		TriggerType: "new_tweet",
+		ActionID:    7,
+		Event:       json.RawMessage(ev),
+		Context:     map[string]any{},
+	})
+	fake := &brpopSuccessFakeClient{
+		brpopKey:   "iran-watcher:tasks:7",
+		brpopVal:   string(taskJSON),
+		llenResult: 5,
+	}
+	bc := &captureBroadcaster{}
+	q := &RedisQueue{client: fake, broadcaster: bc}
+
+	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:7")
+	if err != nil {
+		t.Fatalf("PopTask: %v", err)
+	}
+	if task == nil {
+		t.Fatal("expected non-nil task")
+	}
+	if len(bc.events) != 1 {
+		t.Fatalf("expected 1 broadcast event, got %d", len(bc.events))
+	}
+	if bc.events[0].Type != "queue_update" {
+		t.Errorf("event type: got %q, want %q", bc.events[0].Type, "queue_update")
+	}
+	payload, ok := bc.events[0].Payload.(map[string]int64)
+	if !ok {
+		t.Fatalf("expected map[string]int64 payload, got %T", bc.events[0].Payload)
+	}
+	if payload["action_id"] != 7 {
+		t.Errorf("action_id: got %d, want 7", payload["action_id"])
+	}
+	if payload["pending"] != 5 {
+		t.Errorf("pending: got %d, want 5", payload["pending"])
+	}
+}
+
+func TestPopTask_NoBroadcastWhenNoBroadcaster(t *testing.T) {
+	ev, _ := json.Marshal(TweetEvent{TweetID: "2", Text: "x", AuthorHandle: "u"})
+	taskJSON, _ := json.Marshal(&Task{TriggerType: "new_tweet", ActionID: 3, Event: json.RawMessage(ev), Context: map[string]any{}})
+	fake := &brpopSuccessFakeClient{brpopKey: "iran-watcher:tasks:3", brpopVal: string(taskJSON), llenResult: 0}
+	q := &RedisQueue{client: fake} // no broadcaster
+
+	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:3")
+	if err != nil {
+		t.Fatalf("PopTask: %v", err)
+	}
+	if task == nil {
+		t.Fatal("expected non-nil task")
+	}
+	// No panic = pass
 }
