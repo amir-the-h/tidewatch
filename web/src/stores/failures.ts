@@ -35,5 +35,9 @@ export const useFailuresStore = defineStore('failures', () => {
     total.value    = 0
   }
 
-  return { failures, total, loading, error, page, perPage, fetch, clear }
+  function setTotal(n: number) {
+    total.value = n
+  }
+
+  return { failures, total, loading, error, page, perPage, fetch, clear, setTotal }
 })

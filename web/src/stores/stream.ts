@@ -34,5 +34,9 @@ export const useStreamStore = defineStore('stream', () => {
     finally { loading.value = false }
   }
 
-  return { connected, healthy, loading, error, fetchStatus, connect, disconnect }
+  function setConnected(v: boolean) {
+    connected.value = v
+  }
+
+  return { connected, healthy, loading, error, fetchStatus, connect, disconnect, setConnected }
 })
