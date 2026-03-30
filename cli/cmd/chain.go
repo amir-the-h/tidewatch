@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/spf13/cobra"
 )
@@ -24,7 +25,7 @@ var chainRunCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("chain run: %w", err)
 		}
-		resp, err := apiPost(baseURL+"/api/chains/"+args[0]+"/run", body)
+		resp, err := apiPost(baseURL+"/api/chains/"+url.PathEscape(args[0])+"/run", body)
 		if err != nil {
 			return fmt.Errorf("chain run: %w", err)
 		}

@@ -235,6 +235,8 @@ func (s *Server) handleRunChain(w http.ResponseWriter, r *http.Request) {
 
 	// Push tasks: for each active trigger link, select eligible tweets and dispatch.
 	count := 0
+	seenTweetIDs := make(map[string]struct{})
+
 	for _, link := range links {
 		filter := store.TweetFilter{Page: 1, PerPage: 5000}
 		switch link.TriggerType {
@@ -253,6 +255,11 @@ func (s *Server) handleRunChain(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for _, tweet := range tweets {
+			if _, seen := seenTweetIDs[tweet.ID]; seen {
+				continue
+			}
+			seenTweetIDs[tweet.ID] = struct{}{}
+
 			if req.NewOnly {
 				if _, done := executedIDs[tweet.ID]; done {
 					continue

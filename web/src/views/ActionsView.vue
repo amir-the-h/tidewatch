@@ -216,8 +216,8 @@ function openRunChain(row: Chain) {
   showRunModal.value = true
 }
 
-async function onConfirmRunChain() {
-  if (!runChainRow.value) return
+async function onConfirmRunChain(): Promise<false | void> {
+  if (!runChainRow.value) return false
   runningChain.value = true
   try {
     const res = await chainsStore.run(runChainRow.value.id, runNewOnly.value)
@@ -228,6 +228,7 @@ async function onConfirmRunChain() {
   } finally {
     runningChain.value = false
   }
+  return false
 }
 
 const chainColumns: DataTableColumns<Chain> = [
@@ -535,7 +536,7 @@ onMounted(async () => {
     <n-radio-group v-model:value="runNewOnly" style="margin-top: 8px;">
       <n-space vertical :size="8">
         <n-radio :value="false">All eligible tweets</n-radio>
-        <n-radio :value="true">Only tweets without existing chain executions</n-radio>
+        <n-radio :value="true">Only tweets without existing executions for this chain's actions</n-radio>
       </n-space>
     </n-radio-group>
   </n-modal>
