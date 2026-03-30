@@ -174,6 +174,7 @@ func NewServer(
 			r.Get("/tracked-entities/{id}/tracks", srv.handleListEntityTracks)
 			r.Get("/tracked-entities/{id}/alias-suggestions", srv.handleListEntityAliasSuggestions)
 			r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
+			r.Get("/entity-connections/subgraph", srv.handleGetEntityConnectionSubgraph)
 
 			// Chains (read) and triggers — all authenticated users.
 			r.Get("/chains", srv.handleListChains)
@@ -249,7 +250,6 @@ func NewServer(
 				r.Delete("/entity-candidates/{id}", srv.handleDeleteEntityCandidate)
 
 				// Entity Connections
-				r.Get("/entity-connections/subgraph", srv.handleGetEntityConnectionSubgraph)
 				r.Get("/entity-connections", srv.handleListEntityConnections)
 				r.Delete("/entity-connections", srv.handleDeleteEntityConnections)
 
