@@ -96,7 +96,7 @@ func (s *sqliteStore) ListPipelineBackends(ctx context.Context, pipelineID int64
 		return nil, fmt.Errorf("store: list pipeline backends: %w", err)
 	}
 	defer rows.Close()
-	var out []model.PipelineBackend
+	out := make([]model.PipelineBackend, 0)
 	for rows.Next() {
 		var pb model.PipelineBackend
 		if err := rows.Scan(&pb.PipelineID, &pb.BackendID, &pb.Priority); err != nil {
