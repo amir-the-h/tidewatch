@@ -78,6 +78,7 @@ type TelegramMessage struct {
 	DisableWebPagePreview bool
 	DisableNotification   bool
 	MessageThreadID       int64 // 0 means not set
+	ReplyToMessageID      int64 // 0 means not set; sets reply_to_message_id on sendMessage
 }
 
 // TelegramClient sends messages via the Telegram Bot API.
@@ -124,6 +125,9 @@ func (c *TelegramClient) Send(ctx context.Context, msg TelegramMessage) (int64, 
 	}
 	if msg.MessageThreadID != 0 {
 		body["message_thread_id"] = msg.MessageThreadID
+	}
+	if msg.ReplyToMessageID != 0 {
+		body["reply_to_message_id"] = msg.ReplyToMessageID
 	}
 
 	payload, err := json.Marshal(body)
@@ -216,7 +220,8 @@ func (c *TelegramClient) EditMessage(ctx context.Context, msg TelegramMessage, m
 
 // Deliver implements notifier.Provider for TelegramClient.
 // config keys: "chat_id", "parse_mode", "disable_web_page_preview", "disable_notification",
-// "message_thread_id", "telegram_message_id" (if set, edits that message instead of sending a new one).
+// "message_thread_id", "telegram_message_id" (if set, edits that message instead of sending a new one),
+// "reply_to_message_id" (if set and no telegram_message_id, sends as a reply to that message).
 // Returns {"telegram_message_id": <id>} so the caller can persist it for future edit runs.
 func (c *TelegramClient) Deliver(ctx context.Context, text string, config map[string]any) (map[string]any, error) {
 	msg := TelegramMessage{
@@ -244,6 +249,11 @@ func (c *TelegramClient) Deliver(ctx context.Context, text string, config map[st
 			return nil, fmt.Errorf("notifier: telegram: %w", err)
 		}
 		return map[string]any{"telegram_message_id": existingID}, nil
+	}
+
+	// Reply to a prior notification for this tweet if one exists, forming a thread.
+	if replyTo := parseTelegramMessageID(config["reply_to_message_id"]); replyTo != 0 {
+		msg.ReplyToMessageID = replyTo
 	}
 
 	messageID, err := c.Send(ctx, msg)

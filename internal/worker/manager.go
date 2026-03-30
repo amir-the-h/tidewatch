@@ -192,13 +192,25 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	// (e.g. telegram_message_id for edit-vs-send logic). Overrides allMeta on conflict.
 	prevMeta, _ := m.store.MergeActionExecutionMetadata(ctx, task.ActionID, ev.TweetID)
 
-	mergedCtx := make(map[string]any, len(task.Context)+len(allMeta)+len(prevMeta)+5)
+	mergedCtx := make(map[string]any, len(task.Context)+len(allMeta)+len(prevMeta)+6)
 	// Inject in ascending priority order: all-tweet meta → this-action meta → chain context → well-known fields.
 	for k, v := range allMeta {
 		mergedCtx[k] = decodeMetaValue(v)
 	}
+	// telegram_message_id must be scoped to the same action to prevent different
+	// notification actions from editing each other's messages. Remove it from
+	// allMeta's contribution; prevMeta (action-scoped) will supply the correct value.
+	delete(mergedCtx, "telegram_message_id")
 	for k, v := range prevMeta {
 		mergedCtx[k] = decodeMetaValue(v)
+	}
+	// If this action has no prior telegram_message_id of its own (first send),
+	// expose the last known notification message ID as last_telegram_message_id
+	// so the notification pipeline can reply to it and form a Telegram reply thread.
+	if _, hasOwn := mergedCtx["telegram_message_id"]; !hasOwn {
+		if lastID, ok := allMeta["telegram_message_id"]; ok {
+			mergedCtx["last_telegram_message_id"] = decodeMetaValue(lastID)
+		}
 	}
 	for k, v := range task.Context {
 		mergedCtx[k] = v

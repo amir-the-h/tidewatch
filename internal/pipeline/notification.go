@@ -114,8 +114,12 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 		cfg[k] = v
 	}
 	// Forward the previous message_id (if any) so the provider can edit instead of resend.
+	// If this action has no prior message (first send), reply to the last notification
+	// for this tweet so Telegram threads related messages into a reply chain.
 	if v, ok := input.Context["telegram_message_id"]; ok {
 		cfg["telegram_message_id"] = v
+	} else if v, ok := input.Context["last_telegram_message_id"]; ok {
+		cfg["reply_to_message_id"] = v
 	}
 
 	providerMeta, err := p.provider.Deliver(ctx, text, cfg)
