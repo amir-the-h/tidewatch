@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { listMapPins, MAP_PAGE_SIZE } from '../api/map'
-import type { MapPin } from '../api/map'
 
 // Fix Leaflet's default icon paths broken by Vite bundling
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -11,11 +10,6 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 delete (L.Icon.Default.prototype as any)._getIconUrl
 L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
-
-interface PinWithCoords {
-  pin: MapPin
-  coords: [number, number]
-}
 
 const mapEl    = ref<HTMLDivElement | null>(null)
 const loading  = ref(true)
@@ -47,64 +41,65 @@ onMounted(async () => {
   }).addTo(map)
 
   try {
-    // ── Phase 1: fetch all pages ──────────────────────────────────────────
-    const items: PinWithCoords[] = []
     let offset = 0
+    let minMs = Infinity
+    let maxMs = -Infinity
+    const allMarkers: { marker: L.CircleMarker; ms: number }[] = []
+
     while (true) {
       const page = await listMapPins(MAP_PAGE_SIZE, offset)
       if (!page || page.length === 0) break
+
+      // Update date range from this page
+      for (const pin of page) {
+        const ms = new Date(pin.tweet_created_at).getTime()
+        if (ms < minMs) minMs = ms
+        if (ms > maxMs) maxMs = ms
+      }
+      const range = maxMs - minMs
+
+      // Render this page's pins immediately
       for (const pin of page) {
         for (const coords of pin.coordinates ?? []) {
-          if (coords?.length === 2) items.push({ pin, coords })
+          if (coords?.length !== 2) continue
+          const [lat, lon] = coords
+          const ms = new Date(pin.tweet_created_at).getTime()
+          const t = range === 0 ? 0.5 : (ms - minMs) / range
+          const color = tToColor(t)
+
+          const marker = L.circleMarker([lat, lon], {
+            radius: 6,
+            color,
+            fillColor: color,
+            fillOpacity: 0.85,
+            weight: 1.5,
+          })
+          marker.bindPopup(buildPopup(pin, color), { maxWidth: 280 })
+          marker.addTo(map!)
+          allMarkers.push({ marker, ms })
         }
       }
+
+      pinCount.value = allMarkers.length
+      if (minMs !== Infinity) {
+        oldestDate.value = fmtDate(new Date(minMs))
+        newestDate.value = fmtDate(new Date(maxMs))
+      }
+      loading.value = false
+
       if (page.length < MAP_PAGE_SIZE) break
       offset += MAP_PAGE_SIZE
+      // yield to browser between pages
+      await new Promise(r => setTimeout(r, 0))
     }
 
-    // ── Phase 2: compute full date range ──────────────────────────────────
-    let minMs = Infinity
-    let maxMs = -Infinity
-    for (const { pin } of items) {
-      const ms = new Date(pin.tweet_created_at).getTime()
-      if (ms < minMs) minMs = ms
-      if (ms > maxMs) maxMs = ms
+    // Final recolor pass with the complete date range
+    const finalRange = maxMs - minMs
+    for (const { marker, ms } of allMarkers) {
+      const t = finalRange === 0 ? 0.5 : (ms - minMs) / finalRange
+      const color = tToColor(t)
+      marker.setStyle({ color, fillColor: color })
     }
-    const range = maxMs - minMs
-
-    if (items.length > 0) {
-      oldestDate.value = fmtDate(new Date(minMs))
-      newestDate.value = fmtDate(new Date(maxMs))
-    }
-
-    // ── Phase 3: render in DOM batches to avoid main-thread blocking ──────
-    const RENDER_BATCH = 200
-    for (let i = 0; i < items.length; i += RENDER_BATCH) {
-      const batch = items.slice(i, i + RENDER_BATCH)
-      for (const { pin, coords } of batch) {
-        const [lat, lon] = coords
-        const ms = new Date(pin.tweet_created_at).getTime()
-        const t = range === 0 ? 0.5 : (ms - minMs) / range
-        const color = tToColor(t)
-
-        const marker = L.circleMarker([lat, lon], {
-          radius: 6,
-          color,
-          fillColor: color,
-          fillOpacity: 0.85,
-          weight: 1.5,
-        })
-
-        marker.bindPopup(buildPopup(pin, color), { maxWidth: 280 })
-        marker.addTo(map!)
-      }
-      pinCount.value = Math.min(i + RENDER_BATCH, items.length)
-      // yield to browser between render batches
-      if (i + RENDER_BATCH < items.length) {
-        await new Promise(r => setTimeout(r, 0))
-      }
-    }
-    pinCount.value = items.length
   } catch (e: any) {
     error.value = e?.message ?? 'Failed to load data'
   } finally {
