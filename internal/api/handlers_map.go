@@ -9,7 +9,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 )
 
-const defaultMapPageSize = 500
+const defaultMapPageSize = 50
 
 type mapPinResponse struct {
 	TweetID        string       `json:"tweet_id"`
