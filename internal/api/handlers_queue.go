@@ -15,6 +15,7 @@ type queueEntry struct {
 	PipelineType string      `json:"pipeline_type"`
 	Pending      int64       `json:"pending"`
 	Workers      []workerRef `json:"workers,omitempty"`
+	Throughput   float64     `json:"throughput"` // items/sec; 0 = insufficient data
 }
 
 type workerRef struct {
@@ -41,8 +42,11 @@ func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 	entries := s.actionCache.All()
 
 	workerByAction := make(map[string][]workerRef)
+	var throughputByAction map[int64]float64
 	if s.pool != nil {
-		workerByAction = buildWorkerRefs(s.pool.Stats().ActiveWorkers)
+		stats := s.pool.Stats()
+		workerByAction = buildWorkerRefs(stats.ActiveWorkers)
+		throughputByAction = stats.ActionThroughput
 	}
 
 	result := make([]queueEntry, 0, len(entries))
@@ -57,6 +61,7 @@ func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 			PipelineName: e.Pipeline.Name(),
 			PipelineType: string(e.Pipeline.Type()),
 			Pending:      pending,
+			Throughput:   throughputByAction[e.Action.ID],
 		}
 		if refs, ok := workerByAction[e.Action.Name]; ok {
 			qe.Workers = refs
