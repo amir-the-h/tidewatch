@@ -1,6 +1,6 @@
 <!-- web/src/views/OllamaView.vue -->
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   listOllamaBackends,
@@ -10,13 +10,13 @@ import {
   enableOllamaBackend,
   disableOllamaBackend,
 } from '../api/ollama'
-import type { OllamaBackend } from '../api/ollama'
+import { useOllamaStore } from '../stores/ollama'
+import type { OllamaBackend } from '../stores/ollama'
 
 const message = useMessage()
-const backends    = ref<OllamaBackend[]>([])
+const ollamaStore = useOllamaStore()
 const loading     = ref(false)
 const lastUpdated = ref<Date | null>(null)
-let pollTimer: ReturnType<typeof setInterval> | null = null
 
 // ── add / edit modal ────────────────────────────────────────────────────────
 const showModal    = ref(false)
@@ -90,10 +90,10 @@ async function toggleEnabled(b: OllamaBackend) {
   }
 }
 
-// ── polling ─────────────────────────────────────────────────────────────────
+// ── fetch / refresh ──────────────────────────────────────────────────────────
 async function refresh() {
   try {
-    backends.value    = await listOllamaBackends()
+    ollamaStore.setBackends(await listOllamaBackends())
     lastUpdated.value = new Date()
   } catch { /* server unreachable */ }
 }
@@ -101,14 +101,12 @@ async function refresh() {
 onMounted(() => {
   loading.value = true
   refresh().finally(() => { loading.value = false })
-  pollTimer = setInterval(refresh, 5000)
 })
-onUnmounted(() => { if (pollTimer !== null) clearInterval(pollTimer) })
 
 // ── derived ─────────────────────────────────────────────────────────────────
 const maxScore = computed(() => {
   let max = 0
-  for (const b of backends.value) {
+  for (const b of ollamaStore.backends) {
     if (b.score > max) max = b.score
   }
   return max || 1
@@ -148,7 +146,7 @@ function formatLastUpdated(d: Date): string {
 
     <!-- Empty state -->
     <n-empty
-      v-else-if="backends.length === 0"
+      v-else-if="ollamaStore.backends.length === 0"
       description="No Ollama backends configured"
       style="padding: 48px 0;"
     />
@@ -157,7 +155,7 @@ function formatLastUpdated(d: Date): string {
     <template v-else>
       <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
         <n-gi
-          v-for="backend in backends"
+          v-for="backend in ollamaStore.backends"
           :key="backend.id"
           span="3 s:3 m:1"
         >
