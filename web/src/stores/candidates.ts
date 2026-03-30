@@ -6,7 +6,6 @@ import {
   rejectEntityCandidate,
   mergeEntityCandidate,
   deleteEntityCandidate,
-  type EntityCandidate,
   type EntityCandidatesResponse,
   type EntityCandidateFilter,
 } from '../api/entities'
