@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS entity_candidates (
     type                TEXT NOT NULL,
     occurrence_count    INTEGER NOT NULL DEFAULT 1,
     avg_confidence      REAL NOT NULL DEFAULT 0,
-    sources             TEXT NOT NULL DEFAULT '[]',
+    sources             TEXT NOT NULL DEFAULT '[]',  -- JSON array of pipeline names
     status              TEXT NOT NULL DEFAULT 'pending',
     promoted_entity_id  INTEGER REFERENCES tracked_entities(id) ON DELETE SET NULL,
     auto_promoted       INTEGER NOT NULL DEFAULT 0,
