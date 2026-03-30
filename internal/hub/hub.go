@@ -31,8 +31,9 @@ type Event struct {
 // by the WebSocket handler (client.go, Task 2). For test sinks conn is nil —
 // fan-out only uses the send channel.
 type Client struct {
-	hub  *Hub
-	send chan []byte
+	hub      *Hub
+	send     chan []byte
+	testSink bool
 }
 
 // Hub maintains connected clients and fans out broadcast events.
@@ -90,9 +91,10 @@ func (h *Hub) Run(ctx context.Context) {
 				select {
 				case c.send <- data:
 				default:
-					// Slow or dead client: evict immediately.
-					// The write pump (client.go) is responsible for closing c.send;
-					// we only remove the client from the active set here.
+					// Slow or dead client: evict from hub immediately.
+					// The write pump (client.go, added in Task 2) MUST select on a
+					// separate Client.done channel that the hub closes here, or the
+					// write pump goroutine will leak. See writePump() in client.go.
 					delete(h.clients, c)
 				}
 			}
@@ -104,7 +106,7 @@ func (h *Hub) Run(ctx context.Context) {
 // Returns an unregister function. The connection field is nil — do not use for
 // real WS writes. Safe for hub fan-out and drop tests only.
 func (h *Hub) RegisterTestSink(ch chan []byte) func() {
-	c := &Client{hub: h, send: ch}
+	c := &Client{hub: h, send: ch, testSink: true}
 	h.register <- c
 	return func() { h.unregister <- c }
 }

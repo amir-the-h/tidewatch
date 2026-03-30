@@ -23,8 +23,6 @@ func TestHub_BroadcastReachesAllClients(t *testing.T) {
 	defer unreg1()
 	defer unreg2()
 
-	time.Sleep(10 * time.Millisecond) // let register complete
-
 	h.Broadcast(hub.Event{Type: "test", Payload: "hello"})
 
 	for _, ch := range []chan []byte{ch1, ch2} {
@@ -51,9 +49,7 @@ func TestHub_UnregisteredClientReceivesNothing(t *testing.T) {
 
 	ch := make(chan []byte, 8)
 	unreg := h.RegisterTestSink(ch)
-	time.Sleep(10 * time.Millisecond)
 	unreg()
-	time.Sleep(10 * time.Millisecond)
 
 	h.Broadcast(hub.Event{Type: "test", Payload: nil})
 
@@ -74,7 +70,6 @@ func TestHub_SlowClientIsDropped(t *testing.T) {
 	// Full channel: no room to receive — client should be dropped
 	slowCh := make(chan []byte) // unbuffered, will always block
 	_ = h.RegisterTestSink(slowCh)
-	time.Sleep(10 * time.Millisecond)
 
 	// Should not block even though slowCh can't receive
 	done := make(chan struct{})
