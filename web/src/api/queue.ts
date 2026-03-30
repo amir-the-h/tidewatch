@@ -11,7 +11,7 @@ export interface QueueEntry {
   pipeline_name: string
   pipeline_type: 'onnx' | 'ollama' | 'internal' | 'notification'
   pending: number
-  worker: WorkerRef | null
+  workers: WorkerRef[]
 }
 
 export interface QueueResponse {

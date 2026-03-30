@@ -8,7 +8,7 @@ export interface QueueEntry {
   pipeline_name: string
   pipeline_type: string
   pending: number
-  worker: { id: number; backend: string } | null
+  workers: Array<{ id: number; backend: string }>
 }
 
 export interface WorkerStats {
@@ -24,7 +24,10 @@ export const useQueuesStore = defineStore('queues', () => {
 
   // Set the full list from the initial HTTP fetch (onMounted in QueueView).
   function setQueues(entries: QueueEntry[]) {
-    queues.value = entries
+    queues.value = entries.map(e => ({
+      ...e,
+      workers: e.workers ?? [],
+    }))
   }
 
   // Update a single action's pending count from a WS queue_update event.
@@ -35,8 +38,16 @@ export const useQueuesStore = defineStore('queues', () => {
     }
   }
 
+  // Update pool-level stats and cross-update the workers field on each queue
+  // entry so the Worker column stays live without a full page refresh.
   function setWorkerStats(stats: WorkerStats) {
     workerStats.value = stats
+    const activeWorkers = stats.active_workers ?? []
+    for (const entry of queues.value) {
+      entry.workers = activeWorkers
+        .filter(w => w.action === entry.action_name)
+        .map(w => ({ id: w.id, backend: w.backend ?? '' }))
+    }
   }
 
   const totalPending = computed(() =>
