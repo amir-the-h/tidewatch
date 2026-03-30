@@ -248,6 +248,10 @@ func NewServer(
 				r.Post("/entity-candidates/{id}/merge", srv.handleMergeEntityCandidate)
 				r.Delete("/entity-candidates/{id}", srv.handleDeleteEntityCandidate)
 
+				// Entity Connections
+				r.Get("/entity-connections", srv.handleListEntityConnections)
+				r.Delete("/entity-connections", srv.handleDeleteEntityConnections)
+
 				// Summaries
 				r.Get("/summaries", srv.handleListSummaries)
 				r.Post("/summaries/run", srv.handleRunSummaries)
