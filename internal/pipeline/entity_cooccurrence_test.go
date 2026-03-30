@@ -103,3 +103,22 @@ func TestEntityCooccurrence_MissingContextReturnsZero(t *testing.T) {
 		t.Errorf("want 0, got %v", out["pairs_updated"])
 	}
 }
+
+func TestEntityCooccurrence_FloatIDsFromRedis(t *testing.T) {
+	st := &mockCooccurrenceStore{}
+	p := newCooccurrencePipeline(st)
+
+	// Simulate matched_ids after JSON round-trip through Redis (numbers become float64).
+	out, err := p.Run(context.Background(), inference.PipelineInput{
+		Context: map[string]any{"matched_ids": []any{float64(1), float64(2), float64(3)}},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["pairs_updated"].(int) != 3 {
+		t.Errorf("want pairs_updated=3, got %v", out["pairs_updated"])
+	}
+	if len(st.upserted) != 3 {
+		t.Errorf("want 3 upserts, got %d", len(st.upserted))
+	}
+}
