@@ -26,12 +26,7 @@ async function fetchStats() {
   try {
     const health = await apiFetch<any>('/api/health')
     if (health.workers) {
-      queuesStore.setWorkerStats({
-        Total:         health.workers.total,
-        Active:        health.workers.active,
-        Idle:          health.workers.idle,
-        ActiveWorkers: health.workers.active_workers ?? [],
-      })
+      queuesStore.setWorkerStats(health.workers)
     }
   } catch { /* ignore */ }
 }
@@ -301,22 +296,22 @@ onMounted(() => {
         <n-card size="small" embedded>
           <n-statistic label="Workers">
             <template #default>
-              <span :style="{ color: (queuesStore.workerStats?.Active ?? 0) > 0 ? '#a6e3a1' : '#cdd6f4' }">
-                {{ queuesStore.workerStats?.Active ?? '—' }}
+              <span :style="{ color: (queuesStore.workerStats?.active ?? 0) > 0 ? '#a6e3a1' : '#cdd6f4' }">
+                {{ queuesStore.workerStats?.active ?? '—' }}
               </span>
-              <span style="color: #585b70; font-size: 14px;"> / {{ queuesStore.workerStats?.Total ?? '—' }}</span>
+              <span style="color: #585b70; font-size: 14px;"> / {{ queuesStore.workerStats?.total ?? '—' }}</span>
             </template>
             <template #suffix>
               <span v-if="queuesStore.workerStats" style="color: #585b70; font-size: 12px; margin-left: 8px;">
-                {{ queuesStore.workerStats.Idle }} idle
+                {{ queuesStore.workerStats.idle }} idle
               </span>
             </template>
           </n-statistic>
           <div v-if="queuesStore.workerStats" style="margin-top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
             <div :style="{
               height: '100%',
-              width: queuesStore.workerStats.Total > 0 ? (queuesStore.workerStats.Active / queuesStore.workerStats.Total * 100) + '%' : '0%',
-              background: queuesStore.workerStats.Active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
+              width: queuesStore.workerStats.total > 0 ? (queuesStore.workerStats.active / queuesStore.workerStats.total * 100) + '%' : '0%',
+              background: queuesStore.workerStats.active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
               transition: 'width 0.5s ease',
             }" />
           </div>

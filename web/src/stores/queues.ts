@@ -12,10 +12,10 @@ export interface QueueEntry {
 }
 
 export interface WorkerStats {
-  Total: number
-  Active: number
-  Idle: number
-  ActiveWorkers: Array<{ ID: number; Action: string; Pipeline: string; Backend: string }>
+  total: number
+  active: number
+  idle: number
+  active_workers: Array<{ id: number; action: string; pipeline: string; backend: string }>
 }
 
 export const useQueuesStore = defineStore('queues', () => {
