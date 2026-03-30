@@ -80,9 +80,12 @@ func (h *Hub) Run(ctx context.Context) {
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
-				// send channel is closed by the write pump (client.go) when the
-				// WebSocket connection is done. For test sinks the caller owns the
-				// channel — do not close it here.
+				// Close done to signal writePump to exit. writePump is blocked
+				// on c.send / c.done and won't exit otherwise. testSink clients
+				// have no writePump, so don't close their done channel.
+				if !c.testSink {
+					close(c.done)
+				}
 			}
 		case event := <-h.broadcast:
 			data, err := json.Marshal(event)
