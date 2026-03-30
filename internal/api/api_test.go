@@ -391,6 +391,35 @@ func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]in
 	return nil, nil
 }
 
+func (m *mockStore) UpsertEntityCandidate(_ context.Context, _ *model.EntityCandidate) error {
+	return nil
+}
+func (m *mockStore) GetEntityCandidate(_ context.Context, _ int64) (*model.EntityCandidate, error) {
+	return nil, nil
+}
+func (m *mockStore) ListEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) ([]*model.EntityCandidate, error) {
+	return nil, nil
+}
+func (m *mockStore) CountEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) (int, error) {
+	return 0, nil
+}
+func (m *mockStore) UpdateEntityCandidateStatus(_ context.Context, _ int64, _ string, _ *int64, _ bool) error {
+	return nil
+}
+func (m *mockStore) DeleteEntityCandidate(_ context.Context, _ int64) error {
+	return nil
+}
+
+func (m *mockStore) UpsertEntityConnection(_ context.Context, _, _ int64) error {
+	return nil
+}
+func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityConnection, error) {
+	return []*model.EntityConnection{}, nil
+}
+func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error {
+	return nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 // ---------------------------------------------------------------------------
