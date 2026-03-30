@@ -172,7 +172,7 @@ func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error { return nil }
 func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCredentials, error) { return nil, fmt.Errorf("not found") }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error                  { return nil }
-func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error)             { return nil, nil }
+func (m *mockStore) ListMapPins(_ context.Context, _, _ int) ([]*store.MapPin, error)   { return nil, nil }
 func (m *mockStore) ListOllamaBackends(_ context.Context) ([]model.OllamaBackend, error)          { return nil, nil }
 func (m *mockStore) GetOllamaBackend(_ context.Context, _ int64) (model.OllamaBackend, error)     { return model.OllamaBackend{}, nil }
 func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string) (model.OllamaBackend, error) { return model.OllamaBackend{}, nil }
@@ -186,6 +186,15 @@ func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]in
 func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) { return nil, nil }
 func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) { return nil, nil }
 func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) { return 0, nil }
+func (m *mockStore) ListEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) ([]*model.EntityCandidate, error) { return nil, nil }
+func (m *mockStore) GetEntityCandidate(_ context.Context, _ int64) (*model.EntityCandidate, error) { return nil, nil }
+func (m *mockStore) UpsertEntityCandidate(_ context.Context, _ *model.EntityCandidate) error { return nil }
+func (m *mockStore) DeleteEntityCandidate(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) UpdateEntityCandidateStatus(_ context.Context, _ int64, _ string, _ *int64, _ bool) error { return nil }
+func (m *mockStore) CountEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) (int, error) { return 0, nil }
+func (m *mockStore) UpsertEntityConnection(_ context.Context, _, _ int64) error { return nil }
+func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityConnection, error) { return nil, nil }
+func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {
