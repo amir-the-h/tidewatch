@@ -190,7 +190,7 @@ type Store interface {
 	CountSummaries(ctx context.Context, filter SummaryFilter) (int, error)
 
 	// Map
-	ListMapPins(ctx context.Context) ([]*MapPin, error)
+	ListMapPins(ctx context.Context, limit, offset int) ([]*MapPin, error)
 
 	// DigestJobs
 	SaveDigestJob(ctx context.Context, job *model.DigestJob) error

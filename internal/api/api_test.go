@@ -364,7 +364,9 @@ func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCred
 }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
 
-func (m *mockStore) ListMapPins(_ context.Context) ([]*store.MapPin, error) { return nil, nil }
+func (m *mockStore) ListMapPins(_ context.Context, _, _ int) ([]*store.MapPin, error) {
+	return nil, nil
+}
 
 func (m *mockStore) ListOllamaBackends(_ context.Context) ([]model.OllamaBackend, error) {
 	return nil, nil

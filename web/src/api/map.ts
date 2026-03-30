@@ -9,4 +9,7 @@ export interface MapPin {
   coordinates: [number, number][]
 }
 
-export const listMapPins = () => apiFetch<MapPin[]>('/api/map')
+export const MAP_PAGE_SIZE = 500
+
+export const listMapPins = (limit: number, offset: number) =>
+  apiFetch<MapPin[]>(`/api/map?limit=${limit}&offset=${offset}`)

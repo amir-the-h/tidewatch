@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { listMapPins } from '../api/map'
+import { listMapPins, MAP_PAGE_SIZE } from '../api/map'
 import type { MapPin } from '../api/map'
 
 // Fix Leaflet's default icon paths broken by Vite bundling
@@ -47,18 +47,22 @@ onMounted(async () => {
   }).addTo(map)
 
   try {
-    const pins = await listMapPins()
+    // ── Phase 1: fetch all pages ──────────────────────────────────────────
     const items: PinWithCoords[] = []
-
-    for (const pin of pins ?? []) {
-      for (const coords of pin.coordinates ?? []) {
-        if (coords?.length === 2) items.push({ pin, coords })
+    let offset = 0
+    while (true) {
+      const page = await listMapPins(MAP_PAGE_SIZE, offset)
+      if (!page || page.length === 0) break
+      for (const pin of page) {
+        for (const coords of pin.coordinates ?? []) {
+          if (coords?.length === 2) items.push({ pin, coords })
+        }
       }
+      if (page.length < MAP_PAGE_SIZE) break
+      offset += MAP_PAGE_SIZE
     }
 
-    pinCount.value = items.length
-
-    // Compute date range for the spectrum using the tweet's own created_at
+    // ── Phase 2: compute full date range ──────────────────────────────────
     let minMs = Infinity
     let maxMs = -Infinity
     for (const { pin } of items) {
@@ -73,29 +77,40 @@ onMounted(async () => {
       newestDate.value = fmtDate(new Date(maxMs))
     }
 
-    for (const { pin, coords } of items) {
-      const [lat, lon] = coords
-      const ms = new Date(pin.tweet_created_at).getTime()
-      const t = range === 0 ? 0.5 : (ms - minMs) / range
-      const color = tToColor(t)
+    // ── Phase 3: render in DOM batches to avoid main-thread blocking ──────
+    const RENDER_BATCH = 200
+    for (let i = 0; i < items.length; i += RENDER_BATCH) {
+      const batch = items.slice(i, i + RENDER_BATCH)
+      for (const { pin, coords } of batch) {
+        const [lat, lon] = coords
+        const ms = new Date(pin.tweet_created_at).getTime()
+        const t = range === 0 ? 0.5 : (ms - minMs) / range
+        const color = tToColor(t)
 
-      const marker = L.circleMarker([lat, lon], {
-        radius: 6,
-        color,
-        fillColor: color,
-        fillOpacity: 0.85,
-        weight: 1.5,
-      })
+        const marker = L.circleMarker([lat, lon], {
+          radius: 6,
+          color,
+          fillColor: color,
+          fillOpacity: 0.85,
+          weight: 1.5,
+        })
 
-      const lines: string[] = []
-      if (pin.description) lines.push(escHtml(pin.description))
-      lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
-      lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
-      lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
+        const lines: string[] = []
+        if (pin.description) lines.push(escHtml(pin.description))
+        lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
+        lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
+        lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
 
-      marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })
-      marker.addTo(map!)
+        marker.bindPopup(lines.join('<br>'), { maxWidth: 280 })
+        marker.addTo(map!)
+      }
+      pinCount.value = Math.min(i + RENDER_BATCH, items.length)
+      // yield to browser between render batches
+      if (i + RENDER_BATCH < items.length) {
+        await new Promise(r => setTimeout(r, 0))
+      }
     }
+    pinCount.value = items.length
   } catch (e: any) {
     error.value = e?.message ?? 'Failed to load data'
   } finally {

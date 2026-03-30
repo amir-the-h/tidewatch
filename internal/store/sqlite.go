@@ -1535,7 +1535,7 @@ func scanUser(s userScanner) (*model.User, error) {
 
 // ── Map ───────────────────────────────────────────────────────────────────────
 
-func (s *sqliteStore) ListMapPins(ctx context.Context) ([]*MapPin, error) {
+func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*MapPin, error) {
 	query := `
         SELECT ae.tweet_id,
                COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
@@ -1561,9 +1561,10 @@ func (s *sqliteStore) ListMapPins(ctx context.Context) ([]*MapPin, error) {
           AND json_extract(p.config, '$.map_config.coordinate_key') != ''
           AND aem_loc.value != 'null'
           AND aem_loc.value != '[]'
-        ORDER BY tweet_created_at DESC`
+        ORDER BY tweet_created_at DESC
+        LIMIT ? OFFSET ?`
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("store: list map pins: %w", err)
 	}
