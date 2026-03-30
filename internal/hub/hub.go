@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+
+	"github.com/gorilla/websocket"
 )
 
 const broadcastBuffer = 256
@@ -27,12 +29,13 @@ type Event struct {
 	Payload any    `json:"payload"`
 }
 
-// Client represents a connected WebSocket client. The conn field is populated
-// by the WebSocket handler (client.go, Task 2). For test sinks conn is nil —
+// Client represents a connected WebSocket client. For test sinks conn is nil —
 // fan-out only uses the send channel.
 type Client struct {
 	hub      *Hub
+	conn     *websocket.Conn
 	send     chan []byte
+	done     chan struct{} // closed by hub on slow-client eviction; nil for test sinks
 	testSink bool
 }
 
@@ -92,10 +95,12 @@ func (h *Hub) Run(ctx context.Context) {
 				case c.send <- data:
 				default:
 					// Slow or dead client: evict from hub immediately.
-					// The write pump (client.go, added in Task 2) MUST select on a
-					// separate Client.done channel that the hub closes here, or the
-					// write pump goroutine will leak. See writePump() in client.go.
+					// Close done so writePump exits; it will close conn, causing readPump to exit.
+					// testSink clients have no writePump, so don't close their done channel.
 					delete(h.clients, c)
+					if !c.testSink {
+						close(c.done)
+					}
 				}
 			}
 		}
