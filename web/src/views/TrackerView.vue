@@ -276,9 +276,13 @@ async function onTabChange(tab: string) {
     await loadCandidates()
     await candidatesStore.fetchPendingCount()
   } else if (tab === 'connections') {
-    await connectionsStore.fetchConnections()
-    await nextTick()
-    renderGraph()
+    try {
+      await connectionsStore.fetchConnections()
+      await nextTick()
+      await renderGraph()
+    } catch (e: any) {
+      message.error('Failed to load connections: ' + (e?.message ?? 'unknown error'))
+    }
   }
 }
 
@@ -288,6 +292,7 @@ const connectionsStore = useConnectionsStore()
 const graphContainer  = ref<HTMLElement | null>(null)
 const minWeight       = ref(1)
 let network: any = null
+let renderInFlight = false
 
 function destroyNetwork() {
   if (network) {
@@ -297,30 +302,34 @@ function destroyNetwork() {
 }
 
 async function renderGraph() {
-  if (!graphContainer.value) return
+  if (!graphContainer.value || renderInFlight) return
+  renderInFlight = true
   destroyNetwork()
-
-  const { nodes, edges } = connectionsStore.graphData(minWeight.value)
-  if (nodes.length === 0) return
-
-  const { DataSet, Network } = await import('vis-network/standalone')
-  network = new Network(
-    graphContainer.value,
-    { nodes: new DataSet(nodes), edges: new DataSet(edges) },
-    {
-      physics: { stabilization: { iterations: 100 } },
-      edges: {
-        scaling: { min: 1, max: 8 },
-        smooth: { enabled: true, type: 'dynamic', roundness: 0.5 },
-      },
-      nodes: {
-        shape: 'dot',
-        font: { size: 12, color: '#e2e8f0' },
-        color: { background: '#3b82f6', border: '#1d4ed8', highlight: { background: '#60a5fa', border: '#2563eb' } },
-      },
-      interaction: { hover: true, tooltipDelay: 200 },
-    }
-  )
+  try {
+    const { nodes, edges } = connectionsStore.graphData(minWeight.value)
+    if (nodes.length === 0) return
+    const { DataSet, Network } = await import('vis-network/standalone')
+    if (!graphContainer.value) return
+    network = new Network(
+      graphContainer.value,
+      { nodes: new DataSet(nodes), edges: new DataSet(edges) },
+      {
+        physics: { stabilization: { iterations: 100 } },
+        edges: {
+          scaling: { min: 1, max: 8 },
+          smooth: { enabled: true, type: 'dynamic', roundness: 0.5 },
+        },
+        nodes: {
+          shape: 'dot',
+          font: { size: 12, color: '#e2e8f0' },
+          color: { background: '#3b82f6', border: '#1d4ed8', highlight: { background: '#60a5fa', border: '#2563eb' } },
+        },
+        interaction: { hover: true, tooltipDelay: 200 },
+      }
+    )
+  } finally {
+    renderInFlight = false
+  }
 }
 
 watch(minWeight, renderGraph)
@@ -690,7 +699,7 @@ onMounted(() => {
           <n-slider
             v-model:value="minWeight"
             :min="1"
-            :max="Math.max(1, ...connectionsStore.connections.map(c => c.weight), 1)"
+            :max="connectionsStore.connections.reduce((m, c) => c.weight > m ? c.weight : m, 1)"
             :step="1"
             style="width: 200px"
           />
@@ -700,7 +709,7 @@ onMounted(() => {
             size="small"
             type="error"
             secondary
-            @click="connectionsStore.resetConnections().then(renderGraph)"
+            @click="destroyNetwork(); connectionsStore.resetConnections().catch((e: any) => message.error('Reset failed: ' + e?.message))"
           >
             Reset
           </n-button>
