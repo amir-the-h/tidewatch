@@ -202,6 +202,11 @@ type Store interface {
 	UpdateEntityCandidateStatus(ctx context.Context, id int64, status string, promotedEntityID *int64, autoPromoted bool) error
 	DeleteEntityCandidate(ctx context.Context, id int64) error
 
+	// EntityConnections
+	UpsertEntityConnection(ctx context.Context, fromID, toID int64) error
+	ListEntityConnections(ctx context.Context) ([]*model.EntityConnection, error)
+	DeleteAllEntityConnections(ctx context.Context) error
+
 	// Summaries
 	ListSummaries(ctx context.Context, filter SummaryFilter) ([]*model.SummaryItem, error)
 	CountSummaries(ctx context.Context, filter SummaryFilter) (int, error)
