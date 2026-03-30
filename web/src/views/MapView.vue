@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { listMapPins, MAP_PAGE_SIZE } from '../api/map'
-import type { MapPin } from '../api/map'
 
 // Fix Leaflet's default icon paths broken by Vite bundling
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
