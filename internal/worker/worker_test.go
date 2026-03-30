@@ -564,6 +564,31 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 	}
 }
 
+func TestManager_Throughput_PopulatedAfterCompletions(t *testing.T) {
+	pipe := &stubPipeline{name: "tp", pType: inference.PipelineTypeONNX}
+	action := &model.Action{ID: 7, Name: "tp", Active: true}
+	cache := buildCacheWithEntries(map[int64]*CacheEntry{
+		7: {Action: action, Pipeline: pipe},
+	})
+
+	tasks := []*queue.Task{
+		makeTask(7, "tw-1"),
+		makeTask(7, "tw-2"),
+		makeTask(7, "tw-3"),
+	}
+	consumer := &mockConsumer{tasks: tasks}
+	producer := &mockProducer{}
+	storeImpl := &mockStore{}
+
+	mgr := NewManager(2, consumer, producer, storeImpl, cache, nil)
+	runManagerUntilDrained(t, mgr, consumer)
+
+	throughput := mgr.throughputPerAction()
+	if throughput[7] <= 0 {
+		t.Errorf("expected throughput > 0 for action 7 after 3 completions, got %f", throughput[7])
+	}
+}
+
 // blockPipeline is a Pipeline that signals started and blocks until unblock is closed.
 type blockPipeline struct {
 	stub    *stubPipeline

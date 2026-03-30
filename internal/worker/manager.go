@@ -27,9 +27,10 @@ type Manager struct {
 	cache         *ActionCache
 	dispatcher    notifier.EventEmitter
 	broadcaster   hub.Broadcaster
-	logger        *slog.Logger
-	active        atomic.Int32
-	workerActions sync.Map // key: int (worker ID), value: WorkerInfo
+	logger             *slog.Logger
+	active             atomic.Int32
+	workerActions      sync.Map // key: int (worker ID), value: WorkerInfo
+	completionTrackers sync.Map // key: int64 (action_id), value: *rateTracker
 }
 
 // WithDispatcher sets an optional event emitter used to fire digest_done/digest_failed events.
@@ -53,10 +54,11 @@ func (m *Manager) broadcastWorkerStats() {
 	m.broadcaster.Broadcast(hub.Event{
 		Type: "worker_stats",
 		Payload: map[string]any{
-			"total":          s.Total,
-			"active":         s.Active,
-			"idle":           s.Idle,
-			"active_workers": s.ActiveWorkers,
+			"total":             s.Total,
+			"active":            s.Active,
+			"idle":              s.Idle,
+			"active_workers":    s.ActiveWorkers,
+			"action_throughput": s.ActionThroughput,
 		},
 	})
 }
@@ -94,11 +96,30 @@ func (m *Manager) Stats() PoolStats {
 	})
 
 	return PoolStats{
-		Total:         m.totalWorkers,
-		Active:        active,
-		Idle:          idle,
-		ActiveWorkers: activeWorkers,
+		Total:            m.totalWorkers,
+		Active:           active,
+		Idle:             idle,
+		ActiveWorkers:    activeWorkers,
+		ActionThroughput: m.throughputPerAction(),
 	}
+}
+
+// recordCompletion appends a completion timestamp for actionID.
+// Called after every task completes (success or error).
+func (m *Manager) recordCompletion(actionID int64) {
+	v, _ := m.completionTrackers.LoadOrStore(actionID, &rateTracker{})
+	v.(*rateTracker).record()
+}
+
+// throughputPerAction returns current estimated throughput (tasks/sec) per action ID.
+// Actions with fewer than 2 completions or a stale window return 0.
+func (m *Manager) throughputPerAction() map[int64]float64 {
+	result := make(map[int64]float64)
+	m.completionTrackers.Range(func(k, v any) bool {
+		result[k.(int64)] = v.(*rateTracker).rate()
+		return true
+	})
+	return result
 }
 
 // Start launches N worker goroutines. Blocks until ctx is cancelled.
@@ -309,6 +330,8 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			Payload: exec,
 		})
 	}
+
+	m.recordCompletion(task.ActionID)
 
 	if runErr != nil {
 		return

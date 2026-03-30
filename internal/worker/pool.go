@@ -22,10 +22,11 @@ type WorkerInfo struct {
 
 // PoolStats holds a snapshot of worker pool activity.
 type PoolStats struct {
-	Total         int          `json:"total"`
-	Active        int          `json:"active"`
-	Idle          int          `json:"idle"`
-	ActiveWorkers []WorkerInfo `json:"active_workers"`
+	Total            int               `json:"total"`
+	Active           int               `json:"active"`
+	Idle             int               `json:"idle"`
+	ActiveWorkers    []WorkerInfo      `json:"active_workers"`
+	ActionThroughput map[int64]float64 `json:"action_throughput"` // items/sec keyed by action_id; 0 = insufficient data
 }
 
 // Pool manages N worker goroutines that process tweets from the queue.
