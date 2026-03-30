@@ -1,6 +1,7 @@
 // web/src/stores/queues.ts
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import type { QueueEntry as ApiQueueEntry } from '../api/queue'
 
 export interface QueueEntry {
   action_id: number
@@ -25,10 +26,10 @@ export const useQueuesStore = defineStore('queues', () => {
   const workerStats = ref<WorkerStats | null>(null)
 
   // Set the full list from the initial HTTP fetch (onMounted in QueueView).
-  function setQueues(entries: any[]) {
+  function setQueues(entries: ApiQueueEntry[]) {
     queues.value = entries.map(e => ({
       ...e,
-      workers: (e.workers ?? []).map((w: any) => ({ id: w.id, backend: w.backend ?? '' })),
+      workers: (e.workers ?? []).map(w => ({ id: w.id, backend: w.backend ?? '' })),
       throughput: e.throughput ?? 0,
     }))
   }

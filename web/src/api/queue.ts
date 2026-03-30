@@ -12,6 +12,7 @@ export interface QueueEntry {
   pipeline_type: 'onnx' | 'ollama' | 'internal' | 'notification'
   pending: number
   workers: WorkerRef[]
+  throughput?: number
 }
 
 export interface QueueResponse {
