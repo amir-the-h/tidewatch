@@ -218,6 +218,7 @@ func NewServer(
 				r.Post("/chains/{id}/activate", srv.handleActivateChain)
 				r.Post("/chains/{id}/deactivate", srv.handleDeactivateChain)
 				r.Put("/chains/{id}/graph", srv.handleSaveChainGraph)
+				r.Post("/chains/{id}/run", srv.handleRunChain)
 
 				// Trigger chain links
 				r.Post("/triggers/links", srv.handleCreateTriggerChainLink)

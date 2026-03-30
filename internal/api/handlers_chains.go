@@ -8,6 +8,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 func (s *Server) handleListChains(w http.ResponseWriter, r *http.Request) {
@@ -157,4 +160,130 @@ func (s *Server) handleSaveChainGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, graph)
+}
+
+func (s *Server) handleRunChain(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	var req struct {
+		NewOnly bool `json:"new_only"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	chain, err := s.store.GetChain(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "chain not found")
+		return
+	}
+	if !chain.Active {
+		writeError(w, http.StatusUnprocessableEntity, "chain is not active")
+		return
+	}
+
+	// Collect active trigger links for this chain.
+	allLinks, err := s.store.ListTriggerChainLinks(r.Context())
+	if err != nil {
+		s.logger.Error("api: run chain: list trigger links", "chain_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list trigger links")
+		return
+	}
+	var links []*model.TriggerChainLink
+	for _, l := range allLinks {
+		if l.ChainID == id && l.Active {
+			links = append(links, l)
+		}
+	}
+	if len(links) == 0 {
+		writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0})
+		return
+	}
+
+	// Load graph and find first-level action nodes.
+	graph, err := s.store.GetChainGraph(r.Context(), id)
+	if err != nil {
+		s.logger.Error("api: run chain: load graph", "chain_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to load chain graph")
+		return
+	}
+	actionNodes := worker.FirstLevelActionNodes(graph)
+	if len(actionNodes) == 0 {
+		writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0})
+		return
+	}
+
+	// Build exclusion set once if new_only is requested.
+	var executedIDs map[string]struct{}
+	if req.NewOnly {
+		executedIDs = make(map[string]struct{})
+		for _, node := range graph.Nodes {
+			if node.Type == model.ChainNodeTypeAction && node.ActionID != nil {
+				execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{ActionID: node.ActionID})
+				if err != nil {
+					s.logger.Warn("api: run chain: fetch executions", "action_id", *node.ActionID, "error", err)
+					continue
+				}
+				for _, e := range execs {
+					executedIDs[e.TweetID] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// Push tasks: for each active trigger link, select eligible tweets and dispatch.
+	count := 0
+	for _, link := range links {
+		filter := store.TweetFilter{Page: 1, PerPage: 5000}
+		switch link.TriggerType {
+		case "new_tweet", "new_categorization":
+			// all tweets
+		case "entity_matched":
+			filter.HasEntityTrack = true
+		default:
+			continue
+		}
+
+		tweets, err := s.store.ListTweets(r.Context(), filter)
+		if err != nil {
+			s.logger.Error("api: run chain: list tweets", "trigger", link.TriggerType, "error", err)
+			continue
+		}
+
+		for _, tweet := range tweets {
+			if req.NewOnly {
+				if _, done := executedIDs[tweet.ID]; done {
+					continue
+				}
+			}
+			ev, _ := json.Marshal(queue.TweetEvent{
+				TweetID:      tweet.ID,
+				Text:         tweet.Text,
+				AuthorHandle: tweet.AuthorHandle,
+			})
+			for _, node := range actionNodes {
+				if node.ActionID == nil {
+					continue
+				}
+				task := &queue.Task{
+					TriggerType: link.TriggerType,
+					Event:       ev,
+					ActionID:    *node.ActionID,
+					ChainNodeID: node.ID,
+					ChainID:     id,
+					Context:     map[string]any{},
+				}
+				if pushErr := s.producer.PushTask(r.Context(), task); pushErr != nil {
+					s.logger.Error("api: run chain: push task",
+						"chain_id", id, "tweet_id", tweet.ID, "error", pushErr)
+					continue
+				}
+				count++
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
 }

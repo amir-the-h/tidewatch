@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/amir-the-h/iran-watcher/internal/auth"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
@@ -22,18 +23,24 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	sources    map[int64]*model.Source
-	rules      map[int64]*model.Rule
-	tweets     map[string]*model.Tweet
-	tweetRules []*model.TweetRule
-	nextID     int64
+	sources      map[int64]*model.Source
+	rules        map[int64]*model.Rule
+	tweets       map[string]*model.Tweet
+	tweetRules   []*model.TweetRule
+	chains       map[int64]*model.Chain
+	chainGraphs  map[int64]*model.ChainGraph
+	triggerLinks []*model.TriggerChainLink
+	executions   []*model.ActionExecution
+	nextID       int64
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		sources: make(map[int64]*model.Source),
-		rules:   make(map[int64]*model.Rule),
-		tweets:  make(map[string]*model.Tweet),
+		sources:     make(map[int64]*model.Source),
+		rules:       make(map[int64]*model.Rule),
+		tweets:      make(map[string]*model.Tweet),
+		chains:      make(map[int64]*model.Chain),
+		chainGraphs: make(map[int64]*model.ChainGraph),
 	}
 }
 
@@ -152,15 +159,21 @@ func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error
 func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error  { return nil }
 
 func (m *mockStore) SaveChain(_ context.Context, _ *model.Chain) error { return nil }
-func (m *mockStore) GetChain(_ context.Context, _ int64) (*model.Chain, error) {
-	return nil, nil
+func (m *mockStore) GetChain(_ context.Context, id int64) (*model.Chain, error) {
+	if c, ok := m.chains[id]; ok {
+		return c, nil
+	}
+	return nil, fmt.Errorf("chain not found: %d", id)
 }
 func (m *mockStore) ListChains(_ context.Context) ([]*model.Chain, error)    { return nil, nil }
 func (m *mockStore) UpdateChain(_ context.Context, _ *model.Chain) error     { return nil }
 func (m *mockStore) DeleteChain(_ context.Context, _ int64) error            { return nil }
 func (m *mockStore) SetChainActive(_ context.Context, _ int64, _ bool) error { return nil }
-func (m *mockStore) GetChainGraph(_ context.Context, _ int64) (*model.ChainGraph, error) {
-	return nil, nil
+func (m *mockStore) GetChainGraph(_ context.Context, id int64) (*model.ChainGraph, error) {
+	if g, ok := m.chainGraphs[id]; ok {
+		return g, nil
+	}
+	return &model.ChainGraph{}, nil
 }
 func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) {
 	return nil, nil
@@ -169,9 +182,17 @@ func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChai
 	return nil
 }
 func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) {
-	return nil, nil
+	return m.triggerLinks, nil
 }
-func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, _ string) ([]*model.TriggerChainLink, error) { return nil, nil }
+func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, triggerType string) ([]*model.TriggerChainLink, error) {
+	var out []*model.TriggerChainLink
+	for _, l := range m.triggerLinks {
+		if l.Active && l.TriggerType == triggerType {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
 func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error            { return nil }
 func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
 func (m *mockStore) GetChainIDForNode(_ context.Context, _ int64) (int64, error)        { return 0, nil }
@@ -302,8 +323,15 @@ func (m *mockStore) SaveActionExecution(_ context.Context, e *model.ActionExecut
 	e.ID = m.nextID
 	return nil
 }
-func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFilter) ([]*model.ActionExecution, error) {
-	return nil, nil
+func (m *mockStore) ListActionExecutions(_ context.Context, f store.ExecutionFilter) ([]*model.ActionExecution, error) {
+	var out []*model.ActionExecution
+	for _, e := range m.executions {
+		if f.ActionID != nil && e.ActionID != *f.ActionID {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
@@ -403,6 +431,16 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	logger := slog.Default()
 	srv := NewServer("127.0.0.1:0", ms, mp, nil, nil, nil, nil, mr, nil, "basic", nil, 0, "", logger, nil, nil, nil, nil, nil, "")
 	return srv, ms, mp, mr
+}
+
+// adminToken returns a valid admin JWT for the test server (jwtSecret="").
+func adminToken(t *testing.T) string {
+	t.Helper()
+	tok, err := auth.IssueToken("", &model.User{ID: 1, Username: "admin", Role: model.RoleAdmin})
+	if err != nil {
+		t.Fatalf("adminToken: %v", err)
+	}
+	return tok
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +636,143 @@ func TestGetHealth(t *testing.T) {
 	}
 	if result.Models == nil {
 		t.Error("expected models field in health response")
+	}
+}
+
+func TestRunChain_NotFound(t *testing.T) {
+	srv, _, _, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chains/99/run", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRunChain_Inactive(t *testing.T) {
+	srv, ms, _, _ := newTestServer(t)
+	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: false}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRunChain_QueuesTweets(t *testing.T) {
+	srv, ms, mp, _ := newTestServer(t)
+
+	// active chain
+	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: true}
+
+	// trigger link for this chain
+	ms.triggerLinks = []*model.TriggerChainLink{
+		{ID: 1, ChainID: 1, TriggerType: "new_tweet", Active: true},
+	}
+
+	// chain graph: start → action node (action_id=5, node_id=10)
+	actionID := int64(5)
+	ms.chainGraphs[1] = &model.ChainGraph{
+		Nodes: []*model.ChainNode{
+			{ID: 9, ChainID: 1, Type: model.ChainNodeTypeStart},
+			{ID: 10, ChainID: 1, Type: model.ChainNodeTypeAction, ActionID: &actionID},
+		},
+		Edges: []*model.ChainEdge{
+			{ID: 1, ChainID: 1, SourceNodeID: 9, TargetNodeID: 10},
+		},
+	}
+
+	// 2 tweets
+	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
+	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{"new_only":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result["queued"] != float64(2) {
+		t.Errorf("expected queued=2, got %v", result["queued"])
+	}
+	if len(mp.pushed) != 2 {
+		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
+	}
+	for _, task := range mp.pushed {
+		if task.ChainID != 1 {
+			t.Errorf("expected ChainID=1, got %d", task.ChainID)
+		}
+		if task.ChainNodeID != 10 {
+			t.Errorf("expected ChainNodeID=10, got %d", task.ChainNodeID)
+		}
+		if task.ActionID != 5 {
+			t.Errorf("expected ActionID=5, got %d", task.ActionID)
+		}
+	}
+}
+
+func TestRunChain_NewOnly(t *testing.T) {
+	srv, ms, mp, _ := newTestServer(t)
+
+	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: true}
+	ms.triggerLinks = []*model.TriggerChainLink{
+		{ID: 1, ChainID: 1, TriggerType: "new_tweet", Active: true},
+	}
+	actionID := int64(5)
+	ms.chainGraphs[1] = &model.ChainGraph{
+		Nodes: []*model.ChainNode{
+			{ID: 9, ChainID: 1, Type: model.ChainNodeTypeStart},
+			{ID: 10, ChainID: 1, Type: model.ChainNodeTypeAction, ActionID: &actionID},
+		},
+		Edges: []*model.ChainEdge{
+			{ID: 1, ChainID: 1, SourceNodeID: 9, TargetNodeID: 10},
+		},
+	}
+	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
+	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+
+	// t1 already executed
+	ms.executions = []*model.ActionExecution{
+		{ID: 1, ActionID: 5, TweetID: "t1", Status: "success"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{"new_only":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]any
+	_ = json.NewDecoder(w.Body).Decode(&result)
+	if result["queued"] != float64(1) {
+		t.Errorf("expected queued=1, got %v", result["queued"])
+	}
+	if len(mp.pushed) != 1 {
+		t.Fatalf("expected 1 pushed task, got %d", len(mp.pushed))
+	}
+	if mp.pushed[0].ActionID != 5 {
+		t.Errorf("expected ActionID=5, got %d", mp.pushed[0].ActionID)
 	}
 }
 
