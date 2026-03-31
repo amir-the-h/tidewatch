@@ -1913,6 +1913,10 @@ func (s *sqliteStore) DeleteAllEntityConnections(ctx context.Context) error {
 
 // GetEntityConnectionSubgraph returns the subgraph of entity connections reachable
 // from entityID within depth hops, including only edges with weight >= minWeight.
+// An edge is included only when at least one of its endpoints is strictly closer than
+// depth hops from the selected entity. This ensures depth=1 yields a star graph
+// (only edges incident to the selected entity), and each additional hop adds one ring
+// of expansion rather than the full induced subgraph on all visited nodes.
 func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID int64, depth, minWeight int) ([]*model.EntityConnection, error) {
 	all, err := s.ListEntityConnections(ctx)
 	if err != nil {
@@ -1936,15 +1940,15 @@ func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID 
 		}
 	}
 
-	// BFS from entityID up to depth hops.
-	visited := map[int64]bool{entityID: true}
+	// BFS from entityID, recording the exact hop distance for each reached node.
+	hopDist := map[int64]int{entityID: 0}
 	frontier := []int64{entityID}
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		var next []int64
 		for _, id := range frontier {
 			for _, neighbor := range adj[id] {
-				if !visited[neighbor] {
-					visited[neighbor] = true
+				if _, seen := hopDist[neighbor]; !seen {
+					hopDist[neighbor] = d + 1
 					next = append(next, neighbor)
 				}
 			}
@@ -1952,10 +1956,23 @@ func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID 
 		frontier = next
 	}
 
-	// Return only edges where both endpoints are reachable and weight qualifies.
+	// Include an edge when:
+	//   - weight >= minWeight
+	//   - both endpoints were reached by BFS
+	//   - the closer endpoint is strictly less than depth hops away
+	// This makes depth=1 a star (only edges touching the selected entity) and each
+	// additional depth level adds one ring without exposing the full clique on the frontier.
 	out := make([]*model.EntityConnection, 0)
 	for _, c := range all {
-		if c.Weight >= minWeight && visited[c.FromID] && visited[c.ToID] {
+		if c.Weight < minWeight {
+			continue
+		}
+		fromDist, fromOk := hopDist[c.FromID]
+		toDist, toOk := hopDist[c.ToID]
+		if !fromOk || !toOk {
+			continue
+		}
+		if fromDist < depth || toDist < depth {
 			out = append(out, c)
 		}
 	}
