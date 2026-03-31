@@ -1911,12 +1911,13 @@ func (s *sqliteStore) DeleteAllEntityConnections(ctx context.Context) error {
 	return nil
 }
 
-// GetEntityConnectionSubgraph returns the subgraph of entity connections reachable
-// from entityID within depth hops, including only edges with weight >= minWeight.
-// An edge is included only when at least one of its endpoints is strictly closer than
-// depth hops from the selected entity. This ensures depth=1 yields a star graph
-// (only edges incident to the selected entity), and each additional hop adds one ring
-// of expansion rather than the full induced subgraph on all visited nodes.
+// GetEntityConnectionSubgraph returns the BFS spanning tree of entity connections
+// reachable from entityID within depth hops, including only edges with weight >= minWeight.
+// Only the discovery edges from the BFS traversal are returned (the edge that first reached
+// each node), so depth=1 yields a star and each additional hop adds exactly one ring of
+// new nodes without including intra-layer edges or cross-edges between previously-visited nodes.
+// This keeps the result size proportional to the number of reachable nodes (at most N-1 edges
+// for N nodes) regardless of how dense the underlying graph is.
 func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID int64, depth, minWeight int) ([]*model.EntityConnection, error) {
 	all, err := s.ListEntityConnections(ctx)
 	if err != nil {
@@ -1940,15 +1941,24 @@ func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID 
 		}
 	}
 
-	// BFS from entityID, recording the exact hop distance for each reached node.
-	hopDist := map[int64]int{entityID: 0}
+	// BFS from entityID. For each newly discovered node record the spanning tree edge
+	// (the edge that first reached it). entity_connections enforces from_id < to_id so
+	// we normalise the pair the same way for easy lookup.
+	type edgeKey = [2]int64
+	treeEdges := make(map[edgeKey]bool)
+	visited := map[int64]bool{entityID: true}
 	frontier := []int64{entityID}
 	for d := 0; d < depth && len(frontier) > 0; d++ {
 		var next []int64
 		for _, id := range frontier {
 			for _, neighbor := range adj[id] {
-				if _, seen := hopDist[neighbor]; !seen {
-					hopDist[neighbor] = d + 1
+				if !visited[neighbor] {
+					visited[neighbor] = true
+					lo, hi := id, neighbor
+					if lo > hi {
+						lo, hi = hi, lo
+					}
+					treeEdges[edgeKey{lo, hi}] = true
 					next = append(next, neighbor)
 				}
 			}
@@ -1956,23 +1966,10 @@ func (s *sqliteStore) GetEntityConnectionSubgraph(ctx context.Context, entityID 
 		frontier = next
 	}
 
-	// Include an edge when:
-	//   - weight >= minWeight
-	//   - both endpoints were reached by BFS
-	//   - the closer endpoint is strictly less than depth hops away
-	// This makes depth=1 a star (only edges touching the selected entity) and each
-	// additional depth level adds one ring without exposing the full clique on the frontier.
-	out := make([]*model.EntityConnection, 0)
+	// Return only the spanning tree edges (all already satisfy minWeight).
+	out := make([]*model.EntityConnection, 0, len(treeEdges))
 	for _, c := range all {
-		if c.Weight < minWeight {
-			continue
-		}
-		fromDist, fromOk := hopDist[c.FromID]
-		toDist, toOk := hopDist[c.ToID]
-		if !fromOk || !toOk {
-			continue
-		}
-		if fromDist < depth || toDist < depth {
+		if treeEdges[edgeKey{c.FromID, c.ToID}] {
 			out = append(out, c)
 		}
 	}
