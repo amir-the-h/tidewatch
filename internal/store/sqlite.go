@@ -1539,6 +1539,7 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
 	query := `
         SELECT ae.tweet_id,
                COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
+               COALESCE(t.text, '') AS tweet_text,
                p.name AS model_name,
                aem_loc.value AS coordinates_json,
                COALESCE(json_extract(p.config, '$.map_config.coordinate_type'), '') AS coordinate_type,
@@ -1570,7 +1571,7 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
 		var pin MapPin
 		var coordType string
 		if err := rows.Scan(
-			&pin.TweetID, &pin.TweetCreatedAt, &pin.ModelName,
+			&pin.TweetID, &pin.TweetCreatedAt, &pin.TweetText, &pin.ModelName,
 			&pin.CoordinatesJSON, &coordType,
 			&pin.MetadataJSON, &pin.PopupTemplate,
 		); err != nil {

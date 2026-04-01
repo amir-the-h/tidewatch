@@ -4,6 +4,7 @@ import { apiFetch } from './client'
 export interface MapPin {
   tweet_id: string
   tweet_created_at: string
+  tweet_text?: string
   model_name: string
   coordinates: [number, number][]
   metadata?: Record<string, string>

@@ -84,6 +84,7 @@ type ActionFilter struct {
 type MapPin struct {
 	TweetID         string               `json:"tweet_id"`
 	TweetCreatedAt  string               `json:"tweet_created_at"`
+	TweetText       string               `json:"tweet_text"`
 	ModelName       string               `json:"model_name"`
 	CoordinatesJSON string               `json:"-"` // raw JSON, format indicated by CoordinateType
 	CoordinateType  model.CoordinateType `json:"-"`

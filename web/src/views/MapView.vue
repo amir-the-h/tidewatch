@@ -129,6 +129,7 @@ function buildPopup(pin: import('../api/map').MapPin, color: string): string {
   const builtins: Record<string, string> = {
     tweet_id:        pin.tweet_id,
     tweet_created_at: fmtDate(new Date(pin.tweet_created_at)),
+    tweet_text:      pin.tweet_text ?? '',
     model_name:      pin.model_name,
   }
   if (pin.popup_template) {
@@ -139,6 +140,10 @@ function buildPopup(pin: import('../api/map').MapPin, color: string): string {
   }
   const lines: string[] = []
   if (pin.metadata?.description) lines.push(escHtml(pin.metadata.description))
+  if (pin.tweet_text) {
+    const truncated = pin.tweet_text.length > 120 ? pin.tweet_text.slice(0, 120) + '…' : pin.tweet_text
+    lines.push(`<span style="color:#cdd6f4;font-size:12px">${escHtml(truncated)}</span>`)
+  }
   lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
   lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
   lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
