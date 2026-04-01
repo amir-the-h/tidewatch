@@ -355,7 +355,7 @@ func TestNormalize_RetweetOfNoteTweetUsesFullText(t *testing.T) {
 	}
 }
 
-func TestNormalize_NonRetweetKeepsText(t *testing.T) {
+func TestNormalize_QuoteTweetOnlyUsesQuoteText(t *testing.T) {
 	data := []byte(`{
 		"data": {
 			"id": "777",
@@ -375,8 +375,9 @@ func TestNormalize_NonRetweetKeepsText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if st.Tweet.Text != "This is a direct tweet, not an RT" {
-		t.Errorf("non-retweet text should be unchanged, got: %q", st.Tweet.Text)
+	want := "This is a direct tweet, not an RT"
+	if st.Tweet.Text != want {
+		t.Errorf("quote tweet should only use the quote's own text, got: %q", st.Tweet.Text)
 	}
 }
 
