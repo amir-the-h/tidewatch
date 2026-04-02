@@ -612,6 +612,21 @@ func evaluateConditionsVerbose(
 	}
 
 	for _, c := range conditions {
+		// rule_matches / rule_not_matches: c.Key is the rule ID (not a ctx key).
+		op := strings.ToLower(c.Operator)
+		if op == "rule_matches" || op == "rule_not_matches" {
+			result := evalRuleMatch(ctx, c.Key, op == "rule_matches")
+			if logger != nil {
+				logger.Info("pipeline: rule condition evaluated",
+					"pipeline_id", pipelineID, "node_id", nodeID,
+					"rule_id", c.Key, "op", c.Operator, "passed", result,
+				)
+			}
+			if !result {
+				return false
+			}
+			continue
+		}
 		val, ok := ctx[c.Key]
 		if !ok {
 			if logger != nil {
@@ -672,6 +687,23 @@ func evaluateCondition(c model.PipelineCondition, actual string) bool {
 	default:
 		return actual == c.Value
 	}
+}
+
+// evalRuleMatch checks whether the rule ID stored in ruleKey (as a decimal string)
+// is present in ctx["rule_ids"] ([]int64). If wantMatch is false it negates the result.
+// Returns false when rule_ids is absent or ruleKey cannot be parsed.
+func evalRuleMatch(ctx map[string]any, ruleKey string, wantMatch bool) bool {
+	targetID, err := strconv.ParseInt(ruleKey, 10, 64)
+	if err != nil {
+		return false
+	}
+	ids, _ := ctx["rule_ids"].([]int64)
+	for _, id := range ids {
+		if id == targetID {
+			return wantMatch
+		}
+	}
+	return !wantMatch
 }
 
 // ── graph helpers ─────────────────────────────────────────────────────────────
