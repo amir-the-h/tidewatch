@@ -1,12 +1,21 @@
 import { apiFetch } from './client'
 
+export type ActionType = 'onnx' | 'ollama' | 'internal' | 'notification'
+
 export interface Action {
   id: number
   name: string
-  pipeline_id: number
+  type: ActionType
+  config: Record<string, any>
   active: boolean
   created_at: string
   updated_at: string
+}
+
+export interface ActionBackend {
+  action_id: number
+  backend_id: number
+  priority: number
 }
 
 export interface ActionExecution {
@@ -37,27 +46,47 @@ export interface ExecutionFilter {
 }
 
 // Actions CRUD
-export const listActions = (filter: { active?: boolean } = {}) => {
+export const listActions = (filter: { active?: boolean; type?: ActionType } = {}) => {
   const params = new URLSearchParams()
   if (filter.active !== undefined) params.set('active', String(filter.active))
+  if (filter.type !== undefined) params.set('type', filter.type)
   const qs = params.toString() ? `?${params}` : ''
   return apiFetch<Action[]>(`/api/actions${qs}`)
 }
 
-export const createAction = (body: { name: string; pipeline_id: number }) =>
+export const createAction = (body: { name: string; type: ActionType; config?: Record<string, any> }) =>
   apiFetch<Action>('/api/actions', { method: 'POST', body: JSON.stringify(body) })
 
-export const updateAction = (id: number, body: { name?: string; pipeline_id?: number }) =>
+export const updateAction = (id: number, body: { name?: string; type?: ActionType; config?: Record<string, any> }) =>
   apiFetch<Action>(`/api/actions/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 
 export const deleteAction = (id: number) =>
   apiFetch<void>(`/api/actions/${id}`, { method: 'DELETE' })
 
 export const activateAction = (id: number) =>
-  apiFetch<Action>(`/api/actions/${id}/activate`, { method: 'POST' })
+  apiFetch<void>(`/api/actions/${id}/activate`, { method: 'POST' })
 
 export const deactivateAction = (id: number) =>
-  apiFetch<Action>(`/api/actions/${id}/deactivate`, { method: 'POST' })
+  apiFetch<void>(`/api/actions/${id}/deactivate`, { method: 'POST' })
+
+export const listActionHandlers = () =>
+  apiFetch<string[]>('/api/actions/handlers')
+
+// Action backends
+export const listActionBackends = (id: number) =>
+  apiFetch<ActionBackend[]>(`/api/actions/${id}/backends`)
+
+export const setActionBackends = (
+  id: number,
+  assignments: { backend_id: number; priority: number }[],
+) =>
+  apiFetch<ActionBackend[]>(`/api/actions/${id}/backends`, {
+    method: 'PUT',
+    body: JSON.stringify(assignments),
+  })
+
+export const removeActionBackend = (id: number, backendId: number) =>
+  apiFetch<void>(`/api/actions/${id}/backends/${backendId}`, { method: 'DELETE' })
 
 // Executions
 export const listActionExecutions = (id: number, filter: ExecutionFilter = {}) => {

@@ -1,15 +1,63 @@
 import { apiFetch } from './client'
 
-export type PipelineType = 'onnx' | 'ollama' | 'internal' | 'notification'
-
 export interface Pipeline {
   id: number
   name: string
-  type: PipelineType
-  config: Record<string, any>
+  description?: string
   active: boolean
+  node_count: number
   created_at: string
   updated_at: string
+}
+
+export interface PipelineNode {
+  id: number
+  pipeline_id: number
+  type: 'start' | 'action' | 'pipeline' | 'condition'
+  action_id?: number
+  sub_pipeline_id?: number
+  conditions?: PipelineCondition[]
+  label: string
+  pos_x: number
+  pos_y: number
+  created_at: string
+}
+
+export interface PipelineEdge {
+  id: number
+  pipeline_id: number
+  source_node_id: number
+  source_handle: string
+  target_node_id: number
+  created_at: string
+}
+
+export interface PipelineGraph {
+  nodes: PipelineNode[]
+  edges: PipelineEdge[]
+}
+
+export interface PipelineCondition {
+  key: string
+  op: string
+  value?: string
+}
+
+export interface PipelineNodeRequest {
+  client_id: string
+  type: 'start' | 'action' | 'pipeline' | 'condition'
+  action_id?: number
+  sub_pipeline_id?: number
+  conditions?: PipelineCondition[]
+  label: string
+  pos_x: number
+  pos_y: number
+}
+
+export interface PipelineEdgeRequest {
+  source_client_id: string
+  source_handle: string
+  target_client_id: string
 }
 
 export interface TriggerInfo {
@@ -17,84 +65,35 @@ export interface TriggerInfo {
   description: string
 }
 
-export interface ActionChain {
-  id: number
-  source_action_id: number
-  target_action_id: number
-  conditions: ChainCondition[]
-  created_at: string
-}
-
-export interface ChainCondition {
-  key: string
-  op: string
-  value: string
-}
-
-export const listPipelines = (filter: { active?: boolean; type?: PipelineType; usecase?: string } = {}) => {
-  const params = new URLSearchParams()
-  if (filter.active !== undefined) params.set('active', String(filter.active))
-  if (filter.type !== undefined) params.set('type', filter.type)
-  if (filter.usecase !== undefined) params.set('usecase', filter.usecase)
-  const qs = params.toString() ? `?${params}` : ''
-  return apiFetch<Pipeline[]>(`/api/pipelines${qs}`)
-}
-
-export const createPipeline = (body: { name: string; type: PipelineType; config?: Record<string, any> }) =>
-  apiFetch<Pipeline>('/api/pipelines', { method: 'POST', body: JSON.stringify(body) })
-
-export const updatePipeline = (id: number, body: { name?: string; type?: PipelineType; config?: Record<string, any> }) =>
-  apiFetch<Pipeline>(`/api/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(body) })
-
-export const deletePipeline = (id: number) =>
-  apiFetch<void>(`/api/pipelines/${id}`, { method: 'DELETE' })
-
-export const activatePipeline = (id: number) =>
-  apiFetch<void>(`/api/pipelines/${id}/activate`, { method: 'POST' })
-
-export const deactivatePipeline = (id: number) =>
-  apiFetch<void>(`/api/pipelines/${id}/deactivate`, { method: 'POST' })
-
-export const listPipelineHandlers = () =>
-  apiFetch<string[]>('/api/pipelines/handlers')
-
-export const listTriggers = () =>
-  apiFetch<TriggerInfo[]>('/api/triggers')
-
 export interface ModelFile {
   name: string
   path: string
 }
 
-export const listModels = () => apiFetch<ModelFile[]>('/api/models')
-
-export interface PipelineBackend {
-  pipeline_id: number
-  backend_id: number
-  priority: number
-}
-
-export const listPipelineBackends = (id: number) =>
-  apiFetch<PipelineBackend[]>(`/api/pipelines/${id}/backends`)
-
-export const setPipelineBackends = (
-  id: number,
-  assignments: { backend_id: number; priority: number }[],
-) =>
-  apiFetch<PipelineBackend[]>(`/api/pipelines/${id}/backends`, {
+export const listPipelines = () => apiFetch<Pipeline[]>('/api/pipelines')
+export const getPipeline = (id: number) => apiFetch<Pipeline>(`/api/pipelines/${id}`)
+export const createPipeline = (body: { name: string; description?: string }) =>
+  apiFetch<Pipeline>('/api/pipelines', { method: 'POST', body: JSON.stringify(body) })
+export const updatePipeline = (id: number, body: { name?: string; description?: string }) =>
+  apiFetch<Pipeline>(`/api/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deletePipeline = (id: number) =>
+  apiFetch<void>(`/api/pipelines/${id}`, { method: 'DELETE' })
+export const activatePipeline = (id: number) =>
+  apiFetch<void>(`/api/pipelines/${id}/activate`, { method: 'POST' })
+export const deactivatePipeline = (id: number) =>
+  apiFetch<void>(`/api/pipelines/${id}/deactivate`, { method: 'POST' })
+export const getPipelineGraph = (id: number) =>
+  apiFetch<PipelineGraph>(`/api/pipelines/${id}/graph`)
+export const savePipelineGraph = (id: number, nodes: PipelineNodeRequest[], edges: PipelineEdgeRequest[]) =>
+  apiFetch<PipelineGraph>(`/api/pipelines/${id}/graph`, {
     method: 'PUT',
-    body: JSON.stringify(assignments),
+    body: JSON.stringify({ nodes, edges }),
+  })
+export const runPipeline = (id: number, newOnly: boolean) =>
+  apiFetch<{ queued: number }>(`/api/pipelines/${id}/run`, {
+    method: 'POST',
+    body: JSON.stringify({ new_only: newOnly }),
   })
 
-export const removePipelineBackend = (id: number, backendId: number) =>
-  apiFetch<void>(`/api/pipelines/${id}/backends/${backendId}`, { method: 'DELETE' })
-
-// Action chains
-export const listActionChains = (actionId: number) =>
-  apiFetch<ActionChain[]>(`/api/actions/${actionId}/chains`)
-
-export const createActionChain = (actionId: number, body: { target_action_id: number; conditions: ChainCondition[] }) =>
-  apiFetch<ActionChain>(`/api/actions/${actionId}/chains`, { method: 'POST', body: JSON.stringify(body) })
-
-export const deleteActionChain = (actionId: number, chainId: number) =>
-  apiFetch<void>(`/api/actions/${actionId}/chains/${chainId}`, { method: 'DELETE' })
+export const listTriggers = () => apiFetch<TriggerInfo[]>('/api/triggers')
+export const listModels = () => apiFetch<ModelFile[]>('/api/models')
