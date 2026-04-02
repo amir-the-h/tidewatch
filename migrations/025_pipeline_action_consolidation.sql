@@ -17,6 +17,15 @@ INSERT INTO actions_new (id, name, type, config, active, created_at, updated_at)
 -- ── Step 2: new pipeline_nodes (remap action_id via old thin actions table) ──
 -- action_id: chain_nodes.action_id → old_actions.pipeline_id → new actions.id
 -- (new actions.id == old pipelines.id, so the lookup old_actions.pipeline_id is correct)
+
+-- Guard: abort if any action node references an action with NULL pipeline_id
+SELECT CASE WHEN COUNT(*) > 0
+    THEN RAISE(ABORT, 'migration: action node references an action with NULL pipeline_id — data integrity error')
+    END
+FROM chain_nodes cn
+JOIN actions a ON a.id = cn.action_id
+WHERE cn.type = 'action' AND a.pipeline_id IS NULL;
+
 CREATE TABLE pipeline_nodes_new (
     id              INTEGER PRIMARY KEY,
     pipeline_id     INTEGER NOT NULL,
@@ -47,6 +56,13 @@ DROP TABLE chain_nodes;
 ALTER TABLE pipeline_nodes_new RENAME TO pipeline_nodes;
 
 -- ── Step 4: drop old pipelines + actions, promote actions_new ───────────────
+
+-- Remap action_executions.action_id from old thin-action IDs to new action IDs
+-- (old actions.pipeline_id == new actions.id, since new actions absorb old pipelines)
+UPDATE action_executions
+    SET action_id = (SELECT a.pipeline_id FROM actions a WHERE a.id = action_executions.action_id)
+    WHERE EXISTS (SELECT 1 FROM actions a WHERE a.id = action_executions.action_id);
+
 DROP TABLE pipelines;
 DROP TABLE actions;
 ALTER TABLE actions_new RENAME TO actions;
@@ -113,7 +129,10 @@ CREATE TABLE pipeline_nodes_final (
     pos_y           REAL    NOT NULL DEFAULT 0,
     created_at      TEXT
 );
-INSERT INTO pipeline_nodes_final SELECT * FROM pipeline_nodes;
+INSERT INTO pipeline_nodes_final
+    (id, pipeline_id, type, action_id, sub_pipeline_id, conditions, label, pos_x, pos_y, created_at)
+    SELECT id, pipeline_id, type, action_id, sub_pipeline_id, conditions, label, pos_x, pos_y, created_at
+    FROM pipeline_nodes;
 DROP TABLE pipeline_nodes;
 ALTER TABLE pipeline_nodes_final RENAME TO pipeline_nodes;
 
