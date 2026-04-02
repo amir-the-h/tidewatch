@@ -56,10 +56,9 @@ func NewActionCache(
 
 // Load (re)builds the entire cache from active actions in the DB.
 func (c *ActionCache) Load(ctx context.Context) error {
-	// Fetch priority-ordered backend IDs for each pipeline.
-	pipelineBackendIDs, err := c.store.ListAllPipelineBackendIDs(ctx)
+	actionBackendIDs, err := c.store.ListAllActionBackendIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("action_cache: list pipeline backend ids: %w", err)
+		return fmt.Errorf("action_cache: list action backend ids: %w", err)
 	}
 
 	active := true
@@ -70,11 +69,11 @@ func (c *ActionCache) Load(ctx context.Context) error {
 
 	entries := make(map[int64]*CacheEntry, len(actions))
 	for _, a := range actions {
-		p, transformers, pErr := c.resolvePipeline(ctx, a.PipelineID, pipelineBackendIDs)
+		p, transformers, pErr := c.resolveAction(ctx, a, actionBackendIDs)
 		if pErr != nil {
 			if c.logger != nil {
-				c.logger.Warn("action_cache: skip action (pipeline resolution failed)",
-					"action_id", a.ID, "pipeline_id", a.PipelineID, "error", pErr)
+				c.logger.Warn("action_cache: skip action (resolution failed)",
+					"action_id", a.ID, "action_name", a.Name, "error", pErr)
 			}
 			continue
 		}
@@ -127,15 +126,10 @@ func (c *ActionCache) FindByType(pipelineType inference.PipelineType) inference.
 	return nil
 }
 
-func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pipelineBackendIDs map[int64][]int64) (inference.Pipeline, []transform.Transformer, error) {
-	row, err := c.store.GetPipeline(ctx, pipelineID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("get pipeline row: %w", err)
-	}
-
+func (c *ActionCache) resolveAction(ctx context.Context, a *model.Action, actionBackendIDs map[int64][]int64) (inference.Pipeline, []transform.Transformer, error) {
 	var cfg map[string]any
-	if len(row.Config) > 0 {
-		if err := json.Unmarshal(row.Config, &cfg); err != nil {
+	if len(a.Config) > 0 {
+		if err := json.Unmarshal(a.Config, &cfg); err != nil {
 			cfg = make(map[string]any)
 		}
 	} else {
@@ -145,21 +139,21 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pip
 	transformers, err := transform.Parse(cfg)
 	if err != nil && c.logger != nil {
 		c.logger.Warn("action_cache: invalid transformer config, ignoring",
-			"pipeline", row.Name, "error", err)
+			"action", a.Name, "error", err)
 	}
 
 	var p inference.Pipeline
-	switch row.Type {
-	case model.PipelineTypeONNX:
-		if p = c.infReg.Get(row.Name); p != nil {
+	switch a.Type {
+	case model.ActionTypeONNX:
+		if p = c.infReg.Get(a.Name); p != nil {
 			return p, transformers, nil
 		}
-		onnx, err := inference.NewONNXPipelineFromConfig(row.Name, cfg)
+		onnx, err := inference.NewONNXPipelineFromConfig(a.Name, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("onnx: %w", err)
 		}
 		p = onnx
-		labels, _ := c.store.ListPipelineLabels(ctx, pipelineID)
+		labels, _ := c.store.ListActionLabels(ctx, a.ID)
 		if len(labels) > 0 {
 			if lp, ok := p.(inference.LabeledPipeline); ok {
 				lp.SetLabels(labels)
@@ -167,37 +161,37 @@ func (c *ActionCache) resolvePipeline(ctx context.Context, pipelineID int64, pip
 		}
 		c.infReg.Register(p)
 
-	case model.PipelineTypeOllama:
+	case model.ActionTypeOllama:
 		// Always build fresh from DB config so that updates to model name,
 		// system_prompt, or backend assignments take effect without a restart.
-		assignedIDs := pipelineBackendIDs[pipelineID] // nil → use full pool
-		p = inference.NewOllamaPipelineFromConfig(row.Name, cfg, c.pool, assignedIDs, 0)
+		assignedIDs := actionBackendIDs[a.ID] // nil → use full pool
+		p = inference.NewOllamaPipelineFromConfig(a.Name, cfg, c.pool, assignedIDs, 0)
 		c.infReg.Register(p)
 
-	case model.PipelineTypeInternal:
-		p, err = c.pipeReg.Build(row.Name, cfg)
+	case model.ActionTypeInternal:
+		p, err = c.pipeReg.Build(a.Name, cfg)
 		if err != nil {
 			return nil, nil, err
 		}
 
-	case model.PipelineTypeNotification:
-		p, err = buildNotificationPipeline(ctx, c.store, row, c.logger)
+	case model.ActionTypeNotification:
+		p, err = buildNotificationPipeline(ctx, c.store, a, c.logger)
 		if err != nil {
 			return nil, nil, err
 		}
 
 	default:
-		return nil, nil, fmt.Errorf("unknown pipeline type: %s", row.Type)
+		return nil, nil, fmt.Errorf("unknown action type: %s", a.Type)
 	}
 
 	return p, transformers, nil
 }
 
-func buildNotificationPipeline(ctx context.Context, st store.Store, p *model.Pipeline, logger *slog.Logger) (inference.Pipeline, error) {
-	// Parse pipeline config for channel_id, message_template, and delivery options.
+func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Action, logger *slog.Logger) (inference.Pipeline, error) {
+	// Parse action config for channel_id, message_template, and delivery options.
 	var pipelineCfg map[string]any
-	if len(p.Config) > 0 {
-		if err := json.Unmarshal(p.Config, &pipelineCfg); err != nil {
+	if len(a.Config) > 0 {
+		if err := json.Unmarshal(a.Config, &pipelineCfg); err != nil {
 			return nil, fmt.Errorf("action cache: parse notification pipeline config: %w", err)
 		}
 	}
@@ -221,7 +215,7 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, p *model.Pip
 		return nil, fmt.Errorf("action cache: load notification provider %d: %w", channel.ProviderID, err)
 	}
 
-	// Build delivery config: pipeline options first, then overlay channel routing (chat_id, device).
+	// Build delivery config: action options first, then overlay channel routing (chat_id, device).
 	deliveryConfig := make(map[string]any, len(pipelineCfg))
 	for k, v := range pipelineCfg {
 		if k == "channel_id" || k == "message_template" {
@@ -278,5 +272,5 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, p *model.Pip
 		return out, nil
 	}
 
-	return pipeline.NewNotificationPipeline(p.Name, messageTemplate, deliveryConfig, notifProvider, loader), nil
+	return pipeline.NewNotificationPipeline(a.Name, messageTemplate, deliveryConfig, notifProvider, loader), nil
 }
