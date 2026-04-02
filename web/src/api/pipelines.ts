@@ -60,11 +60,6 @@ export interface PipelineEdgeRequest {
   target_client_id: string
 }
 
-export interface TriggerInfo {
-  type: string
-  description: string
-}
-
 export interface ModelFile {
   name: string
   path: string
@@ -95,5 +90,4 @@ export const runPipeline = (id: number, newOnly: boolean) =>
     body: JSON.stringify({ new_only: newOnly }),
   })
 
-export const listTriggers = () => apiFetch<TriggerInfo[]>('/api/triggers')
 export const listModels = () => apiFetch<ModelFile[]>('/api/models')

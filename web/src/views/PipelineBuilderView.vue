@@ -54,6 +54,10 @@ const selectedNodeId = ref<string | null>(null)
 
 const panel = ref<'palette' | 'edit'>('palette')
 
+const selectedNode = computed(() =>
+  selectedNodeId.value ? findNode(selectedNodeId.value) : undefined
+)
+
 const editLabel          = ref('')
 const editActionId       = ref<number | null>(null)
 const editSubPipelineId  = ref<number | null>(null)
@@ -273,6 +277,9 @@ async function onSave() {
           ? pipelines.value.find(p => p.id === n.sub_pipeline_id)?.name
           : undefined,
         conditions:      n.conditions ?? [],
+        pipelineType:    n.action_id
+          ? actions.value.find(a => a.id === n.action_id)?.name
+          : undefined,
       },
     })))
     setEdges(saved.edges.map(e => ({
@@ -306,6 +313,9 @@ async function onDiscard() {
           ? pipelines.value.find(p => p.id === n.sub_pipeline_id)?.name
           : undefined,
         conditions:      n.conditions ?? [],
+        pipelineType:    n.action_id
+          ? actions.value.find(a => a.id === n.action_id)?.name
+          : undefined,
       },
     })))
     setEdges(graph.edges.map(e => ({
@@ -430,7 +440,7 @@ const pipelineOptions = computed(() =>
             <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">Label</n-text>
             <n-input v-model:value="editLabel" size="small" placeholder="Node label" style="margin-bottom: 10px;" />
 
-            <template v-if="findNode(selectedNodeId ?? '')?.type === 'action'">
+            <template v-if="selectedNode?.type === 'action'">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">Action</n-text>
               <n-select
                 v-model:value="editActionId"
@@ -441,7 +451,7 @@ const pipelineOptions = computed(() =>
               />
             </template>
 
-            <template v-if="findNode(selectedNodeId ?? '')?.type === 'pipeline'">
+            <template v-if="selectedNode?.type === 'pipeline'">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">Sub-Pipeline</n-text>
               <n-select
                 v-model:value="editSubPipelineId"
@@ -452,7 +462,7 @@ const pipelineOptions = computed(() =>
               />
             </template>
 
-            <template v-if="findNode(selectedNodeId ?? '')?.type === 'condition'">
+            <template v-if="selectedNode?.type === 'condition'">
               <n-divider style="margin: 8px 0">
                 <n-text depth="3" style="font-size: 11px;">Conditions</n-text>
               </n-divider>

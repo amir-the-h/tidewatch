@@ -23,13 +23,13 @@ import {
 } from '../api/actions'
 import {
   listPipelines, createPipeline, updatePipeline, deletePipeline, activatePipeline, deactivatePipeline,
-  runPipeline, listTriggers, listModels,
-  type Pipeline, type TriggerInfo, type ModelFile,
+  runPipeline, listModels,
+  type Pipeline, type ModelFile,
 } from '../api/pipelines'
 import {
-  listTriggerPipelineLinks, createTriggerPipelineLink,
+  listTriggers, listTriggerPipelineLinks, createTriggerPipelineLink,
   deleteTriggerPipelineLink, activateTriggerPipelineLink, deactivateTriggerPipelineLink,
-  type TriggerPipelineLink,
+  type TriggerInfo, type TriggerPipelineLink,
 } from '../api/trigger_links'
 import { listChannels, listProviders, type NotificationChannel, type NotificationProvider } from '../api/notifications'
 import { useActionsStore } from '../stores/actions'
@@ -1040,103 +1040,107 @@ onMounted(async () => {
       </n-form-item>
     </template>
 
-    <!-- Map Output -->
-    <n-divider style="margin: 4px 0">Map Output <span style="font-size:11px;color:#6c7086">(optional)</span></n-divider>
-    <n-form-item label="Coordinate key">
-      <n-input v-model:value="formMapCoordinateKey" placeholder="e.g. geo_coordinates" clearable />
-    </n-form-item>
-    <n-form-item v-if="formMapCoordinateKey.trim()" label="Coordinate type">
-      <n-select v-model:value="formMapCoordinateType" :options="coordinateTypeOptions" />
-    </n-form-item>
-    <n-form-item v-if="formMapCoordinateKey.trim()" label="Popup template (optional)">
-      <n-input
-        v-model:value="formMapPopupTemplate"
-        type="textarea" :rows="3"
-        placeholder="${description}&#10;Confidence: ${confidence}"
-        style="font-family: monospace; font-size: 12px"
-      />
-    </n-form-item>
-    <n-text v-if="formMapCoordinateKey.trim()" depth="3" style="font-size:12px; margin-top:-8px; display:block">
-      Use <code>${key}</code> for any execution metadata key. Built-ins: ${tweet_id}, ${tweet_created_at}, ${model_name}. Leave blank for default layout.
-    </n-text>
+    <!-- Map Output (hidden for notification type) -->
+    <template v-if="formType !== 'notification'">
+      <n-divider style="margin: 4px 0">Map Output <span style="font-size:11px;color:#6c7086">(optional)</span></n-divider>
+      <n-form-item label="Coordinate key">
+        <n-input v-model:value="formMapCoordinateKey" placeholder="e.g. geo_coordinates" clearable />
+      </n-form-item>
+      <n-form-item v-if="formMapCoordinateKey.trim()" label="Coordinate type">
+        <n-select v-model:value="formMapCoordinateType" :options="coordinateTypeOptions" />
+      </n-form-item>
+      <n-form-item v-if="formMapCoordinateKey.trim()" label="Popup template (optional)">
+        <n-input
+          v-model:value="formMapPopupTemplate"
+          type="textarea" :rows="3"
+          placeholder="${description}&#10;Confidence: ${confidence}"
+          style="font-family: monospace; font-size: 12px"
+        />
+      </n-form-item>
+      <n-text v-if="formMapCoordinateKey.trim()" depth="3" style="font-size:12px; margin-top:-8px; display:block">
+        Use <code>${key}</code> for any execution metadata key. Built-ins: ${tweet_id}, ${tweet_created_at}, ${model_name}. Leave blank for default layout.
+      </n-text>
+    </template>
 
-    <!-- Transformers -->
-    <n-divider style="margin: 4px 0" />
-    <n-form-item label="Transformers">
-      <n-flex vertical style="width: 100%; gap: 8px">
-        <n-card v-for="(t, i) in formTransformers" :key="i" size="small" style="background: var(--n-color-embedded)">
-          <n-flex align="center" style="margin-bottom: 8px">
-            <n-select v-model:value="t.type" :options="transformerTypeOptions" style="flex: 1" />
-            <n-button text type="error" @click="formTransformers.splice(i, 1)">
-              <template #icon><n-icon><TrashOutline /></n-icon></template>
-            </n-button>
-          </n-flex>
-          <template v-if="t.type === 'zip_arrays'">
-            <n-flex>
-              <n-form-item label="Keys field" style="flex: 1; margin-bottom: 0">
-                <n-input v-model:value="t.keys_field" placeholder="labels" />
-              </n-form-item>
-              <n-form-item label="Values field" style="flex: 1; margin-bottom: 0">
-                <n-input v-model:value="t.values_field" placeholder="scores" />
-              </n-form-item>
+    <!-- Transformers (hidden for notification type) -->
+    <template v-if="formType !== 'notification'">
+      <n-divider style="margin: 4px 0" />
+      <n-form-item label="Transformers">
+        <n-flex vertical style="width: 100%; gap: 8px">
+          <n-card v-for="(t, i) in formTransformers" :key="i" size="small" style="background: var(--n-color-embedded)">
+            <n-flex align="center" style="margin-bottom: 8px">
+              <n-select v-model:value="t.type" :options="transformerTypeOptions" style="flex: 1" />
+              <n-button text type="error" @click="formTransformers.splice(i, 1)">
+                <template #icon><n-icon><TrashOutline /></n-icon></template>
+              </n-button>
             </n-flex>
-          </template>
-          <template v-else-if="t.type === 'multiply'">
-            <n-flex>
-              <n-form-item label="Factor" style="flex: 1; margin-bottom: 0">
-                <n-input-number v-model:value="t.factor" placeholder="e.g. 100" style="width: 100%" />
-              </n-form-item>
-              <n-form-item label="Fields (empty = all numeric)" style="flex: 2; margin-bottom: 0">
-                <n-dynamic-tags v-model:value="t.fields" />
-              </n-form-item>
-            </n-flex>
-          </template>
-          <template v-else-if="t.type === 'normalize'">
-            <n-flex>
-              <n-form-item label="Method" style="flex: 1; margin-bottom: 0">
-                <n-select v-model:value="t.method" :options="normalizeMethodOptions" />
-              </n-form-item>
-              <n-form-item label="Fields (empty = all numeric)" style="flex: 2; margin-bottom: 0">
-                <n-dynamic-tags v-model:value="t.fields" />
-              </n-form-item>
-            </n-flex>
-            <n-flex v-if="t.method === 'minmax'" style="margin-top: 8px">
-              <n-form-item label="Range min" style="flex: 1; margin-bottom: 0">
-                <n-input-number v-model:value="t.range_min" placeholder="0" style="width: 100%" />
-              </n-form-item>
-              <n-form-item label="Range max" style="flex: 1; margin-bottom: 0">
-                <n-input-number v-model:value="t.range_max" placeholder="1" style="width: 100%" />
-              </n-form-item>
-            </n-flex>
-          </template>
-          <template v-else-if="t.type === 'group_entities'">
-            <n-flex>
-              <n-form-item label="Source field" style="flex: 1; margin-bottom: 0">
-                <n-input v-model:value="t.source" placeholder="entities" />
-              </n-form-item>
-              <n-form-item label="Min score" style="flex: 1; margin-bottom: 0">
-                <n-input-number v-model:value="t.min_score" :min="0" :max="1" :step="0.05" placeholder="0.8" style="width: 100%" />
-              </n-form-item>
-            </n-flex>
-            <n-flex style="margin-top: 8px">
-              <n-form-item label="Label field" style="flex: 1; margin-bottom: 0">
-                <n-input v-model:value="t.label_field" placeholder="label" />
-              </n-form-item>
-              <n-form-item label="Word field" style="flex: 1; margin-bottom: 0">
-                <n-input v-model:value="t.word_field" placeholder="word" />
-              </n-form-item>
-              <n-form-item label="Score field" style="flex: 1; margin-bottom: 0">
-                <n-input v-model:value="t.score_field" placeholder="score" />
-              </n-form-item>
-            </n-flex>
-          </template>
-        </n-card>
-        <n-button dashed style="width: 100%" @click="addTransformer">
-          <template #icon><n-icon><AddOutline /></n-icon></template>
-          Add Transformer
-        </n-button>
-      </n-flex>
-    </n-form-item>
+            <template v-if="t.type === 'zip_arrays'">
+              <n-flex>
+                <n-form-item label="Keys field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.keys_field" placeholder="labels" />
+                </n-form-item>
+                <n-form-item label="Values field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.values_field" placeholder="scores" />
+                </n-form-item>
+              </n-flex>
+            </template>
+            <template v-else-if="t.type === 'multiply'">
+              <n-flex>
+                <n-form-item label="Factor" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.factor" placeholder="e.g. 100" style="width: 100%" />
+                </n-form-item>
+                <n-form-item label="Fields (empty = all numeric)" style="flex: 2; margin-bottom: 0">
+                  <n-dynamic-tags v-model:value="t.fields" />
+                </n-form-item>
+              </n-flex>
+            </template>
+            <template v-else-if="t.type === 'normalize'">
+              <n-flex>
+                <n-form-item label="Method" style="flex: 1; margin-bottom: 0">
+                  <n-select v-model:value="t.method" :options="normalizeMethodOptions" />
+                </n-form-item>
+                <n-form-item label="Fields (empty = all numeric)" style="flex: 2; margin-bottom: 0">
+                  <n-dynamic-tags v-model:value="t.fields" />
+                </n-form-item>
+              </n-flex>
+              <n-flex v-if="t.method === 'minmax'" style="margin-top: 8px">
+                <n-form-item label="Range min" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.range_min" placeholder="0" style="width: 100%" />
+                </n-form-item>
+                <n-form-item label="Range max" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.range_max" placeholder="1" style="width: 100%" />
+                </n-form-item>
+              </n-flex>
+            </template>
+            <template v-else-if="t.type === 'group_entities'">
+              <n-flex>
+                <n-form-item label="Source field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.source" placeholder="entities" />
+                </n-form-item>
+                <n-form-item label="Min score" style="flex: 1; margin-bottom: 0">
+                  <n-input-number v-model:value="t.min_score" :min="0" :max="1" :step="0.05" placeholder="0.8" style="width: 100%" />
+                </n-form-item>
+              </n-flex>
+              <n-flex style="margin-top: 8px">
+                <n-form-item label="Label field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.label_field" placeholder="label" />
+                </n-form-item>
+                <n-form-item label="Word field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.word_field" placeholder="word" />
+                </n-form-item>
+                <n-form-item label="Score field" style="flex: 1; margin-bottom: 0">
+                  <n-input v-model:value="t.score_field" placeholder="score" />
+                </n-form-item>
+              </n-flex>
+            </template>
+          </n-card>
+          <n-button dashed style="width: 100%" @click="addTransformer">
+            <template #icon><n-icon><AddOutline /></n-icon></template>
+            Add Transformer
+          </n-button>
+        </n-flex>
+      </n-form-item>
+    </template>
   </FormDrawer>
 
   <!-- Action Backend Assignments Modal -->
