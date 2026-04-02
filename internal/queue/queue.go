@@ -29,7 +29,12 @@ type Task struct {
 	ActionID             int64           `json:"action_id"`
 	PipelineNodeID       int64           `json:"pipeline_node_id,omitempty"`
 	PipelineID           int64           `json:"pipeline_id,omitempty"`
-	ParentPipelineNodeID *int64          `json:"parent_pipeline_node_id,omitempty"`
+	ParentPipelineNodeID   *int64         `json:"parent_pipeline_node_id,omitempty"`
+	// SubPipelineEntryNodeID is the node ID of the INITIAL action dispatched
+	// into a sub-pipeline. It is used as the leaf-tracking key in
+	// pipeline_node_executions so that any termination of that branch
+	// (structural or via condition-fail) can signal the parent pipeline.
+	SubPipelineEntryNodeID *int64         `json:"sub_pipeline_entry_node_id,omitempty"`
 	Context              map[string]any  `json:"context"`
 }
 

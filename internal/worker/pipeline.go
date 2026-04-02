@@ -178,20 +178,6 @@ func PushInitialTasksForGraph(
 				}
 				continue
 			}
-			terminalIDs := findTerminalNodeIDs(subGraph)
-			if len(terminalIDs) == 0 {
-				if logger != nil {
-					logger.Warn("pipeline: sub-pipeline has no terminal nodes — skipped",
-						"sub_pipeline_id", *node.SubPipelineID)
-				}
-				continue
-			}
-			for _, leafID := range terminalIDs {
-				if insErr := st.InsertPipelineNodeExecution(ctx, node.ID, tweetID, leafID); insErr != nil && logger != nil {
-					logger.Warn("pipeline: insert pipeline node execution failed",
-						"parent_node_id", node.ID, "leaf_node_id", leafID, "error", insErr)
-				}
-			}
 			subStartNode := findStartNode(subGraph)
 			if subStartNode == nil {
 				continue
@@ -204,14 +190,20 @@ func PushInitialTasksForGraph(
 				if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
 					continue
 				}
+				entryNodeID := subActionNode.ID
+				if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
+					logger.Warn("pipeline: insert pipeline node execution failed",
+						"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
+				}
 				subTask := &queue.Task{
-					TriggerType:          triggerType,
-					Event:                eventPayload,
-					ActionID:             *subActionNode.ActionID,
-					PipelineNodeID:       subActionNode.ID,
-					PipelineID:           *node.SubPipelineID,
-					ParentPipelineNodeID: &parentNodeID,
-					Context:              map[string]any{},
+					TriggerType:            triggerType,
+					Event:                  eventPayload,
+					ActionID:               *subActionNode.ActionID,
+					PipelineNodeID:         subActionNode.ID,
+					PipelineID:             *node.SubPipelineID,
+					ParentPipelineNodeID:   &parentNodeID,
+					SubPipelineEntryNodeID: &entryNodeID,
+					Context:                map[string]any{},
 				}
 				if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
 					logger.Warn("pipeline: push sub-pipeline initial task failed",
@@ -301,43 +293,47 @@ func PushContinuationTasks(
 		)
 	}
 
+	// signalSubPipelineLeafDone marks this branch's entry node as complete and,
+	// if all branches of the sub-pipeline are done, resumes the parent pipeline.
+	// It is called both when a node has no outgoing edges (structural terminal)
+	// and when all outgoing branches were skipped (e.g. condition failed).
+	signalSubPipelineLeafDone := func(tweetID string) {
+		if task.ParentPipelineNodeID == nil || task.SubPipelineEntryNodeID == nil {
+			return
+		}
+		allDone, err := st.MarkPipelineNodeLeafComplete(ctx, *task.ParentPipelineNodeID, tweetID, *task.SubPipelineEntryNodeID)
+		if err != nil && logger != nil {
+			logger.Warn("pipeline: mark leaf complete failed",
+				"parent_node_id", *task.ParentPipelineNodeID,
+				"entry_node_id", *task.SubPipelineEntryNodeID, "error", err)
+		}
+		if allDone {
+			parentPipelineID, pidErr := st.GetPipelineIDForNode(ctx, *task.ParentPipelineNodeID)
+			if pidErr != nil && logger != nil {
+				logger.Warn("pipeline: get parent pipeline id failed", "error", pidErr)
+			} else {
+				freshCtx := copyContext(mergedCtx)
+				parentTask := &queue.Task{
+					TriggerType:    task.TriggerType,
+					Event:          task.Event,
+					PipelineNodeID: *task.ParentPipelineNodeID,
+					PipelineID:     parentPipelineID,
+				}
+				PushContinuationTasks(ctx, st, producer, cache, parentTask, freshCtx, logger)
+			}
+		}
+	}
+
 	if len(edges) == 0 {
 		if logger != nil {
 			logger.Info("pipeline: no outgoing edges — pipeline ends here",
 				"pipeline_id", pipelineID, "node_id", task.PipelineNodeID)
 		}
-		// If this task is part of a sub-pipeline, check if all leaves are done.
-		if task.ParentPipelineNodeID != nil {
-			tweetID := extractTweetID(task)
-			allDone, err := st.MarkPipelineNodeLeafComplete(ctx, *task.ParentPipelineNodeID, tweetID, task.PipelineNodeID)
-			if err != nil && logger != nil {
-				logger.Warn("pipeline: mark leaf complete failed",
-					"parent_node_id", *task.ParentPipelineNodeID,
-					"leaf_node_id", task.PipelineNodeID, "error", err)
-			}
-			if allDone {
-				parentPipelineID, pidErr := st.GetPipelineIDForNode(ctx, *task.ParentPipelineNodeID)
-				if pidErr != nil && logger != nil {
-					logger.Warn("pipeline: get parent pipeline id failed", "error", pidErr)
-				} else {
-					freshCtx := copyContext(mergedCtx)
-					// parentTask is a synthetic task representing the pipeline-type node
-					// that spawned this sub-pipeline. ActionID is 0 because pipeline nodes
-					// are not actions; it is only used for log context inside
-					// PushContinuationTasks.
-					parentTask := &queue.Task{
-						TriggerType:    task.TriggerType,
-						Event:          task.Event,
-						PipelineNodeID: *task.ParentPipelineNodeID,
-						PipelineID:     parentPipelineID,
-					}
-					PushContinuationTasks(ctx, st, producer, cache, parentTask, freshCtx, logger)
-				}
-			}
-		}
+		signalSubPipelineLeafDone(extractTweetID(task))
 		return
 	}
 
+	pushed := 0
 	for _, edge := range edges {
 		targetNode := findNode(graph, edge.TargetNodeID)
 		if targetNode == nil {
@@ -384,7 +380,9 @@ func PushContinuationTasks(
 					"node_id", targetNode.ID,
 				)
 			}
-			pushContinuationTask(ctx, producer, task, targetNode, mergedCtx, logger)
+			if pushContinuationTask(ctx, producer, task, targetNode, mergedCtx, logger) {
+				pushed++
+			}
 
 		case model.PipelineNodeTypeCondition:
 			if logger != nil {
@@ -440,7 +438,9 @@ func PushContinuationTasks(
 							"node_id", nextNode.ID,
 						)
 					}
-					pushContinuationTask(ctx, producer, task, nextNode, mergedCtx, logger)
+					if pushContinuationTask(ctx, producer, task, nextNode, mergedCtx, logger) {
+						pushed++
+					}
 				case model.PipelineNodeTypePipeline:
 					if nextNode.SubPipelineID == nil {
 						if logger != nil {
@@ -457,25 +457,12 @@ func PushContinuationTasks(
 						}
 						continue
 					}
-					terminalIDs := findTerminalNodeIDs(subGraph)
-					if len(terminalIDs) == 0 {
-						if logger != nil {
-							logger.Warn("pipeline: sub-pipeline has no terminal nodes (post-condition) — skipped",
-								"sub_pipeline_id", *nextNode.SubPipelineID)
-						}
-						continue
-					}
-					for _, leafID := range terminalIDs {
-						if insErr := st.InsertPipelineNodeExecution(ctx, nextNode.ID, extractTweetID(task), leafID); insErr != nil && logger != nil {
-							logger.Warn("pipeline: insert pipeline node execution failed (post-condition)",
-								"parent_node_id", nextNode.ID, "leaf_node_id", leafID, "error", insErr)
-						}
-					}
 					subStartNode := findStartNode(subGraph)
 					if subStartNode == nil {
 						continue
 					}
 					parentNodeID := nextNode.ID
+					tweetID := extractTweetID(task)
 					for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
 						if subActionNode.ActionID == nil {
 							continue
@@ -483,19 +470,26 @@ func PushContinuationTasks(
 						if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
 							continue
 						}
-						downstream := copyContext(mergedCtx)
+						entryNodeID := subActionNode.ID
+						if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
+							logger.Warn("pipeline: insert pipeline node execution failed (post-condition)",
+								"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
+						}
 						subTask := &queue.Task{
-							TriggerType:          task.TriggerType,
-							Event:                task.Event,
-							ActionID:             *subActionNode.ActionID,
-							PipelineNodeID:       subActionNode.ID,
-							PipelineID:           *nextNode.SubPipelineID,
-							ParentPipelineNodeID: &parentNodeID,
-							Context:              downstream,
+							TriggerType:            task.TriggerType,
+							Event:                  task.Event,
+							ActionID:               *subActionNode.ActionID,
+							PipelineNodeID:         subActionNode.ID,
+							PipelineID:             *nextNode.SubPipelineID,
+							ParentPipelineNodeID:   &parentNodeID,
+							SubPipelineEntryNodeID: &entryNodeID,
+							Context:                copyContext(mergedCtx),
 						}
 						if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
 							logger.Warn("pipeline: push sub-pipeline initial task failed (post-condition)",
 								"action_id", *subActionNode.ActionID, "error", pushErr)
+						} else {
+							pushed++
 						}
 					}
 				default:
@@ -525,25 +519,12 @@ func PushContinuationTasks(
 				}
 				continue
 			}
-			terminalIDs := findTerminalNodeIDs(subGraph)
-			if len(terminalIDs) == 0 {
-				if logger != nil {
-					logger.Warn("pipeline: sub-pipeline has no terminal nodes — skipped",
-						"sub_pipeline_id", *targetNode.SubPipelineID)
-				}
-				continue
-			}
-			for _, leafID := range terminalIDs {
-				if err := st.InsertPipelineNodeExecution(ctx, targetNode.ID, extractTweetID(task), leafID); err != nil && logger != nil {
-					logger.Warn("pipeline: insert pipeline node execution failed",
-						"parent_node_id", targetNode.ID, "leaf_node_id", leafID, "error", err)
-				}
-			}
 			subStartNode := findStartNode(subGraph)
 			if subStartNode == nil {
 				continue
 			}
 			parentNodeID := targetNode.ID
+			tweetID := extractTweetID(task)
 			for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
 				if subActionNode.ActionID == nil {
 					continue
@@ -551,26 +532,41 @@ func PushContinuationTasks(
 				if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
 					continue
 				}
-				downstream := copyContext(mergedCtx)
+				entryNodeID := subActionNode.ID
+				if err := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); err != nil && logger != nil {
+					logger.Warn("pipeline: insert pipeline node execution failed",
+						"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", err)
+				}
 				subTask := &queue.Task{
-					TriggerType:          task.TriggerType,
-					Event:                task.Event,
-					ActionID:             *subActionNode.ActionID,
-					PipelineNodeID:       subActionNode.ID,
-					PipelineID:           *targetNode.SubPipelineID,
-					ParentPipelineNodeID: &parentNodeID,
-					Context:              downstream,
+					TriggerType:            task.TriggerType,
+					Event:                  task.Event,
+					ActionID:               *subActionNode.ActionID,
+					PipelineNodeID:         subActionNode.ID,
+					PipelineID:             *targetNode.SubPipelineID,
+					ParentPipelineNodeID:   &parentNodeID,
+					SubPipelineEntryNodeID: &entryNodeID,
+					Context:                copyContext(mergedCtx),
 				}
 				if err := producer.PushTask(ctx, subTask); err != nil && logger != nil {
 					logger.Warn("pipeline: push sub-pipeline initial task failed",
 						"action_id", *subActionNode.ActionID, "error", err)
+				} else {
+					pushed++
 				}
 			}
 		}
 	}
+
+	// If no tasks were dispatched from any branch (e.g. all conditions failed),
+	// this task's branch is a dead end. Signal the sub-pipeline leaf as complete
+	// so the parent pipeline can continue regardless of which branch was taken.
+	if pushed == 0 {
+		signalSubPipelineLeafDone(extractTweetID(task))
+	}
 }
 
 // pushContinuationTask serialises and pushes a single downstream task.
+// Returns true if the task was successfully enqueued.
 func pushContinuationTask(
 	ctx context.Context,
 	producer queue.Producer,
@@ -578,20 +574,25 @@ func pushContinuationTask(
 	node *model.PipelineNode,
 	mergedCtx map[string]any,
 	logger *slog.Logger,
-) {
+) bool {
 	task := &queue.Task{
-		TriggerType:          parent.TriggerType,
-		Event:                parent.Event,
-		ActionID:             *node.ActionID,
-		PipelineNodeID:       node.ID,
-		PipelineID:           parent.PipelineID,
-		ParentPipelineNodeID: parent.ParentPipelineNodeID,
-		Context:              copyContext(mergedCtx),
+		TriggerType:            parent.TriggerType,
+		Event:                  parent.Event,
+		ActionID:               *node.ActionID,
+		PipelineNodeID:         node.ID,
+		PipelineID:             parent.PipelineID,
+		ParentPipelineNodeID:   parent.ParentPipelineNodeID,
+		SubPipelineEntryNodeID: parent.SubPipelineEntryNodeID,
+		Context:                copyContext(mergedCtx),
 	}
-	if err := producer.PushTask(ctx, task); err != nil && logger != nil {
-		logger.Warn("pipeline: push continuation task failed",
-			"action_id", *node.ActionID, "node_id", node.ID, "error", err)
+	if err := producer.PushTask(ctx, task); err != nil {
+		if logger != nil {
+			logger.Warn("pipeline: push continuation task failed",
+				"action_id", *node.ActionID, "node_id", node.ID, "error", err)
+		}
+		return false
 	}
+	return true
 }
 
 // evaluateConditionsVerbose logs each condition result individually, then returns
