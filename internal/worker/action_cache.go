@@ -29,9 +29,9 @@ type ActionCache struct {
 	mu      sync.RWMutex
 	entries map[int64]*CacheEntry
 
-	store    store.Store
-	infReg   *inference.Registry
-	pipeReg  *pipeline.Registry
+	store   store.Store
+	infReg  *inference.Registry
+	pipeReg *pipeline.Registry
 	pool    *inference.BackendPool
 	logger  *slog.Logger
 }
