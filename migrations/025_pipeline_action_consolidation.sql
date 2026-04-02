@@ -18,8 +18,9 @@ INSERT INTO actions_new (id, name, type, config, active, created_at, updated_at)
 -- action_id: chain_nodes.action_id → old_actions.pipeline_id → new actions.id
 -- (new actions.id == old pipelines.id, so the lookup old_actions.pipeline_id is correct)
 
--- (Guard removed: RAISE() outside a trigger is not supported by modernc.org/sqlite.
---  Data integrity for this migration should be verified manually on live databases.)
+-- Note: RAISE() outside triggers is not supported by modernc.org/sqlite, so an explicit
+-- guard was removed. NULL pipeline_id is impossible here: the old actions table had
+-- pipeline_id INTEGER NOT NULL (migrations 016 + 022 both enforce NOT NULL).
 
 CREATE TABLE pipeline_nodes_new (
     id              INTEGER PRIMARY KEY,
@@ -55,8 +56,8 @@ ALTER TABLE pipeline_nodes_new RENAME TO pipeline_nodes;
 -- Remap action_executions.action_id from old thin-action IDs to new action IDs
 -- (old actions.pipeline_id == new actions.id, since new actions absorb old pipelines)
 
--- (Guard removed: RAISE() outside a trigger is not supported by modernc.org/sqlite.
---  Data integrity for this migration should be verified manually on live databases.)
+-- Note: RAISE() outside triggers is not supported by modernc.org/sqlite. NULL pipeline_id
+-- is impossible here for the same reason as above (NOT NULL enforced in prior migrations).
 
 UPDATE action_executions
     SET action_id = (SELECT a.pipeline_id FROM actions a WHERE a.id = action_executions.action_id)
