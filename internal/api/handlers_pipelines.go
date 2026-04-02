@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 // handleListPipelines lists all Pipeline (DAG workflow) records.
@@ -190,6 +192,13 @@ func (s *Server) handleSavePipelineGraph(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
 		return
 	}
+	if hasCycle, err := detectPipelineCycle(r.Context(), s.store, id, req.Nodes); err != nil {
+		writeError(w, http.StatusInternalServerError, "cycle check failed: "+err.Error())
+		return
+	} else if hasCycle {
+		writeError(w, http.StatusBadRequest, "graph contains a cycle: a pipeline cannot (transitively) reference itself")
+		return
+	}
 	graph, err := s.store.SavePipelineGraph(r.Context(), id, req.Nodes, req.Edges)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -251,7 +260,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load pipeline graph")
 		return
 	}
-	actionNodes := firstLevelPipelineActionNodes(graph)
+	actionNodes := worker.FirstLevelPipelineNodes(graph)
 	if len(actionNodes) == 0 {
 		writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0})
 		return
@@ -337,38 +346,6 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
 }
 
-// firstLevelPipelineActionNodes returns action nodes directly reachable from
-// the pipeline's start node (no condition-node hops). Used by handleRunPipeline
-// to determine initial dispatch targets.
-func firstLevelPipelineActionNodes(g *model.PipelineGraph) []*model.PipelineNode {
-	// Find start node.
-	var startNode *model.PipelineNode
-	for _, n := range g.Nodes {
-		if n.Type == model.PipelineNodeTypeStart {
-			startNode = n
-			break
-		}
-	}
-	if startNode == nil {
-		return nil
-	}
-
-	// Collect action nodes directly reachable from start.
-	targetIDs := make(map[int64]bool)
-	for _, e := range g.Edges {
-		if e.SourceNodeID == startNode.ID {
-			targetIDs[e.TargetNodeID] = true
-		}
-	}
-	var out []*model.PipelineNode
-	for _, n := range g.Nodes {
-		if targetIDs[n.ID] && n.Type == model.PipelineNodeTypeAction {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
 // handleListActionHandlers returns the registered internal action handler names.
 // GET /api/actions/handlers
 func (s *Server) handleListActionHandlers(w http.ResponseWriter, r *http.Request) {
@@ -410,4 +387,41 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	writeJSON(w, http.StatusOK, files)
+}
+
+// detectPipelineCycle performs a DFS through sub_pipeline_id references to detect
+// transitive self-reference cycles. Returns (true, nil) if a cycle is found.
+func detectPipelineCycle(ctx context.Context, st store.Store, pipelineID int64, nodes []*model.PipelineNodeRequest) (bool, error) {
+	visited := make(map[int64]bool)
+	var dfs func(id int64) (bool, error)
+	dfs = func(id int64) (bool, error) {
+		if id == pipelineID {
+			return true, nil
+		}
+		if visited[id] {
+			return false, nil
+		}
+		visited[id] = true
+		g, err := st.GetPipelineGraph(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		for _, n := range g.Nodes {
+			if n.SubPipelineID != nil {
+				if cycle, err := dfs(*n.SubPipelineID); cycle || err != nil {
+					return cycle, err
+				}
+			}
+		}
+		return false, nil
+	}
+
+	for _, n := range nodes {
+		if n.SubPipelineID != nil {
+			if cycle, err := dfs(*n.SubPipelineID); cycle || err != nil {
+				return cycle, err
+			}
+		}
+	}
+	return false, nil
 }
