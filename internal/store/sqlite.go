@@ -1057,11 +1057,10 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 
 	filterClause, args := s.summaryFilterQuery(filter)
 	query := `SELECT t.id, t.author_handle, t.text, t.created_at,
-                     aem.value, p.name, ae.executed_at
+                     aem.value, a.name, ae.executed_at
               FROM tweets t
               JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
-              JOIN actions a ON a.id = ae.action_id
-              JOIN pipelines p ON p.id = a.pipeline_id AND p.type = 'ollama'
+              JOIN actions a ON a.id = ae.action_id AND a.type = 'ollama'
               JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause +
 		` ORDER BY ae.executed_at DESC LIMIT ? OFFSET ?`
@@ -1105,8 +1104,7 @@ func (s *sqliteStore) CountSummaries(ctx context.Context, filter SummaryFilter) 
 	filterClause, args := s.summaryFilterQuery(filter)
 	query := `SELECT COUNT(*) FROM tweets t
               JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
-              JOIN actions a ON a.id = ae.action_id
-              JOIN pipelines p ON p.id = a.pipeline_id AND p.type = 'ollama' -- scopes to summarizer pipelines
+              JOIN actions a ON a.id = ae.action_id AND a.type = 'ollama'
               JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause
 
@@ -1540,21 +1538,20 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
         SELECT ae.tweet_id,
                COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
                COALESCE(t.text, '') AS tweet_text,
-               p.name AS model_name,
+               a.name AS model_name,
                aem_loc.value AS coordinates_json,
-               COALESCE(json_extract(p.config, '$.map_config.coordinate_type'), '') AS coordinate_type,
+               COALESCE(json_extract(a.config, '$.map_config.coordinate_type'), '') AS coordinate_type,
                COALESCE((SELECT json_group_object(key, json(value))
                          FROM action_execution_metadata
                          WHERE execution_id = ae.id), '{}') AS metadata_json,
-               COALESCE(json_extract(p.config, '$.map_config.popup_template'), '') AS popup_template
+               COALESCE(json_extract(a.config, '$.map_config.popup_template'), '') AS popup_template
         FROM action_execution_metadata aem_loc
         JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
         JOIN actions a ON a.id = ae.action_id
-        JOIN pipelines p ON p.id = a.pipeline_id
         LEFT JOIN tweets t ON t.id = ae.tweet_id
-        WHERE aem_loc.key = json_extract(p.config, '$.map_config.coordinate_key')
-          AND json_extract(p.config, '$.map_config.coordinate_key') IS NOT NULL
-          AND json_extract(p.config, '$.map_config.coordinate_key') != ''
+        WHERE aem_loc.key = json_extract(a.config, '$.map_config.coordinate_key')
+          AND json_extract(a.config, '$.map_config.coordinate_key') IS NOT NULL
+          AND json_extract(a.config, '$.map_config.coordinate_key') != ''
           AND aem_loc.value != 'null'
           AND aem_loc.value != '[]'
         ORDER BY tweet_created_at DESC
