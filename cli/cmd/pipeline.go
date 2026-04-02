@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"strconv"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -13,33 +11,19 @@ import (
 
 var pipelineCmd = &cobra.Command{
 	Use:   "pipeline",
-	Short: "Manage inference pipelines (onnx, ollama, internal)",
+	Short: "Manage DAG workflow pipelines",
 }
 
 var (
-	pipelineTypeFilter   string
-	pipelineActiveFilter string
 	pipelineName         string
-	pipelineType         string
-	pipelineConfig       string
+	pipelineActiveFilter string
 )
 
 var pipelineListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List pipelines",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		params := url.Values{}
-		if pipelineTypeFilter != "" {
-			params.Set("type", pipelineTypeFilter)
-		}
-		if pipelineActiveFilter != "" {
-			params.Set("active", pipelineActiveFilter)
-		}
-		reqURL := baseURL + "/api/pipelines"
-		if len(params) > 0 {
-			reqURL += "?" + params.Encode()
-		}
-		resp, err := apiGet(reqURL)
+		resp, err := apiGet(baseURL + "/api/pipelines")
 		if err != nil {
 			return fmt.Errorf("pipeline list: %w", err)
 		}
@@ -52,13 +36,13 @@ var pipelineListCmd = &cobra.Command{
 			return fmt.Errorf("pipeline list: decode: %w", err)
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tTYPE\tACTIVE")
+		fmt.Fprintln(w, "ID\tNAME\tACTIVE\tNODES")
 		for _, p := range pipelines {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 				formatField(p["id"]),
 				formatField(p["name"]),
-				formatField(p["type"]),
 				formatField(p["active"]),
+				formatField(p["node_count"]),
 			)
 		}
 		return w.Flush()
@@ -93,9 +77,9 @@ var pipelineAddCmd = &cobra.Command{
 	Short: "Create a new pipeline",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		body := map[string]any{"name": args[0], "type": pipelineType}
-		if pipelineConfig != "" {
-			body["config"] = json.RawMessage(pipelineConfig)
+		body := map[string]any{"name": args[0]}
+		if pipelineDescription != "" {
+			body["description"] = pipelineDescription
 		}
 		r, err := jsonBody(body)
 		if err != nil {
@@ -113,26 +97,31 @@ var pipelineAddCmd = &cobra.Command{
 		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 			return fmt.Errorf("pipeline add: decode: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Pipeline created: id=%s name=%s type=%s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "Pipeline created: id=%s name=%s\n",
 			formatField(created["id"]),
 			formatField(created["name"]),
-			formatField(created["type"]),
 		)
 		return nil
 	},
 }
 
+var (
+	pipelineDescription    string
+	pipelineUpdateName     string
+	pipelineUpdateDesc     string
+)
+
 var pipelineUpdateCmd = &cobra.Command{
 	Use:   "update <id>",
-	Short: "Update a pipeline's name or config",
+	Short: "Update a pipeline's name or description",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		body := map[string]any{}
 		if cmd.Flags().Changed("name") {
-			body["name"] = pipelineName
+			body["name"] = pipelineUpdateName
 		}
-		if cmd.Flags().Changed("config") {
-			body["config"] = json.RawMessage(pipelineConfig)
+		if cmd.Flags().Changed("description") {
+			body["description"] = pipelineUpdateDesc
 		}
 		r, err := jsonBody(body)
 		if err != nil {
@@ -198,149 +187,43 @@ func pipelineLifecycle(action string) func(*cobra.Command, []string) error {
 	}
 }
 
-var pipelineHandlersCmd = &cobra.Command{
-	Use:   "handlers",
-	Short: "List available internal pipeline handlers",
+var pipelineRunNewOnly bool
+
+var pipelineRunCmd = &cobra.Command{
+	Use:   "run <id>",
+	Short: "Dispatch historical tweets through a pipeline",
+	Long:  "Queue all eligible tweets through the pipeline's start node, replicating what the stream listener does on arrival. Use --new-only to skip tweets that already have executions for any action node in the pipeline.",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := apiGet(baseURL + "/api/pipelines/handlers")
+		body, err := jsonBody(map[string]any{"new_only": pipelineRunNewOnly})
 		if err != nil {
-			return fmt.Errorf("pipeline handlers: %w", err)
+			return fmt.Errorf("pipeline run: %w", err)
+		}
+		resp, err := apiPost(baseURL+"/api/pipelines/"+url.PathEscape(args[0])+"/run", body)
+		if err != nil {
+			return fmt.Errorf("pipeline run: %w", err)
 		}
 		defer resp.Body.Close()
 		if err := handleAPIError(cmd, resp); err != nil {
 			return err
 		}
-		var handlers []string
-		if err := json.NewDecoder(resp.Body).Decode(&handlers); err != nil {
-			return fmt.Errorf("pipeline handlers: decode: %w", err)
+		var result map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("pipeline run: decode: %w", err)
 		}
-		for _, h := range handlers {
-			fmt.Fprintln(cmd.OutOrStdout(), h)
-		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Queued %s tweets for pipeline #%s\n",
+			formatField(result["queued"]), args[0])
 		return nil
 	},
 }
 
-// ---------------------------------------------------------------------------
-// pipeline backends
-// ---------------------------------------------------------------------------
-
-var pipelineBackendsCmd = &cobra.Command{
-	Use:   "backends",
-	Short: "Manage pipeline backend assignments",
-}
-
-var pipelineBackendsListCmd = &cobra.Command{
-	Use:   "list <pipeline-id>",
-	Short: "List backends assigned to a pipeline in priority order",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runPipelineBackendsList,
-}
-
-var pipelineBackendsSetCmd = &cobra.Command{
-	Use:   "set <pipeline-id> <backend-id>:<priority> [<backend-id>:<priority> ...]",
-	Short: "Replace the full backend assignment list for a pipeline",
-	Long: `Replaces all backend assignments for the pipeline atomically.
-Each argument is backend-id:priority, e.g.: set 3 1:1 2:2`,
-	Args: cobra.MinimumNArgs(2),
-	RunE: runPipelineBackendsSet,
-}
-
-var pipelineBackendsUnassignCmd = &cobra.Command{
-	Use:   "unassign <pipeline-id> <backend-id>",
-	Short: "Remove one backend from a pipeline's assignment list",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runPipelineBackendsUnassign,
-}
-
-func runPipelineBackendsList(cmd *cobra.Command, args []string) error {
-	resp, err := apiGet(baseURL + "/api/pipelines/" + url.PathEscape(args[0]) + "/backends")
-	if err != nil {
-		return fmt.Errorf("pipeline backends list: %w", err)
-	}
-	defer resp.Body.Close()
-	if err := handleAPIError(cmd, resp); err != nil {
-		return err
-	}
-	var pbs []map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&pbs); err != nil {
-		return fmt.Errorf("pipeline backends list: decode: %w", err)
-	}
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PIPELINE_ID\tBACKEND_ID\tPRIORITY")
-	for _, pb := range pbs {
-		fmt.Fprintf(w, "%s\t%s\t%s\n",
-			formatField(pb["pipeline_id"]),
-			formatField(pb["backend_id"]),
-			formatField(pb["priority"]),
-		)
-	}
-	return w.Flush()
-}
-
-func runPipelineBackendsSet(cmd *cobra.Command, args []string) error {
-	type assignment struct {
-		BackendID int64 `json:"backend_id"`
-		Priority  int   `json:"priority"`
-	}
-	pipelineID := args[0]
-	assignments := make([]assignment, 0, len(args)-1)
-	for _, pair := range args[1:] {
-		parts := strings.SplitN(pair, ":", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid pair %q: expected backend-id:priority", pair)
-		}
-		bid, err := strconv.ParseInt(parts[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid backend-id %q: %w", parts[0], err)
-		}
-		pri, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return fmt.Errorf("invalid priority %q: %w", parts[1], err)
-		}
-		assignments = append(assignments, assignment{BackendID: bid, Priority: pri})
-	}
-	body, err := jsonBody(assignments)
-	if err != nil {
-		return fmt.Errorf("pipeline backends set: %w", err)
-	}
-	resp, err := apiPut(baseURL+"/api/pipelines/"+url.PathEscape(pipelineID)+"/backends", body)
-	if err != nil {
-		return fmt.Errorf("pipeline backends set: %w", err)
-	}
-	defer resp.Body.Close()
-	if err := handleAPIError(cmd, resp); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Pipeline %s backend assignments updated\n", pipelineID)
-	return nil
-}
-
-func runPipelineBackendsUnassign(cmd *cobra.Command, args []string) error {
-	resp, err := apiDelete(baseURL + "/api/pipelines/" + url.PathEscape(args[0]) + "/backends/" + url.PathEscape(args[1]))
-	if err != nil {
-		return fmt.Errorf("pipeline backends unassign: %w", err)
-	}
-	defer resp.Body.Close()
-	if err := handleAPIError(cmd, resp); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Backend %s removed from pipeline %s\n", args[1], args[0])
-	return nil
-}
-
 func init() {
-	pipelineListCmd.Flags().StringVar(&pipelineTypeFilter, "type", "", "Filter by type (onnx, ollama, internal)")
-	pipelineListCmd.Flags().StringVar(&pipelineActiveFilter, "active", "", "Filter by active state (true/false)")
+	pipelineAddCmd.Flags().StringVar(&pipelineDescription, "description", "", "Pipeline description")
 
-	pipelineAddCmd.Flags().StringVar(&pipelineType, "type", "", "Pipeline type: onnx, ollama, internal")
-	pipelineAddCmd.Flags().StringVar(&pipelineConfig, "config", "", "Config JSON string")
-	_ = pipelineAddCmd.MarkFlagRequired("type")
+	pipelineUpdateCmd.Flags().StringVar(&pipelineUpdateName, "name", "", "New name")
+	pipelineUpdateCmd.Flags().StringVar(&pipelineUpdateDesc, "description", "", "New description")
 
-	pipelineUpdateCmd.Flags().StringVar(&pipelineName, "name", "", "New name")
-	pipelineUpdateCmd.Flags().StringVar(&pipelineConfig, "config", "", "New config JSON string")
-
-	pipelineBackendsCmd.AddCommand(pipelineBackendsListCmd, pipelineBackendsSetCmd, pipelineBackendsUnassignCmd)
+	pipelineRunCmd.Flags().BoolVar(&pipelineRunNewOnly, "new-only", false, "Only dispatch tweets without existing executions in this pipeline")
 
 	pipelineCmd.AddCommand(pipelineListCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)
@@ -349,7 +232,6 @@ func init() {
 	pipelineCmd.AddCommand(pipelineRemoveCmd)
 	pipelineCmd.AddCommand(pipelineActivateCmd)
 	pipelineCmd.AddCommand(pipelineDeactivateCmd)
-	pipelineCmd.AddCommand(pipelineHandlersCmd)
-	pipelineCmd.AddCommand(pipelineBackendsCmd)
+	pipelineCmd.AddCommand(pipelineRunCmd)
 	rootCmd.AddCommand(pipelineCmd)
 }

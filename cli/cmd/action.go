@@ -13,14 +13,15 @@ import (
 
 var actionCmd = &cobra.Command{
 	Use:   "action",
-	Short: "Manage event-driven actions",
+	Short: "Manage execution-unit actions (onnx, ollama, internal, notification)",
 }
 
 var (
-	actionTrigger    string
-	actionPipelineID int64
-	actionRuleIDs    string
-	actionActiveFilt string
+	actionTypeFilter  string
+	actionActiveFilt  string
+	actionName        string
+	actionType        string
+	actionConfig      string
 )
 
 var actionListCmd = &cobra.Command{
@@ -28,8 +29,8 @@ var actionListCmd = &cobra.Command{
 	Short: "List actions",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		params := url.Values{}
-		if actionTrigger != "" {
-			params.Set("trigger_type", actionTrigger)
+		if actionTypeFilter != "" {
+			params.Set("type", actionTypeFilter)
 		}
 		if actionActiveFilt != "" {
 			params.Set("active", actionActiveFilt)
@@ -51,15 +52,13 @@ var actionListCmd = &cobra.Command{
 			return fmt.Errorf("action list: decode: %w", err)
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tTRIGGER\tPIPELINE_ID\tACTIVE\tRULE_IDS")
+		fmt.Fprintln(w, "ID\tNAME\tTYPE\tACTIVE")
 		for _, a := range actions {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 				formatField(a["id"]),
 				formatField(a["name"]),
-				formatField(a["trigger_type"]),
-				formatField(a["pipeline_id"]),
+				formatField(a["type"]),
 				formatField(a["active"]),
-				formatField(a["rule_ids"]),
 			)
 		}
 		return w.Flush()
@@ -94,17 +93,15 @@ var actionAddCmd = &cobra.Command{
 	Short: "Create a new action",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ruleIDs := parseIntList(actionRuleIDs)
-		body, err := jsonBody(map[string]any{
-			"name":         args[0],
-			"trigger_type": actionTrigger,
-			"pipeline_id":  actionPipelineID,
-			"rule_ids":     ruleIDs,
-		})
+		body := map[string]any{"name": args[0], "type": actionType}
+		if actionConfig != "" {
+			body["config"] = json.RawMessage(actionConfig)
+		}
+		r, err := jsonBody(body)
 		if err != nil {
 			return fmt.Errorf("action add: %w", err)
 		}
-		resp, err := apiPost(baseURL+"/api/actions", body)
+		resp, err := apiPost(baseURL+"/api/actions", r)
 		if err != nil {
 			return fmt.Errorf("action add: %w", err)
 		}
@@ -116,31 +113,31 @@ var actionAddCmd = &cobra.Command{
 		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 			return fmt.Errorf("action add: decode: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Action created: id=%s name=%s trigger=%s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "Action created: id=%s name=%s type=%s\n",
 			formatField(created["id"]),
 			formatField(created["name"]),
-			formatField(created["trigger_type"]),
+			formatField(created["type"]),
 		)
 		return nil
 	},
 }
 
 var (
-	actionUpdateName    string
-	actionUpdateRuleIDs string
+	actionUpdateName   string
+	actionUpdateConfig string
 )
 
 var actionUpdateCmd = &cobra.Command{
 	Use:   "update <id>",
-	Short: "Update an action's name or rule IDs",
+	Short: "Update an action's name or config",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		body := map[string]any{}
 		if cmd.Flags().Changed("name") {
 			body["name"] = actionUpdateName
 		}
-		if cmd.Flags().Changed("rules") {
-			body["rule_ids"] = parseIntList(actionUpdateRuleIDs)
+		if cmd.Flags().Changed("config") {
+			body["config"] = json.RawMessage(actionUpdateConfig)
 		}
 		r, err := jsonBody(body)
 		if err != nil {
@@ -206,6 +203,29 @@ func actionLifecycle(action string) func(*cobra.Command, []string) error {
 	}
 }
 
+var actionHandlersCmd = &cobra.Command{
+	Use:   "handlers",
+	Short: "List available internal action handler names",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		resp, err := apiGet(baseURL + "/api/actions/handlers")
+		if err != nil {
+			return fmt.Errorf("action handlers: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		var handlers []string
+		if err := json.NewDecoder(resp.Body).Decode(&handlers); err != nil {
+			return fmt.Errorf("action handlers: decode: %w", err)
+		}
+		for _, h := range handlers {
+			fmt.Fprintln(cmd.OutOrStdout(), h)
+		}
+		return nil
+	},
+}
+
 var actionExecutionsCmd = &cobra.Command{
 	Use:   "executions <id>",
 	Short: "List executions for an action",
@@ -228,6 +248,108 @@ var actionExecutionsCmd = &cobra.Command{
 	},
 }
 
+// ---------------------------------------------------------------------------
+// action backends
+// ---------------------------------------------------------------------------
+
+var actionBackendsCmd = &cobra.Command{
+	Use:   "backends",
+	Short: "Manage action backend assignments",
+}
+
+var actionBackendsListCmd = &cobra.Command{
+	Use:   "list <action-id>",
+	Short: "List backends assigned to an action in priority order",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		resp, err := apiGet(baseURL + "/api/actions/" + url.PathEscape(args[0]) + "/backends")
+		if err != nil {
+			return fmt.Errorf("action backends list: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		var abs []map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&abs); err != nil {
+			return fmt.Errorf("action backends list: decode: %w", err)
+		}
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ACTION_ID\tBACKEND_ID\tPRIORITY")
+		for _, ab := range abs {
+			fmt.Fprintf(w, "%s\t%s\t%s\n",
+				formatField(ab["action_id"]),
+				formatField(ab["backend_id"]),
+				formatField(ab["priority"]),
+			)
+		}
+		return w.Flush()
+	},
+}
+
+var actionBackendsSetCmd = &cobra.Command{
+	Use:   "set <action-id> <backend-id>:<priority> [<backend-id>:<priority> ...]",
+	Short: "Replace the full backend assignment list for an action",
+	Long: `Replaces all backend assignments for the action atomically.
+Each argument is backend-id:priority, e.g.: set 3 1:1 2:2`,
+	Args: cobra.MinimumNArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		type assignment struct {
+			BackendID int64 `json:"backend_id"`
+			Priority  int   `json:"priority"`
+		}
+		actionID := args[0]
+		assignments := make([]assignment, 0, len(args)-1)
+		for _, pair := range args[1:] {
+			parts := strings.SplitN(pair, ":", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid pair %q: expected backend-id:priority", pair)
+			}
+			bid, err := strconv.ParseInt(parts[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid backend-id %q: %w", parts[0], err)
+			}
+			pri, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return fmt.Errorf("invalid priority %q: %w", parts[1], err)
+			}
+			assignments = append(assignments, assignment{BackendID: bid, Priority: pri})
+		}
+		body, err := jsonBody(assignments)
+		if err != nil {
+			return fmt.Errorf("action backends set: %w", err)
+		}
+		resp, err := apiPut(baseURL+"/api/actions/"+url.PathEscape(actionID)+"/backends", body)
+		if err != nil {
+			return fmt.Errorf("action backends set: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Action %s backend assignments updated\n", actionID)
+		return nil
+	},
+}
+
+var actionBackendsUnassignCmd = &cobra.Command{
+	Use:   "unassign <action-id> <backend-id>",
+	Short: "Remove one backend from an action's assignment list",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		resp, err := apiDelete(baseURL + "/api/actions/" + url.PathEscape(args[0]) + "/backends/" + url.PathEscape(args[1]))
+		if err != nil {
+			return fmt.Errorf("action backends unassign: %w", err)
+		}
+		defer resp.Body.Close()
+		if err := handleAPIError(cmd, resp); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Backend %s removed from action %s\n", args[1], args[0])
+		return nil
+	},
+}
+
 // parseIntList parses a comma-separated list of integers.
 func parseIntList(s string) []int64 {
 	if s == "" {
@@ -245,17 +367,17 @@ func parseIntList(s string) []int64 {
 }
 
 func init() {
-	actionListCmd.Flags().StringVar(&actionTrigger, "trigger", "", "Filter by trigger type")
+	actionListCmd.Flags().StringVar(&actionTypeFilter, "type", "", "Filter by type (onnx, ollama, internal, notification)")
 	actionListCmd.Flags().StringVar(&actionActiveFilt, "active", "", "Filter by active state (true/false)")
 
-	actionAddCmd.Flags().StringVar(&actionTrigger, "trigger", "", "Trigger type (new_tweet, new_categorization, entity_matched)")
-	actionAddCmd.Flags().Int64Var(&actionPipelineID, "pipeline", 0, "Pipeline ID")
-	actionAddCmd.Flags().StringVar(&actionRuleIDs, "rules", "", "Comma-separated rule IDs (empty = all rules)")
-	_ = actionAddCmd.MarkFlagRequired("trigger")
-	_ = actionAddCmd.MarkFlagRequired("pipeline")
+	actionAddCmd.Flags().StringVar(&actionType, "type", "", "Action type: onnx, ollama, internal, notification")
+	actionAddCmd.Flags().StringVar(&actionConfig, "config", "", "Config JSON string")
+	_ = actionAddCmd.MarkFlagRequired("type")
 
 	actionUpdateCmd.Flags().StringVar(&actionUpdateName, "name", "", "New name")
-	actionUpdateCmd.Flags().StringVar(&actionUpdateRuleIDs, "rules", "", "New comma-separated rule IDs")
+	actionUpdateCmd.Flags().StringVar(&actionUpdateConfig, "config", "", "New config JSON string")
+
+	actionBackendsCmd.AddCommand(actionBackendsListCmd, actionBackendsSetCmd, actionBackendsUnassignCmd)
 
 	actionCmd.AddCommand(actionListCmd)
 	actionCmd.AddCommand(actionShowCmd)
@@ -264,6 +386,8 @@ func init() {
 	actionCmd.AddCommand(actionRemoveCmd)
 	actionCmd.AddCommand(actionActivateCmd)
 	actionCmd.AddCommand(actionDeactivateCmd)
+	actionCmd.AddCommand(actionHandlersCmd)
 	actionCmd.AddCommand(actionExecutionsCmd)
+	actionCmd.AddCommand(actionBackendsCmd)
 	rootCmd.AddCommand(actionCmd)
 }
