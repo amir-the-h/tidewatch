@@ -52,7 +52,7 @@ type FailedTweet struct {
 	FailedModels []FailedModel `json:"failed_models"`
 }
 
-// FailedModel records which pipeline failed and why.
+// FailedModel records which action failed and why.
 type FailedModel struct {
 	Name      string    `json:"name"`
 	Error     string    `json:"error"`
