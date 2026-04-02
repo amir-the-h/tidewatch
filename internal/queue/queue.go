@@ -24,12 +24,13 @@ func QueueTasksKey(actionID int64) string {
 
 // Task is a single unit of work pushed to iran-watcher:tasks:{action_id}.
 type Task struct {
-	TriggerType string          `json:"trigger_type"`
-	Event       json.RawMessage `json:"event"`
-	ActionID    int64           `json:"action_id"`
-	ChainNodeID int64           `json:"chain_node_id,omitempty"`
-	ChainID     int64           `json:"chain_id,omitempty"`
-	Context     map[string]any  `json:"context"`
+	TriggerType          string          `json:"trigger_type"`
+	Event                json.RawMessage `json:"event"`
+	ActionID             int64           `json:"action_id"`
+	PipelineNodeID       int64           `json:"pipeline_node_id,omitempty"`
+	PipelineID           int64           `json:"pipeline_id,omitempty"`
+	ParentPipelineNodeID *int64          `json:"parent_pipeline_node_id,omitempty"`
+	Context              map[string]any  `json:"context"`
 }
 
 // TweetEvent is the Event payload for trigger_type=new_tweet.
