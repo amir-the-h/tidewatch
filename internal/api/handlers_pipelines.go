@@ -262,19 +262,21 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build exclusion set once if new_only is requested.
+	// Collect action IDs from the graph and all referenced sub-pipeline graphs,
+	// since action nodes may live inside sub-pipelines rather than the parent graph.
 	var executedIDs map[string]struct{}
 	if req.NewOnly {
 		executedIDs = make(map[string]struct{})
-		for _, node := range graph.Nodes {
-			if node.Type == model.PipelineNodeTypeAction && node.ActionID != nil {
-				execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{ActionID: node.ActionID})
-				if err != nil {
-					s.logger.Warn("api: run pipeline: fetch executions", "action_id", *node.ActionID, "error", err)
-					continue
-				}
-				for _, e := range execs {
-					executedIDs[e.TweetID] = struct{}{}
-				}
+		actionIDs := s.collectGraphActionIDs(r.Context(), graph)
+		for _, actionID := range actionIDs {
+			aid := actionID
+			execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{ActionID: &aid})
+			if err != nil {
+				s.logger.Warn("api: run pipeline: fetch executions", "action_id", aid, "error", err)
+				continue
+			}
+			for _, e := range execs {
+				executedIDs[e.TweetID] = struct{}{}
 			}
 		}
 	}
@@ -340,6 +342,38 @@ func (s *Server) handleListActionHandlers(w http.ResponseWriter, r *http.Request
 type modelFileInfo struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+// collectGraphActionIDs walks a pipeline graph and all referenced sub-pipeline
+// graphs (one level deep per pipeline node) and returns the unique set of
+// action IDs found. Used to build the new_only exclusion set correctly even
+// when action nodes live inside sub-pipelines rather than the parent graph.
+func (s *Server) collectGraphActionIDs(ctx context.Context, graph *model.PipelineGraph) []int64 {
+	seen := make(map[int64]struct{})
+	var ids []int64
+	add := func(id int64) {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	for _, node := range graph.Nodes {
+		if node.Type == model.PipelineNodeTypeAction && node.ActionID != nil {
+			add(*node.ActionID)
+		}
+		if node.Type == model.PipelineNodeTypePipeline && node.SubPipelineID != nil {
+			subGraph, err := s.store.GetPipelineGraph(ctx, *node.SubPipelineID)
+			if err != nil {
+				continue
+			}
+			for _, subNode := range subGraph.Nodes {
+				if subNode.Type == model.PipelineNodeTypeAction && subNode.ActionID != nil {
+					add(*subNode.ActionID)
+				}
+			}
+		}
+	}
+	return ids
 }
 
 // handleListModels lists ONNX model files in the models directory.
