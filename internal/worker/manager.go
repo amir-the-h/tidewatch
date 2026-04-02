@@ -209,8 +209,8 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			m.logger.Warn("worker: unknown action_id in task — action not in cache (inactive or missing?)",
 				"action_id", task.ActionID,
 				"trigger", task.TriggerType,
-				"chain_id", task.ChainID,
-				"chain_node_id", task.ChainNodeID,
+				"pipeline_id", task.PipelineID,
+				"pipeline_node_id", task.PipelineNodeID,
 			)
 		}
 		return
@@ -237,7 +237,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 
 	// Load execution metadata for this tweet across all prior actions so that
 	// notification pipelines can reference ONNX/Ollama outputs even when not
-	// triggered via a chain (e.g. ${label}, ${score}, ${summary}, ${entity_list}).
+	// triggered via a pipeline (e.g. ${label}, ${score}, ${summary}, ${entity_list}).
 	allMeta, _ := m.store.MergeAllTweetExecutionMetadata(ctx, ev.TweetID)
 
 	// Load metadata from prior executions of THIS action on the same tweet
@@ -245,7 +245,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	prevMeta, _ := m.store.MergeActionExecutionMetadata(ctx, task.ActionID, ev.TweetID)
 
 	mergedCtx := make(map[string]any, len(task.Context)+len(allMeta)+len(prevMeta)+6)
-	// Inject in ascending priority order: all-tweet meta → this-action meta → chain context → well-known fields.
+	// Inject in ascending priority order: all-tweet meta → this-action meta → pipeline context → well-known fields.
 	for k, v := range allMeta {
 		mergedCtx[k] = decodeMetaValue(v)
 	}
@@ -300,8 +300,8 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			"action", entry.Action.Name,
 			"pipeline", entry.Pipeline.Name(),
 			"tweet_id", ev.TweetID,
-			"chain_id", task.ChainID,
-			"chain_node_id", task.ChainNodeID,
+			"pipeline_id", task.PipelineID,
+			"pipeline_node_id", task.PipelineNodeID,
 		)
 	}
 
@@ -341,13 +341,13 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	}
 	if outputs == nil {
 		if m.logger != nil {
-			m.logger.Warn("worker: pipeline returned nil outputs — chain continuation skipped",
+			m.logger.Warn("worker: pipeline returned nil outputs — pipeline continuation skipped",
 				"worker_id", workerID,
 				"action_id", task.ActionID,
 				"action", entry.Action.Name,
 				"pipeline", entry.Pipeline.Name(),
 				"tweet_id", ev.TweetID,
-				"chain_node_id", task.ChainNodeID,
+				"pipeline_node_id", task.PipelineNodeID,
 			)
 		}
 		return
@@ -386,11 +386,11 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			"action", entry.Action.Name,
 			"tweet_id", ev.TweetID,
 			"output_keys", outputKeys,
-			"chain_node_id", task.ChainNodeID,
+			"pipeline_node_id", task.PipelineNodeID,
 		)
 	}
 
-	// Continue chain: push tasks for downstream action nodes whose conditions pass.
+	// Continue pipeline: push tasks for downstream action nodes whose conditions pass.
 	PushContinuationTasks(ctx, m.store, m.producer, m.cache, task, mergedCtx, m.logger)
 }
 
