@@ -15,30 +15,31 @@ import (
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 func (s *sqliteStore) SaveAction(ctx context.Context, a *model.Action) error {
+	cfg := a.Config
+	if len(cfg) == 0 {
+		cfg = []byte("{}")
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO actions (name, pipeline_id, active, created_at, updated_at) VALUES (?,?,?,?,?)`,
-		a.Name, a.PipelineID, boolToInt(a.Active), now, now,
+		`INSERT INTO actions (name, type, config, active, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+		a.Name, string(a.Type), string(cfg), boolToInt(a.Active), now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save action: %w", err)
 	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("store: save action: last insert id: %w", err)
-	}
+	id, _ := res.LastInsertId()
 	a.ID = id
 	return nil
 }
 
 func (s *sqliteStore) GetAction(ctx context.Context, id int64) (*model.Action, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, pipeline_id, active, created_at, updated_at FROM actions WHERE id = ?`, id)
+		`SELECT id, name, type, config, active, created_at, updated_at FROM actions WHERE id = ?`, id)
 	a, err := scanAction(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("store: get action: not found: %w", err)
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("store: get action: not found: %w", err)
-		}
 		return nil, fmt.Errorf("store: get action: %w", err)
 	}
 	return a, nil
@@ -47,15 +48,15 @@ func (s *sqliteStore) GetAction(ctx context.Context, id int64) (*model.Action, e
 func (s *sqliteStore) ListActions(ctx context.Context, filter ActionFilter) ([]*model.Action, error) {
 	var where []string
 	var args []any
-	if filter.PipelineID != nil {
-		where = append(where, "pipeline_id = ?")
-		args = append(args, *filter.PipelineID)
+	if filter.Type != nil {
+		where = append(where, "type = ?")
+		args = append(args, string(*filter.Type))
 	}
 	if filter.Active != nil {
 		where = append(where, "active = ?")
 		args = append(args, boolToInt(*filter.Active))
 	}
-	q := "SELECT id, name, pipeline_id, active, created_at, updated_at FROM actions"
+	q := "SELECT id, name, type, config, active, created_at, updated_at FROM actions"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -77,10 +78,14 @@ func (s *sqliteStore) ListActions(ctx context.Context, filter ActionFilter) ([]*
 }
 
 func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
+	cfg := a.Config
+	if len(cfg) == 0 {
+		cfg = []byte("{}")
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE actions SET name = ?, pipeline_id = ?, updated_at = ? WHERE id = ?`,
-		a.Name, a.PipelineID, now, a.ID,
+		`UPDATE actions SET name = ?, type = ?, config = ?, active = ?, updated_at = ? WHERE id = ?`,
+		a.Name, string(a.Type), string(cfg), boolToInt(a.Active), now, a.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: update action: %w", err)
@@ -89,15 +94,8 @@ func (s *sqliteStore) UpdateAction(ctx context.Context, a *model.Action) error {
 }
 
 func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
-	if _, err := s.db.ExecContext(ctx, `
-		DELETE FROM action_execution_metadata
-		WHERE execution_id IN (SELECT id FROM action_executions WHERE action_id = ?)`, id); err != nil {
-		return fmt.Errorf("store: delete action: delete metadata: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM action_executions WHERE action_id = ?`, id); err != nil {
-		return fmt.Errorf("store: delete action: delete executions: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM actions WHERE id = ?`, id); err != nil {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM actions WHERE id = ?`, id)
+	if err != nil {
 		return fmt.Errorf("store: delete action: %w", err)
 	}
 	return nil
@@ -106,11 +104,66 @@ func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
 func (s *sqliteStore) SetActionActive(ctx context.Context, id int64, active bool) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE actions SET active = ?, updated_at = ? WHERE id = ?`, boolToInt(active), now, id)
+		`UPDATE actions SET active = ?, updated_at = ? WHERE id = ?`,
+		boolToInt(active), now, id,
+	)
 	if err != nil {
 		return fmt.Errorf("store: set action active: %w", err)
 	}
 	return nil
+}
+
+// scanAction scans one row into a model.Action.
+type actionScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanAction(row actionScanner) (*model.Action, error) {
+	var a model.Action
+	var cfgStr string
+	var activeInt int
+	var createdStr, updatedStr string
+	err := row.Scan(&a.ID, &a.Name, (*string)(&a.Type), &cfgStr, &activeInt, &createdStr, &updatedStr)
+	if err != nil {
+		return nil, err
+	}
+	a.Config = json.RawMessage(cfgStr)
+	a.Active = activeInt != 0
+	a.CreatedAt, _ = time.Parse(time.RFC3339, createdStr)
+	a.UpdatedAt, _ = time.Parse(time.RFC3339, updatedStr)
+	return &a, nil
+}
+
+// ── Action Labels ─────────────────────────────────────────────────────────────
+
+func (s *sqliteStore) ListActionLabels(ctx context.Context, actionID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT label FROM action_labels WHERE action_id = ? ORDER BY label ASC`, actionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list action labels: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var l string
+		if err := rows.Scan(&l); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) AddActionLabel(ctx context.Context, actionID int64, label string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO action_labels (action_id, label) VALUES (?, ?)`, actionID, label)
+	return err
+}
+
+func (s *sqliteStore) RemoveActionLabel(ctx context.Context, actionID int64, label string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM action_labels WHERE action_id = ? AND label = ?`, actionID, label)
+	return err
 }
 
 // ── ActionExecutions ──────────────────────────────────────────────────────────
@@ -470,26 +523,51 @@ func (s *sqliteStore) DeleteTwitterCredentials(ctx context.Context) error {
 	return nil
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── Pipeline Node Executions (sub-pipeline fan-in) ────────────────────────────
 
-type actionScanner interface {
-	Scan(dest ...any) error
+func (s *sqliteStore) InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO pipeline_node_executions (parent_node_id, tweet_id, leaf_node_id, completed, created_at)
+		 VALUES (?, ?, ?, 0, ?)`,
+		parentNodeID, tweetID, leafNodeID, now,
+	)
+	if err != nil {
+		return fmt.Errorf("store: insert pipeline node execution: %w", err)
+	}
+	return nil
 }
 
-func scanAction(r actionScanner) (*model.Action, error) {
-	a := &model.Action{}
-	var activeInt int
-	var createdAt, updatedAt string
-	if err := r.Scan(&a.ID, &a.Name, &a.PipelineID, &activeInt, &createdAt, &updatedAt); err != nil {
-		return nil, err
+func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("store: mark pipeline node leaf complete: begin tx: %w", err)
 	}
-	a.Active = activeInt != 0
-	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
-		a.CreatedAt = t
-	}
-	if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
-		a.UpdatedAt = t
-	}
-	return a, nil
-}
+	defer tx.Rollback() //nolint:errcheck
 
+	_, err = tx.ExecContext(ctx,
+		`UPDATE pipeline_node_executions SET completed = 1
+		 WHERE parent_node_id = ? AND tweet_id = ? AND leaf_node_id = ?`,
+		parentNodeID, tweetID, leafNodeID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: mark pipeline node leaf complete: update: %w", err)
+	}
+
+	var total, done int
+	err = tx.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(completed), 0)
+		 FROM pipeline_node_executions
+		 WHERE parent_node_id = ? AND tweet_id = ?`,
+		parentNodeID, tweetID,
+	).Scan(&total, &done)
+	if err != nil {
+		return false, fmt.Errorf("store: mark pipeline node leaf complete: count: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("store: mark pipeline node leaf complete: commit: %w", err)
+	}
+
+	return total > 0 && total == done, nil
+}

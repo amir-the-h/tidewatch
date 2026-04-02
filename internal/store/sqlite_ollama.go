@@ -88,70 +88,70 @@ func (s *sqliteStore) SetOllamaBackendEnabled(ctx context.Context, id int64, ena
 	return nil
 }
 
-func (s *sqliteStore) ListPipelineBackends(ctx context.Context, pipelineID int64) ([]model.PipelineBackend, error) {
+func (s *sqliteStore) ListActionBackends(ctx context.Context, actionID int64) ([]model.ActionBackend, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT pipeline_id, backend_id, priority FROM pipeline_backends
-		 WHERE pipeline_id = ? ORDER BY priority`, pipelineID)
+		`SELECT action_id, backend_id, priority FROM action_backends
+		 WHERE action_id = ? ORDER BY priority`, actionID)
 	if err != nil {
-		return nil, fmt.Errorf("store: list pipeline backends: %w", err)
+		return nil, fmt.Errorf("store: list action backends: %w", err)
 	}
 	defer rows.Close()
-	out := make([]model.PipelineBackend, 0)
+	out := make([]model.ActionBackend, 0)
 	for rows.Next() {
-		var pb model.PipelineBackend
-		if err := rows.Scan(&pb.PipelineID, &pb.BackendID, &pb.Priority); err != nil {
-			return nil, fmt.Errorf("store: scan pipeline backend: %w", err)
+		var ab model.ActionBackend
+		if err := rows.Scan(&ab.ActionID, &ab.BackendID, &ab.Priority); err != nil {
+			return nil, fmt.Errorf("store: scan action backend: %w", err)
 		}
-		out = append(out, pb)
+		out = append(out, ab)
 	}
 	return out, rows.Err()
 }
 
-func (s *sqliteStore) SetPipelineBackends(ctx context.Context, pipelineID int64, assignments []model.PipelineBackend) error {
+func (s *sqliteStore) SetActionBackends(ctx context.Context, actionID int64, assignments []model.ActionBackend) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: set pipeline backends tx: %w", err)
+		return fmt.Errorf("store: set action backends tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM pipeline_backends WHERE pipeline_id = ?`, pipelineID); err != nil {
-		return fmt.Errorf("store: clear pipeline backends: %w", err)
+		`DELETE FROM action_backends WHERE action_id = ?`, actionID); err != nil {
+		return fmt.Errorf("store: clear action backends: %w", err)
 	}
 	for _, a := range assignments {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO pipeline_backends (pipeline_id, backend_id, priority) VALUES (?, ?, ?)`,
-			pipelineID, a.BackendID, a.Priority); err != nil {
-			return fmt.Errorf("store: insert pipeline backend: %w", err)
+			`INSERT INTO action_backends (action_id, backend_id, priority) VALUES (?, ?, ?)`,
+			actionID, a.BackendID, a.Priority); err != nil {
+			return fmt.Errorf("store: insert action backend: %w", err)
 		}
 	}
 	return tx.Commit()
 }
 
-func (s *sqliteStore) RemovePipelineBackend(ctx context.Context, pipelineID, backendID int64) error {
+func (s *sqliteStore) RemoveActionBackend(ctx context.Context, actionID, backendID int64) error {
 	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM pipeline_backends WHERE pipeline_id = ? AND backend_id = ?`,
-		pipelineID, backendID)
+		`DELETE FROM action_backends WHERE action_id = ? AND backend_id = ?`,
+		actionID, backendID)
 	if err != nil {
-		return fmt.Errorf("store: remove pipeline backend: %w", err)
+		return fmt.Errorf("store: remove action backend: %w", err)
 	}
 	return nil
 }
 
-func (s *sqliteStore) ListAllPipelineBackendIDs(ctx context.Context) (map[int64][]int64, error) {
+func (s *sqliteStore) ListAllActionBackendIDs(ctx context.Context) (map[int64][]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT pipeline_id, backend_id FROM pipeline_backends ORDER BY pipeline_id, priority`)
+		`SELECT action_id, backend_id FROM action_backends ORDER BY action_id, priority`)
 	if err != nil {
-		return nil, fmt.Errorf("store: list all pipeline backend ids: %w", err)
+		return nil, fmt.Errorf("store: list all action backend ids: %w", err)
 	}
 	defer rows.Close()
 	out := make(map[int64][]int64)
 	for rows.Next() {
-		var pipelineID, backendID int64
-		if err := rows.Scan(&pipelineID, &backendID); err != nil {
-			return nil, fmt.Errorf("store: scan pipeline backend ids: %w", err)
+		var actionID, backendID int64
+		if err := rows.Scan(&actionID, &backendID); err != nil {
+			return nil, fmt.Errorf("store: scan action backend ids: %w", err)
 		}
-		out[pipelineID] = append(out[pipelineID], backendID)
+		out[actionID] = append(out[actionID], backendID)
 	}
 	return out, rows.Err()
 }
