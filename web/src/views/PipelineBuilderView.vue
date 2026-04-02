@@ -21,6 +21,7 @@ import {
 } from '../api/pipelines'
 import { listActions } from '../api/actions'
 import type { Action } from '../api/actions'
+import { listRules, type Rule } from '../api/rules'
 
 const route  = useRoute()
 const router = useRouter()
@@ -31,6 +32,7 @@ const {
   nodes, edges,
   setNodes, setEdges,
   addNodes, addEdges,
+  removeNodes,
   onNodesChange, onEdgesChange,
   applyNodeChanges, applyEdgeChanges,
   findNode,
@@ -78,9 +80,16 @@ const conditionOpOptions = [
   { label: '<', value: '<' }, { label: '<=', value: '<=' },
   { label: 'contains', value: 'contains' }, { label: 'not_contains', value: 'not_contains' },
   { label: 'is_empty', value: 'is_empty' }, { label: 'not_empty', value: 'not_empty' },
+  { label: 'rule_matches', value: 'rule_matches' },
+  { label: 'rule_not_matches', value: 'rule_not_matches' },
 ]
 
 const numericOps = new Set(['>', '>=', '<', '<='])
+const ruleOps = new Set(['rule_matches', 'rule_not_matches'])
+const availableRules = ref<Rule[]>([])
+const ruleOptions = computed(() =>
+  availableRules.value.map(r => ({ label: r.name, value: String(r.id) }))
+)
 
 onMounted(async () => {
   try {
@@ -202,11 +211,22 @@ function onNodeClick({ node }: NodeMouseEvent) {
   editSubPipelineId.value = node.data.subPipelineId ?? null
   editConditions.value = (node.data.conditions ?? []).map((c: PipelineCondition) => ({ ...c }))
   panel.value = 'edit'
+  if (availableRules.value.length === 0) {
+    listRules().then(r => { availableRules.value = r })
+  }
 }
 
 function closeEdit() {
   selectedNodeId.value = null
   panel.value = 'palette'
+}
+
+function deleteSelectedNode() {
+  if (!selectedNodeId.value) return
+  removeNodes([selectedNodeId.value])
+  selectedNodeId.value = null
+  panel.value = 'palette'
+  isDirty.value = true
 }
 
 function applyEdit() {
@@ -467,7 +487,21 @@ const pipelineOptions = computed(() =>
                 <n-text depth="3" style="font-size: 11px;">Conditions</n-text>
               </n-divider>
               <div v-for="(cond, idx) in editConditions" :key="idx" style="margin-bottom: 6px;">
-                <n-input v-model:value="cond.key" size="small" placeholder="key" style="margin-bottom: 3px;" />
+                <n-select
+                  v-if="ruleOps.has(cond.op)"
+                  v-model:value="cond.key"
+                  :options="ruleOptions"
+                  size="small"
+                  placeholder="Select rule…"
+                  style="margin-bottom: 3px;"
+                />
+                <n-input
+                  v-else
+                  v-model:value="cond.key"
+                  size="small"
+                  placeholder="key"
+                  style="margin-bottom: 3px;"
+                />
                 <div style="display: flex; gap: 4px;">
                   <n-select v-model:value="cond.op" :options="conditionOpOptions" size="small" style="flex: 1;" />
                   <n-button size="small" type="error" ghost @click="removeConditionRow(idx)">×</n-button>
@@ -479,7 +513,7 @@ const pipelineOptions = computed(() =>
                   size="small" placeholder="value" style="width: 100%; margin-top: 3px;"
                 />
                 <n-input
-                  v-else-if="cond.op !== 'is_empty' && cond.op !== 'not_empty'"
+                  v-else-if="!['is_empty','not_empty','rule_matches','rule_not_matches'].includes(cond.op)"
                   v-model:value="cond.value"
                   size="small" placeholder="value" style="margin-top: 3px;"
                 />
@@ -490,6 +524,7 @@ const pipelineOptions = computed(() =>
             </template>
 
             <n-button type="primary" size="small" block @click="applyEdit">Apply</n-button>
+            <n-button type="error" size="small" block @click="deleteSelectedNode" style="margin-top: 8px;">Delete node</n-button>
           </div>
         </template>
       </div>
