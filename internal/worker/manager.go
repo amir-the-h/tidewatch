@@ -273,6 +273,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	mergedCtx["tweet"] = ev.Text
 	mergedCtx["tweet_short"] = truncateText(ev.Text, 280)
 	mergedCtx["tweet_url"] = "https://x.com/" + ev.AuthorHandle + "/status/" + ev.TweetID
+	mergedCtx["rule_ids"] = ev.RuleIDs // []int64 — used by rule_matches condition operator
 
 	// Derive convenience vars from common ONNX/Ollama output shapes.
 	enrichContext(mergedCtx)
