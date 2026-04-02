@@ -27,9 +27,9 @@ type mockStore struct {
 	rules               map[int64]*model.Rule
 	tweets              map[string]*model.Tweet
 	tweetRules          []*model.TweetRule
-	chains              map[int64]*model.Chain
-	chainGraphs         map[int64]*model.ChainGraph
-	triggerLinks        []*model.TriggerChainLink
+	pipelines           map[int64]*model.Pipeline
+	pipelineGraphs      map[int64]*model.PipelineGraph
+	triggerLinks        []*model.TriggerPipelineLink
 	executions          []*model.ActionExecution
 	entityTrackedTweets map[string]bool
 	nextID              int64
@@ -40,8 +40,8 @@ func newMockStore() *mockStore {
 		sources:             make(map[int64]*model.Source),
 		rules:               make(map[int64]*model.Rule),
 		tweets:              make(map[string]*model.Tweet),
-		chains:              make(map[int64]*model.Chain),
-		chainGraphs:         make(map[int64]*model.ChainGraph),
+		pipelines:           make(map[int64]*model.Pipeline),
+		pipelineGraphs:      make(map[int64]*model.PipelineGraph),
 		entityTrackedTweets: make(map[string]bool),
 	}
 }
@@ -151,46 +151,60 @@ func (m *mockStore) SaveTweetRule(_ context.Context, tr *model.TweetRule) error 
 	return nil
 }
 
-func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error         { return nil }
-func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error) { return nil, nil }
-func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) {
-	return nil, nil
-}
-func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error       { return nil }
-func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error                 { return nil }
-func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error      { return nil }
-func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error) { return nil, nil }
-func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error     { return nil }
-func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error  { return nil }
-
-func (m *mockStore) SaveChain(_ context.Context, _ *model.Chain) error { return nil }
-func (m *mockStore) GetChain(_ context.Context, id int64) (*model.Chain, error) {
-	if c, ok := m.chains[id]; ok {
-		return c, nil
-	}
-	return nil, fmt.Errorf("chain not found: %d", id)
-}
-func (m *mockStore) ListChains(_ context.Context) ([]*model.Chain, error)    { return nil, nil }
-func (m *mockStore) UpdateChain(_ context.Context, _ *model.Chain) error     { return nil }
-func (m *mockStore) DeleteChain(_ context.Context, _ int64) error            { return nil }
-func (m *mockStore) SetChainActive(_ context.Context, _ int64, _ bool) error { return nil }
-func (m *mockStore) GetChainGraph(_ context.Context, id int64) (*model.ChainGraph, error) {
-	if g, ok := m.chainGraphs[id]; ok {
-		return g, nil
-	}
-	return &model.ChainGraph{}, nil
-}
-func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) {
-	return nil, nil
-}
-func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChainLink) error {
+// Pipelines (DAG workflows — replaces Chains)
+func (m *mockStore) SavePipeline(_ context.Context, p *model.Pipeline) error {
+	m.nextID++
+	p.ID = m.nextID
+	m.pipelines[p.ID] = p
 	return nil
 }
-func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) {
+func (m *mockStore) GetPipeline(_ context.Context, id int64) (*model.Pipeline, error) {
+	if p, ok := m.pipelines[id]; ok {
+		return p, nil
+	}
+	return nil, fmt.Errorf("pipeline not found: %d", id)
+}
+func (m *mockStore) ListPipelines(_ context.Context) ([]*model.Pipeline, error) {
+	out := make([]*model.Pipeline, 0, len(m.pipelines))
+	for _, p := range m.pipelines {
+		out = append(out, p)
+	}
+	return out, nil
+}
+func (m *mockStore) UpdatePipeline(_ context.Context, p *model.Pipeline) error {
+	m.pipelines[p.ID] = p
+	return nil
+}
+func (m *mockStore) DeletePipeline(_ context.Context, id int64) error {
+	delete(m.pipelines, id)
+	return nil
+}
+func (m *mockStore) SetPipelineActive(_ context.Context, id int64, active bool) error {
+	if p, ok := m.pipelines[id]; ok {
+		p.Active = active
+	}
+	return nil
+}
+func (m *mockStore) GetPipelineGraph(_ context.Context, id int64) (*model.PipelineGraph, error) {
+	if g, ok := m.pipelineGraphs[id]; ok {
+		return g, nil
+	}
+	return &model.PipelineGraph{}, nil
+}
+func (m *mockStore) SavePipelineGraph(_ context.Context, _ int64, _ []*model.PipelineNodeRequest, _ []*model.PipelineEdgeRequest) (*model.PipelineGraph, error) {
+	return nil, nil
+}
+func (m *mockStore) GetPipelineIDForNode(_ context.Context, _ int64) (int64, error) { return 0, nil }
+
+// TriggerPipelineLinks (replaces TriggerChainLinks)
+func (m *mockStore) SaveTriggerPipelineLink(_ context.Context, _ *model.TriggerPipelineLink) error {
+	return nil
+}
+func (m *mockStore) ListTriggerPipelineLinks(_ context.Context) ([]*model.TriggerPipelineLink, error) {
 	return m.triggerLinks, nil
 }
-func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, triggerType string) ([]*model.TriggerChainLink, error) {
-	var out []*model.TriggerChainLink
+func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, triggerType string) ([]*model.TriggerPipelineLink, error) {
+	var out []*model.TriggerPipelineLink
 	for _, l := range m.triggerLinks {
 		if l.Active && l.TriggerType == triggerType {
 			out = append(out, l)
@@ -198,9 +212,21 @@ func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, triggerType s
 	}
 	return out, nil
 }
-func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error            { return nil }
-func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
-func (m *mockStore) GetChainIDForNode(_ context.Context, _ int64) (int64, error)        { return 0, nil }
+func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
+
+// Pipeline node execution tracking (sub-pipeline fan-in)
+func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error {
+	return nil
+}
+func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ string, _ int64) (bool, error) {
+	return false, nil
+}
+
+// ActionLabels
+func (m *mockStore) ListActionLabels(_ context.Context, _ int64) ([]string, error) { return nil, nil }
+func (m *mockStore) AddActionLabel(_ context.Context, _ int64, _ string) error     { return nil }
+func (m *mockStore) RemoveActionLabel(_ context.Context, _ int64, _ string) error  { return nil }
 
 func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
 	return nil
@@ -380,14 +406,14 @@ func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string) (model.O
 func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string) error { return nil }
 func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error              { return nil }
 func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error  { return nil }
-func (m *mockStore) ListPipelineBackends(_ context.Context, _ int64) ([]model.PipelineBackend, error) {
+func (m *mockStore) ListActionBackends(_ context.Context, _ int64) ([]model.ActionBackend, error) {
 	return nil, nil
 }
-func (m *mockStore) SetPipelineBackends(_ context.Context, _ int64, _ []model.PipelineBackend) error {
+func (m *mockStore) SetActionBackends(_ context.Context, _ int64, _ []model.ActionBackend) error {
 	return nil
 }
-func (m *mockStore) RemovePipelineBackend(_ context.Context, _, _ int64) error { return nil }
-func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]int64, error) {
+func (m *mockStore) RemoveActionBackend(_ context.Context, _, _ int64) error { return nil }
+func (m *mockStore) ListAllActionBackendIDs(_ context.Context) (map[int64][]int64, error) {
 	return nil, nil
 }
 
@@ -625,30 +651,17 @@ func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 	}
 }
 
-func TestActivateModel_ReturnsGone(t *testing.T) {
-	// The models API is deprecated and returns 410 Gone.
+func TestListModels_ReturnsEmpty(t *testing.T) {
+	// GET /api/models with no modelsDir set returns empty list.
 	srv, _, _, _ := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/models/1/activate", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusGone {
-		t.Fatalf("expected 410 Gone, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestDownloadModel_InvalidRepoID(t *testing.T) {
-	srv, _, _, _ := newTestServer(t)
-
-	body := `{"repo_id":"../../etc/passwd"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/models/download", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	srv.router.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -678,10 +691,10 @@ func TestGetHealth(t *testing.T) {
 	}
 }
 
-func TestRunChain_NotFound(t *testing.T) {
+func TestRunPipeline_NotFound(t *testing.T) {
 	srv, _, _, _ := newTestServer(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chains/99/run", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/99/run", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
@@ -692,11 +705,11 @@ func TestRunChain_NotFound(t *testing.T) {
 	}
 }
 
-func TestRunChain_Inactive(t *testing.T) {
+func TestRunPipeline_Inactive(t *testing.T) {
 	srv, ms, _, _ := newTestServer(t)
-	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: false}
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: false}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
@@ -707,26 +720,26 @@ func TestRunChain_Inactive(t *testing.T) {
 	}
 }
 
-func TestRunChain_QueuesTweets(t *testing.T) {
+func TestRunPipeline_QueuesTweets(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 
-	// active chain
-	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: true}
+	// active pipeline
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
 
-	// trigger link for this chain
-	ms.triggerLinks = []*model.TriggerChainLink{
-		{ID: 1, ChainID: 1, TriggerType: "new_tweet", Active: true},
+	// trigger link for this pipeline
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
 	}
 
-	// chain graph: start → action node (action_id=5, node_id=10)
+	// pipeline graph: start → action node (action_id=5, node_id=10)
 	actionID := int64(5)
-	ms.chainGraphs[1] = &model.ChainGraph{
-		Nodes: []*model.ChainNode{
-			{ID: 9, ChainID: 1, Type: model.ChainNodeTypeStart},
-			{ID: 10, ChainID: 1, Type: model.ChainNodeTypeAction, ActionID: &actionID},
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 9, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+			{ID: 10, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
 		},
-		Edges: []*model.ChainEdge{
-			{ID: 1, ChainID: 1, SourceNodeID: 9, TargetNodeID: 10},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
 		},
 	}
 
@@ -734,7 +747,7 @@ func TestRunChain_QueuesTweets(t *testing.T) {
 	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
 	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{"new_only":false}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{"new_only":false}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
@@ -755,11 +768,11 @@ func TestRunChain_QueuesTweets(t *testing.T) {
 		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
 	}
 	for _, task := range mp.pushed {
-		if task.ChainID != 1 {
-			t.Errorf("expected ChainID=1, got %d", task.ChainID)
+		if task.PipelineID != 1 {
+			t.Errorf("expected PipelineID=1, got %d", task.PipelineID)
 		}
-		if task.ChainNodeID != 10 {
-			t.Errorf("expected ChainNodeID=10, got %d", task.ChainNodeID)
+		if task.PipelineNodeID != 10 {
+			t.Errorf("expected PipelineNodeID=10, got %d", task.PipelineNodeID)
 		}
 		if task.ActionID != 5 {
 			t.Errorf("expected ActionID=5, got %d", task.ActionID)
@@ -767,21 +780,21 @@ func TestRunChain_QueuesTweets(t *testing.T) {
 	}
 }
 
-func TestRunChain_NewOnly(t *testing.T) {
+func TestRunPipeline_NewOnly(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 
-	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: true}
-	ms.triggerLinks = []*model.TriggerChainLink{
-		{ID: 1, ChainID: 1, TriggerType: "new_tweet", Active: true},
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
 	}
 	actionID := int64(5)
-	ms.chainGraphs[1] = &model.ChainGraph{
-		Nodes: []*model.ChainNode{
-			{ID: 9, ChainID: 1, Type: model.ChainNodeTypeStart},
-			{ID: 10, ChainID: 1, Type: model.ChainNodeTypeAction, ActionID: &actionID},
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 9, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+			{ID: 10, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
 		},
-		Edges: []*model.ChainEdge{
-			{ID: 1, ChainID: 1, SourceNodeID: 9, TargetNodeID: 10},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
 		},
 	}
 	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
@@ -792,7 +805,7 @@ func TestRunChain_NewOnly(t *testing.T) {
 		{ID: 1, ActionID: 5, TweetID: "t1", Status: "success"},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{"new_only":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{"new_only":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
@@ -815,21 +828,21 @@ func TestRunChain_NewOnly(t *testing.T) {
 	}
 }
 
-func TestRunChain_EntityMatched(t *testing.T) {
+func TestRunPipeline_EntityMatched(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 
-	ms.chains[1] = &model.Chain{ID: 1, Name: "c1", Active: true}
-	ms.triggerLinks = []*model.TriggerChainLink{
-		{ID: 1, ChainID: 1, TriggerType: "entity_matched", Active: true},
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "entity_matched", Active: true},
 	}
 	actionID := int64(5)
-	ms.chainGraphs[1] = &model.ChainGraph{
-		Nodes: []*model.ChainNode{
-			{ID: 9, ChainID: 1, Type: model.ChainNodeTypeStart},
-			{ID: 10, ChainID: 1, Type: model.ChainNodeTypeAction, ActionID: &actionID},
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 9, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+			{ID: 10, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
 		},
-		Edges: []*model.ChainEdge{
-			{ID: 1, ChainID: 1, SourceNodeID: 9, TargetNodeID: 10},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
 		},
 	}
 	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
@@ -837,7 +850,7 @@ func TestRunChain_EntityMatched(t *testing.T) {
 	ms.tweets["t3"] = &model.Tweet{ID: "t3", Text: "tweet 3", AuthorHandle: "h3"}
 	ms.entityTrackedTweets = map[string]bool{"t1": true, "t2": true}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chains/1/run", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()

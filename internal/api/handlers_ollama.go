@@ -167,26 +167,26 @@ func (s *Server) setOllamaBackendEnabled(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleListPipelineBackends returns a pipeline's assigned backends in priority order.
-// GET /api/pipelines/{id}/backends
-func (s *Server) handleListPipelineBackends(w http.ResponseWriter, r *http.Request) {
-	pipelineID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+// handleListActionBackends returns an action's assigned Ollama backends in priority order.
+// GET /api/actions/{id}/backends
+func (s *Server) handleListActionBackends(w http.ResponseWriter, r *http.Request) {
+	actionID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	pbs, err := s.store.ListPipelineBackends(r.Context(), pipelineID)
+	abs, err := s.store.ListActionBackends(r.Context(), actionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, pbs)
+	writeJSON(w, http.StatusOK, abs)
 }
 
-// handleSetPipelineBackends replaces a pipeline's full backend assignment list.
-// PUT /api/pipelines/{id}/backends
-func (s *Server) handleSetPipelineBackends(w http.ResponseWriter, r *http.Request) {
-	pipelineID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+// handleSetActionBackends replaces an action's full backend assignment list.
+// PUT /api/actions/{id}/backends
+func (s *Server) handleSetActionBackends(w http.ResponseWriter, r *http.Request) {
+	actionID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
@@ -199,23 +199,23 @@ func (s *Server) handleSetPipelineBackends(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	assignments := make([]model.PipelineBackend, len(req))
+	assignments := make([]model.ActionBackend, len(req))
 	for i, item := range req {
-		assignments[i] = model.PipelineBackend{PipelineID: pipelineID, BackendID: item.BackendID, Priority: item.Priority}
+		assignments[i] = model.ActionBackend{ActionID: actionID, BackendID: item.BackendID, Priority: item.Priority}
 	}
-	if err := s.store.SetPipelineBackends(r.Context(), pipelineID, assignments); err != nil {
+	if err := s.store.SetActionBackends(r.Context(), actionID, assignments); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.reloadCache(r.Context())
-	pbs, _ := s.store.ListPipelineBackends(r.Context(), pipelineID)
-	writeJSON(w, http.StatusOK, pbs)
+	abs, _ := s.store.ListActionBackends(r.Context(), actionID)
+	writeJSON(w, http.StatusOK, abs)
 }
 
-// handleRemovePipelineBackend removes one backend assignment.
-// DELETE /api/pipelines/{id}/backends/{backend_id}
-func (s *Server) handleRemovePipelineBackend(w http.ResponseWriter, r *http.Request) {
-	pipelineID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+// handleRemoveActionBackend removes one backend assignment from an action.
+// DELETE /api/actions/{id}/backends/{backend_id}
+func (s *Server) handleRemoveActionBackend(w http.ResponseWriter, r *http.Request) {
+	actionID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
@@ -225,7 +225,7 @@ func (s *Server) handleRemovePipelineBackend(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "invalid backend_id")
 		return
 	}
-	if err := s.store.RemovePipelineBackend(r.Context(), pipelineID, backendID); err != nil {
+	if err := s.store.RemoveActionBackend(r.Context(), actionID, backendID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -13,7 +13,7 @@ import (
 func (s *Server) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	triggers := []map[string]string{
 		{"type": "new_tweet",          "description": "Fires when a tweet is received from the stream"},
-		{"type": "new_categorization", "description": "Fires when an ONNX/Ollama pipeline action completes"},
+		{"type": "new_categorization", "description": "Fires when an ONNX/Ollama action completes"},
 		{"type": "entity_matched",     "description": "Fires when an entity matcher action finds a match"},
 		{"type": "digest_requested",   "description": "Fires when a digest job is created via POST /api/digest"},
 		{"type": "server_started",     "description": "Fires once when the server process starts"},
@@ -23,72 +23,72 @@ func (s *Server) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, triggers)
 }
 
-func (s *Server) handleListTriggerChainLinks(w http.ResponseWriter, r *http.Request) {
-	links, err := s.store.ListTriggerChainLinks(r.Context())
+func (s *Server) handleListTriggerPipelineLinks(w http.ResponseWriter, r *http.Request) {
+	links, err := s.store.ListTriggerPipelineLinks(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if links == nil {
-		links = []*model.TriggerChainLink{}
+		links = []*model.TriggerPipelineLink{}
 	}
 	writeJSON(w, http.StatusOK, links)
 }
 
-func (s *Server) handleCreateTriggerChainLink(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateTriggerPipelineLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TriggerType string `json:"trigger_type"`
-		ChainID     int64  `json:"chain_id"`
+		PipelineID  int64  `json:"pipeline_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if req.TriggerType == "" || req.ChainID == 0 {
-		writeError(w, http.StatusBadRequest, "trigger_type and chain_id are required")
+	if req.TriggerType == "" || req.PipelineID == 0 {
+		writeError(w, http.StatusBadRequest, "trigger_type and pipeline_id are required")
 		return
 	}
-	l := &model.TriggerChainLink{TriggerType: req.TriggerType, ChainID: req.ChainID}
-	if err := s.store.SaveTriggerChainLink(r.Context(), l); err != nil {
+	l := &model.TriggerPipelineLink{TriggerType: req.TriggerType, PipelineID: req.PipelineID}
+	if err := s.store.SaveTriggerPipelineLink(r.Context(), l); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, l)
 }
 
-func (s *Server) handleDeleteTriggerChainLink(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteTriggerPipelineLink(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.store.DeleteTriggerChainLink(r.Context(), id); err != nil {
+	if err := s.store.DeleteTriggerPipelineLink(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleActivateTriggerChainLink(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleActivateTriggerPipelineLink(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.store.SetTriggerChainLinkActive(r.Context(), id, true); err != nil {
+	if err := s.store.SetTriggerPipelineLinkActive(r.Context(), id, true); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleDeactivateTriggerChainLink(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeactivateTriggerPipelineLink(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.store.SetTriggerChainLinkActive(r.Context(), id, false); err != nil {
+	if err := s.store.SetTriggerPipelineLinkActive(r.Context(), id, false); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

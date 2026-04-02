@@ -342,7 +342,7 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 		AuthorHandle: st.Tweet.AuthorHandle,
 		RuleIDs:      resolvedRuleIDs,
 	}
-	if err := worker.PushInitialChainTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger); err != nil {
+	if err := worker.PushInitialPipelineTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger); err != nil {
 		c.logger.Warn("stream: chain dispatch failed",
 			"component", "stream",
 			"tweet_id", st.Tweet.ID,
