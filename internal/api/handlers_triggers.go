@@ -53,6 +53,9 @@ func (s *Server) handleCreateTriggerPipelineLink(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if list, err := s.store.ListTriggerPipelineLinks(r.Context()); err == nil {
+		s.broadcastEvent("trigger_links", list)
+	}
 	writeJSON(w, http.StatusCreated, l)
 }
 
@@ -79,6 +82,9 @@ func (s *Server) handleActivateTriggerPipelineLink(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if list, err := s.store.ListTriggerPipelineLinks(r.Context()); err == nil {
+		s.broadcastEvent("trigger_links", list)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -91,6 +97,9 @@ func (s *Server) handleDeactivateTriggerPipelineLink(w http.ResponseWriter, r *h
 	if err := s.store.SetTriggerPipelineLinkActive(r.Context(), id, false); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if list, err := s.store.ListTriggerPipelineLinks(r.Context()); err == nil {
+		s.broadcastEvent("trigger_links", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
