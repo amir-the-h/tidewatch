@@ -393,23 +393,28 @@ func PushContinuationTasks(
 				)
 			}
 			passed := evaluateConditionsVerbose(targetNode.Conditions, mergedCtx, pipelineID, targetNode.ID, logger)
+			wantHandle := "pass"
 			if !passed {
-				if logger != nil {
-					logger.Info("pipeline: condition node FAILED — branch will not execute",
-						"pipeline_id", pipelineID,
-						"node_id", targetNode.ID,
-					)
-				}
-				continue
+				wantHandle = "fail"
 			}
 			if logger != nil {
-				logger.Info("pipeline: condition node PASSED — following downstream edges",
+				logger.Info("pipeline: condition node evaluated — following branch",
 					"pipeline_id", pipelineID,
 					"node_id", targetNode.ID,
+					"passed", passed,
+					"branch", wantHandle,
 				)
 			}
-			// Conditions passed — push action/pipeline nodes that follow this condition node.
+			// Follow edges whose source handle matches the branch ("pass" or "fail").
+			// Legacy edges with an empty source_handle are treated as "pass".
 			for _, condEdge := range outgoingEdges(graph, targetNode.ID) {
+				h := condEdge.SourceHandle
+				if h == "" {
+					h = "pass"
+				}
+				if h != wantHandle {
+					continue
+				}
 				nextNode := findNode(graph, condEdge.TargetNodeID)
 				if nextNode == nil {
 					continue

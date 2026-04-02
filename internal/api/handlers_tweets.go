@@ -212,10 +212,12 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 
 	count := 0
 	for _, tweet := range tweets {
+		ruleIDs, _ := s.store.ListTweetRuleIDs(r.Context(), tweet.ID)
 		ev := queue.TweetEvent{
 			TweetID:      tweet.ID,
 			Text:         tweet.Text,
 			AuthorHandle: tweet.AuthorHandle,
+			RuleIDs:      ruleIDs,
 		}
 
 		if len(req.ActionIDs) == 0 {

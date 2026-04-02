@@ -313,10 +313,12 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
+			ruleIDs, _ := s.store.ListTweetRuleIDs(r.Context(), tweet.ID)
 			evPayload, _ := json.Marshal(queue.TweetEvent{
 				TweetID:      tweet.ID,
 				Text:         tweet.Text,
 				AuthorHandle: tweet.AuthorHandle,
+				RuleIDs:      ruleIDs,
 			})
 			count += worker.PushInitialTasksForGraph(
 				r.Context(), s.store, s.producer, s.actionCache,
