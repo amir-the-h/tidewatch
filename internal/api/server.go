@@ -176,12 +176,12 @@ func NewServer(
 			r.Get("/alias-suggestions", srv.handleSearchAliasSuggestions)
 			r.Get("/entity-connections/subgraph", srv.handleGetEntityConnectionSubgraph)
 
-			// Chains (read) and triggers — all authenticated users.
-			r.Get("/chains", srv.handleListChains)
-			r.Get("/chains/{id}", srv.handleGetChain)
-			r.Get("/chains/{id}/graph", srv.handleGetChainGraph)
+			// Pipelines (DAG workflows, read) and triggers — all authenticated users.
+			r.Get("/pipelines", srv.handleListPipelines)
+			r.Get("/pipelines/{id}", srv.handleGetPipeline)
+			r.Get("/pipelines/{id}/graph", srv.handleGetPipelineGraph)
 			r.Get("/triggers", srv.handleListTriggers)
-			r.Get("/triggers/links", srv.handleListTriggerChainLinks)
+			r.Get("/triggers/links", srv.handleListTriggerPipelineLinks)
 
 			// Admin-only routes.
 			r.Group(func(r chi.Router) {
@@ -205,30 +205,20 @@ func NewServer(
 				r.Post("/tweets/reprocess", srv.handleReprocessTweets)
 				r.Delete("/tweets/noise", srv.handleDeleteNoiseTweets)
 
-				// Pipelines (replaces /models)
-				r.Get("/pipelines", srv.handleListPipelines)
+				// Pipelines (DAG workflows — mutations)
 				r.Post("/pipelines", srv.handleCreatePipeline)
-				r.Get("/pipelines/handlers", srv.handleListPipelineHandlers)
-				r.Get("/models", srv.handleListModels)
 				r.Put("/pipelines/{id}", srv.handleUpdatePipeline)
 				r.Delete("/pipelines/{id}", srv.handleDeletePipeline)
 				r.Post("/pipelines/{id}/activate", srv.handleActivatePipeline)
 				r.Post("/pipelines/{id}/deactivate", srv.handleDeactivatePipeline)
+				r.Put("/pipelines/{id}/graph", srv.handleSavePipelineGraph)
+				r.Post("/pipelines/{id}/run", srv.handleRunPipeline)
 
-				// Chains (mutations)
-				r.Post("/chains", srv.handleCreateChain)
-				r.Put("/chains/{id}", srv.handleUpdateChain)
-				r.Delete("/chains/{id}", srv.handleDeleteChain)
-				r.Post("/chains/{id}/activate", srv.handleActivateChain)
-				r.Post("/chains/{id}/deactivate", srv.handleDeactivateChain)
-				r.Put("/chains/{id}/graph", srv.handleSaveChainGraph)
-				r.Post("/chains/{id}/run", srv.handleRunChain)
-
-				// Trigger chain links
-				r.Post("/triggers/links", srv.handleCreateTriggerChainLink)
-				r.Delete("/triggers/links/{id}", srv.handleDeleteTriggerChainLink)
-				r.Post("/triggers/links/{id}/activate", srv.handleActivateTriggerChainLink)
-				r.Post("/triggers/links/{id}/deactivate", srv.handleDeactivateTriggerChainLink)
+				// Trigger pipeline links
+				r.Post("/triggers/links", srv.handleCreateTriggerPipelineLink)
+				r.Delete("/triggers/links/{id}", srv.handleDeleteTriggerPipelineLink)
+				r.Post("/triggers/links/{id}/activate", srv.handleActivateTriggerPipelineLink)
+				r.Post("/triggers/links/{id}/deactivate", srv.handleDeactivateTriggerPipelineLink)
 
 				// Stream control
 				r.Post("/stream/connect", srv.handleStreamConnect)
@@ -278,10 +268,10 @@ func NewServer(
 				r.Delete("/ollama/backends/{id}", srv.handleDeleteOllamaBackend)
 				r.Post("/ollama/backends/{id}/enable", srv.handleEnableOllamaBackend)
 				r.Post("/ollama/backends/{id}/disable", srv.handleDisableOllamaBackend)
-				// Pipeline-backend assignments
-				r.Get("/pipelines/{id}/backends", srv.handleListPipelineBackends)
-				r.Put("/pipelines/{id}/backends", srv.handleSetPipelineBackends)
-				r.Delete("/pipelines/{id}/backends/{backend_id}", srv.handleRemovePipelineBackend)
+				// Action-backend assignments (Ollama backend priority for each action)
+				r.Get("/actions/{id}/backends", srv.handleListActionBackends)
+				r.Put("/actions/{id}/backends", srv.handleSetActionBackends)
+				r.Delete("/actions/{id}/backends/{backend_id}", srv.handleRemoveActionBackend)
 
 				// Queue management
 				r.Get("/queue", srv.handleGetQueue)
@@ -319,9 +309,12 @@ func NewServer(
 				r.Put("/users/{id}", srv.handleUpdateUser)
 				r.Delete("/users/{id}", srv.handleDeleteUser)
 
-				// Actions
+				// Actions (execution backends: onnx, ollama, internal, notification)
 				r.Get("/actions", srv.handleListActions)
 				r.Post("/actions", srv.handleCreateAction)
+				r.Get("/actions/handlers", srv.handleListActionHandlers)
+				r.Get("/models", srv.handleListModels)
+				r.Get("/actions/{id}", srv.handleGetAction)
 				r.Put("/actions/{id}", srv.handleUpdateAction)
 				r.Delete("/actions/{id}", srv.handleDeleteAction)
 				r.Post("/actions/{id}/activate", srv.handleActivateAction)

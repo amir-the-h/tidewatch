@@ -98,31 +98,27 @@ func (m *mockStore) SetNotificationChannelActive(_ context.Context, _ int64, _ b
 }
 func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
 func (m *mockStore) CountEntityTracks(_ context.Context, _ store.EntityTrackFilter) (int, error) { return 0, nil }
-// Pipelines
+// Actions (absorbs old Pipelines)
+func (m *mockStore) ListActionLabels(_ context.Context, _ int64) ([]string, error)  { return nil, nil }
+func (m *mockStore) AddActionLabel(_ context.Context, _ int64, _ string) error      { return nil }
+func (m *mockStore) RemoveActionLabel(_ context.Context, _ int64, _ string) error   { return nil }
+// Pipelines (DAG workflows, replaces Chains)
 func (m *mockStore) SavePipeline(_ context.Context, _ *model.Pipeline) error { return nil }
 func (m *mockStore) GetPipeline(_ context.Context, _ int64) (*model.Pipeline, error) { return nil, fmt.Errorf("not found") }
-func (m *mockStore) ListPipelines(_ context.Context, _ store.PipelineFilter) ([]*model.Pipeline, error) { return nil, nil }
+func (m *mockStore) ListPipelines(_ context.Context) ([]*model.Pipeline, error) { return nil, nil }
 func (m *mockStore) UpdatePipeline(_ context.Context, _ *model.Pipeline) error    { return nil }
 func (m *mockStore) DeletePipeline(_ context.Context, _ int64) error              { return nil }
 func (m *mockStore) SetPipelineActive(_ context.Context, _ int64, _ bool) error   { return nil }
-func (m *mockStore) ListPipelineLabels(_ context.Context, _ int64) ([]string, error) { return nil, nil }
-func (m *mockStore) AddPipelineLabel(_ context.Context, _ int64, _ string) error    { return nil }
-func (m *mockStore) RemovePipelineLabel(_ context.Context, _ int64, _ string) error { return nil }
-// Chains
-func (m *mockStore) SaveChain(_ context.Context, _ *model.Chain) error { return nil }
-func (m *mockStore) GetChain(_ context.Context, _ int64) (*model.Chain, error) { return nil, nil }
-func (m *mockStore) ListChains(_ context.Context) ([]*model.Chain, error)      { return nil, nil }
-func (m *mockStore) UpdateChain(_ context.Context, _ *model.Chain) error       { return nil }
-func (m *mockStore) DeleteChain(_ context.Context, _ int64) error              { return nil }
-func (m *mockStore) SetChainActive(_ context.Context, _ int64, _ bool) error   { return nil }
-func (m *mockStore) GetChainGraph(_ context.Context, _ int64) (*model.ChainGraph, error) { return nil, nil }
-func (m *mockStore) SaveChainGraph(_ context.Context, _ int64, _ []*model.ChainNodeRequest, _ []*model.ChainEdgeRequest) (*model.ChainGraph, error) { return nil, nil }
-func (m *mockStore) SaveTriggerChainLink(_ context.Context, _ *model.TriggerChainLink) error { return nil }
-func (m *mockStore) ListTriggerChainLinks(_ context.Context) ([]*model.TriggerChainLink, error) { return nil, nil }
-func (m *mockStore) ListActiveTriggerChainLinks(_ context.Context, _ string) ([]*model.TriggerChainLink, error) { return nil, nil }
-func (m *mockStore) DeleteTriggerChainLink(_ context.Context, _ int64) error             { return nil }
-func (m *mockStore) SetTriggerChainLinkActive(_ context.Context, _ int64, _ bool) error  { return nil }
-func (m *mockStore) GetChainIDForNode(_ context.Context, _ int64) (int64, error)         { return 0, nil }
+func (m *mockStore) GetPipelineGraph(_ context.Context, _ int64) (*model.PipelineGraph, error) { return nil, nil }
+func (m *mockStore) SavePipelineGraph(_ context.Context, _ int64, _ []*model.PipelineNodeRequest, _ []*model.PipelineEdgeRequest) (*model.PipelineGraph, error) { return nil, nil }
+func (m *mockStore) GetPipelineIDForNode(_ context.Context, _ int64) (int64, error) { return 0, nil }
+func (m *mockStore) SaveTriggerPipelineLink(_ context.Context, _ *model.TriggerPipelineLink) error { return nil }
+func (m *mockStore) ListTriggerPipelineLinks(_ context.Context) ([]*model.TriggerPipelineLink, error) { return nil, nil }
+func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string) ([]*model.TriggerPipelineLink, error) { return nil, nil }
+func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error             { return nil }
+func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error  { return nil }
+func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error { return nil }
+func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ string, _ int64) (bool, error) { return false, nil }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error                   { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)           { return nil, nil }
 func (m *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) { return nil, nil }
@@ -179,10 +175,10 @@ func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string) (model.O
 func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string) error            { return nil }
 func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error                         { return nil }
 func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error             { return nil }
-func (m *mockStore) ListPipelineBackends(_ context.Context, _ int64) ([]model.PipelineBackend, error) { return nil, nil }
-func (m *mockStore) SetPipelineBackends(_ context.Context, _ int64, _ []model.PipelineBackend) error  { return nil }
-func (m *mockStore) RemovePipelineBackend(_ context.Context, _, _ int64) error                    { return nil }
-func (m *mockStore) ListAllPipelineBackendIDs(_ context.Context) (map[int64][]int64, error)       { return nil, nil }
+func (m *mockStore) ListActionBackends(_ context.Context, _ int64) ([]model.ActionBackend, error)  { return nil, nil }
+func (m *mockStore) SetActionBackends(_ context.Context, _ int64, _ []model.ActionBackend) error   { return nil }
+func (m *mockStore) RemoveActionBackend(_ context.Context, _, _ int64) error                       { return nil }
+func (m *mockStore) ListAllActionBackendIDs(_ context.Context) (map[int64][]int64, error)          { return nil, nil }
 func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) { return nil, nil }
 func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) { return nil, nil }
 func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) { return 0, nil }

@@ -18,13 +18,13 @@ export const useActionsStore = defineStore('actions', () => {
     finally { loading.value = false }
   }
 
-  async function createAction(body: { name: string; pipeline_id: number }) {
+  async function createAction(body: Parameters<typeof api.createAction>[0]) {
     const a = await api.createAction(body)
     actions.value.push(a)
     return a
   }
 
-  async function updateAction(id: number, body: { name?: string; pipeline_id?: number }) {
+  async function updateAction(id: number, body: Parameters<typeof api.updateAction>[1]) {
     const a = await api.updateAction(id, body)
     const idx = actions.value.findIndex(x => x.id === id)
     if (idx !== -1) actions.value[idx] = a

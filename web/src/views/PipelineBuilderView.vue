@@ -11,18 +11,21 @@ import {
   NSpin, NScrollbar, NIcon, useMessage,
 } from 'naive-ui'
 import { ArrowBackOutline } from '@vicons/ionicons5'
-import StartNode from '../components/chain/StartNode.vue'
-import ActionNode from '../components/chain/ActionNode.vue'
-import ConditionNode from '../components/chain/ConditionNode.vue'
-import { getChain, getChainGraph, saveChainGraph, type ChainCondition } from '../api/chains'
+import StartNode from '../components/pipeline/StartNode.vue'
+import ActionNode from '../components/pipeline/ActionNode.vue'
+import ConditionNode from '../components/pipeline/ConditionNode.vue'
+import PipelineNodeComponent from '../components/pipeline/PipelineNode.vue'
+import {
+  getPipeline, getPipelineGraph, savePipelineGraph, listPipelines,
+  type Pipeline, type PipelineCondition,
+} from '../api/pipelines'
 import { listActions } from '../api/actions'
 import type { Action } from '../api/actions'
-import type { Chain } from '../api/chains'
 
 const route  = useRoute()
 const router = useRouter()
 const msg    = useMessage()
-const chainId = Number(route.params.id)
+const pipelineId = Number(route.params.id)
 
 const {
   nodes, edges,
@@ -37,21 +40,31 @@ const nodeTypes: NodeTypesObject = {
   start:     markRaw(StartNode) as any,
   action:    markRaw(ActionNode) as any,
   condition: markRaw(ConditionNode) as any,
+  pipeline:  markRaw(PipelineNodeComponent) as any,
 }
 
-const chain        = ref<Chain | null>(null)
-const actions      = ref<Action[]>([])
-const loading      = ref(true)
-const saving       = ref(false)
-const dirty        = ref(false)
-const searchText   = ref('')
+const pipeline      = ref<Pipeline | null>(null)
+const actions       = ref<Action[]>([])
+const pipelines     = ref<Pipeline[]>([])
+const loading       = ref(true)
+const saving        = ref(false)
+const isDirty       = ref(false)
+const searchText    = ref('')
 const selectedNodeId = ref<string | null>(null)
 
 const panel = ref<'palette' | 'edit'>('palette')
 
-const editLabel      = ref('')
-const editActionId   = ref<number | null>(null)
-const editConditions = ref<ChainCondition[]>([])
+const selectedNode = computed(() =>
+  selectedNodeId.value ? findNode(selectedNodeId.value) : undefined
+)
+
+const editLabel          = ref('')
+const editActionId       = ref<number | null>(null)
+const editSubPipelineId  = ref<number | null>(null)
+const editConditions     = ref<PipelineCondition[]>([])
+
+const currentPipelineId  = computed(() => Number(route.params.id))
+const availablePipelines = computed(() => pipelines.value.filter(p => p.id !== currentPipelineId.value))
 
 const filteredActions = computed(() =>
   actions.value.filter(a =>
@@ -71,23 +84,29 @@ const numericOps = new Set(['>', '>=', '<', '<='])
 
 onMounted(async () => {
   try {
-    const [c, graph, acts] = await Promise.all([
-      getChain(chainId),
-      getChainGraph(chainId),
+    const [p, graph, acts, pipes] = await Promise.all([
+      getPipeline(pipelineId),
+      getPipelineGraph(pipelineId),
       listActions(),
+      listPipelines(),
     ])
-    chain.value = c
-    actions.value = acts
+    pipeline.value  = p
+    actions.value   = acts
+    pipelines.value = pipes
 
     const vfNodes: Node[] = graph.nodes.map(n => ({
       id:       String(n.id),
       type:     n.type,
       position: { x: n.pos_x, y: n.pos_y },
       data: {
-        label:        n.label || (n.type === 'start' ? 'Start' : ''),
-        actionId:     n.action_id,
-        conditions:   n.conditions ?? [],
-        pipelineType: n.action_id
+        label:           n.label || (n.type === 'start' ? 'Start' : ''),
+        actionId:        n.action_id,
+        subPipelineId:   n.sub_pipeline_id,
+        subPipelineName: n.sub_pipeline_id
+          ? pipes.find(pp => pp.id === n.sub_pipeline_id)?.name
+          : undefined,
+        conditions:      n.conditions ?? [],
+        pipelineType:    n.action_id
           ? acts.find(a => a.id === n.action_id)?.name
           : undefined,
       },
@@ -120,12 +139,12 @@ onMounted(async () => {
 
 onNodesChange((changes) => {
   applyNodeChanges(changes)
-  dirty.value = true
+  isDirty.value = true
 })
 
 onEdgesChange((changes) => {
   applyEdgeChanges(changes)
-  dirty.value = true
+  isDirty.value = true
 })
 
 function onConnect(params: any) {
@@ -139,7 +158,7 @@ function onConnect(params: any) {
     animated: handle === 'pass',
     style: { stroke: handle === 'fail' ? '#f38ba8' : handle === 'pass' ? '#a6e3a1' : '#585b70' },
   }])
-  dirty.value = true
+  isDirty.value = true
 }
 
 function addActionNode(action: Action) {
@@ -150,7 +169,7 @@ function addActionNode(action: Action) {
     position: { x: 300, y: 200 },
     data: { label: action.name, actionId: action.id, pipelineType: `#${action.id}` },
   }])
-  dirty.value = true
+  isDirty.value = true
 }
 
 function addConditionNode() {
@@ -161,7 +180,18 @@ function addConditionNode() {
     position: { x: 400, y: 300 },
     data: { label: 'Condition', conditions: [] },
   }])
-  dirty.value = true
+  isDirty.value = true
+}
+
+function addPipelineNode(pipe: Pipeline) {
+  const id = `pipeline-${Date.now()}`
+  addNodes([{
+    id,
+    type: 'pipeline',
+    position: { x: 200, y: 200 },
+    data: { label: pipe.name, subPipelineId: pipe.id, subPipelineName: pipe.name },
+  }])
+  isDirty.value = true
 }
 
 function onNodeClick({ node }: NodeMouseEvent) {
@@ -169,7 +199,8 @@ function onNodeClick({ node }: NodeMouseEvent) {
   selectedNodeId.value = node.id
   editLabel.value = node.data.label ?? ''
   editActionId.value = node.data.actionId ?? null
-  editConditions.value = (node.data.conditions ?? []).map((c: ChainCondition) => ({ ...c }))
+  editSubPipelineId.value = node.data.subPipelineId ?? null
+  editConditions.value = (node.data.conditions ?? []).map((c: PipelineCondition) => ({ ...c }))
   panel.value = 'edit'
 }
 
@@ -182,17 +213,28 @@ function applyEdit() {
   if (!selectedNodeId.value) return
   const node = findNode(selectedNodeId.value)
   if (!node) return
-  node.data = {
-    ...node.data,
-    label: editLabel.value,
-    actionId: editActionId.value,
-    conditions: editConditions.value.filter(c => c.key.trim()),
+
+  if (node.type === 'pipeline') {
+    const pipe = pipelines.value.find(p => p.id === editSubPipelineId.value)
+    node.data = {
+      ...node.data,
+      label: editLabel.value,
+      subPipelineId: editSubPipelineId.value,
+      subPipelineName: pipe?.name,
+    }
+  } else {
+    node.data = {
+      ...node.data,
+      label: editLabel.value,
+      actionId: editActionId.value,
+      conditions: editConditions.value.filter(c => c.key.trim()),
+    }
+    if (node.type === 'action' && editActionId.value) {
+      const a = actions.value.find(a => a.id === editActionId.value)
+      if (a) node.data.pipelineType = a.name
+    }
   }
-  if (node.type === 'action' && editActionId.value) {
-    const a = actions.value.find(a => a.id === editActionId.value)
-    if (a) node.data.pipelineType = a.name
-  }
-  dirty.value = true
+  isDirty.value = true
   closeEdit()
 }
 
@@ -208,25 +250,37 @@ async function onSave() {
   saving.value = true
   try {
     const nodeRequests = nodes.value.map(n => ({
-      client_id:  n.id,
-      type:       (n.type ?? 'action') as 'start' | 'action' | 'condition',
-      action_id:  n.data.actionId ?? undefined,
-      conditions: n.data.conditions ?? [],
-      label:      n.data.label ?? '',
-      pos_x:      n.position.x,
-      pos_y:      n.position.y,
+      client_id:       n.id,
+      type:            (n.type ?? 'action') as 'start' | 'action' | 'pipeline' | 'condition',
+      action_id:       n.data.actionId ?? undefined,
+      sub_pipeline_id: n.data.subPipelineId ?? undefined,
+      conditions:      n.data.conditions ?? [],
+      label:           n.data.label ?? '',
+      pos_x:           n.position.x,
+      pos_y:           n.position.y,
     }))
     const edgeRequests = edges.value.map(e => ({
       source_client_id: e.source,
       source_handle:    e.sourceHandle ?? 'default',
       target_client_id: e.target,
     }))
-    const saved = await saveChainGraph(chainId, nodeRequests, edgeRequests)
+    const saved = await savePipelineGraph(pipelineId, nodeRequests, edgeRequests)
     setNodes(saved.nodes.map(n => ({
       id:       String(n.id),
       type:     n.type,
       position: { x: n.pos_x, y: n.pos_y },
-      data: { label: n.label, actionId: n.action_id, conditions: n.conditions ?? [] },
+      data: {
+        label:           n.label,
+        actionId:        n.action_id,
+        subPipelineId:   n.sub_pipeline_id,
+        subPipelineName: n.sub_pipeline_id
+          ? pipelines.value.find(p => p.id === n.sub_pipeline_id)?.name
+          : undefined,
+        conditions:      n.conditions ?? [],
+        pipelineType:    n.action_id
+          ? actions.value.find(a => a.id === n.action_id)?.name
+          : undefined,
+      },
     })))
     setEdges(saved.edges.map(e => ({
       id:           String(e.id),
@@ -236,8 +290,8 @@ async function onSave() {
       animated:     e.source_handle === 'pass',
       style:        { stroke: e.source_handle === 'fail' ? '#f38ba8' : e.source_handle === 'pass' ? '#a6e3a1' : '#585b70' },
     })))
-    dirty.value = false
-    msg.success('Chain saved')
+    isDirty.value = false
+    msg.success('Pipeline saved')
   } catch (e: any) {
     msg.error(e.message)
   } finally {
@@ -248,22 +302,37 @@ async function onSave() {
 async function onDiscard() {
   loading.value = true
   try {
-    const graph = await getChainGraph(chainId)
+    const graph = await getPipelineGraph(pipelineId)
     setNodes(graph.nodes.map(n => ({
       id: String(n.id), type: n.type, position: { x: n.pos_x, y: n.pos_y },
-      data: { label: n.label, actionId: n.action_id, conditions: n.conditions ?? [] },
+      data: {
+        label:           n.label,
+        actionId:        n.action_id,
+        subPipelineId:   n.sub_pipeline_id,
+        subPipelineName: n.sub_pipeline_id
+          ? pipelines.value.find(p => p.id === n.sub_pipeline_id)?.name
+          : undefined,
+        conditions:      n.conditions ?? [],
+        pipelineType:    n.action_id
+          ? actions.value.find(a => a.id === n.action_id)?.name
+          : undefined,
+      },
     })))
     setEdges(graph.edges.map(e => ({
       id: String(e.id), source: String(e.source_node_id),
       sourceHandle: e.source_handle, target: String(e.target_node_id),
     })))
-    dirty.value = false
+    isDirty.value = false
   } catch (e: any) { msg.error(e.message) }
   finally { loading.value = false }
 }
 
 const actionOptions = computed(() =>
   actions.value.map(a => ({ label: `${a.name} (#${a.id})`, value: a.id }))
+)
+
+const pipelineOptions = computed(() =>
+  availablePipelines.value.map(p => ({ label: `${p.name} (#${p.id})`, value: p.id }))
 )
 </script>
 
@@ -275,15 +344,15 @@ const actionOptions = computed(() =>
       padding: 0 16px; background: #1e1e2e;
       border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;
     ">
-      <n-button text @click="router.push('/actions?tab=chains')">
+      <n-button text @click="router.push('/pipelines')">
         <template #icon><n-icon><ArrowBackOutline /></n-icon></template>
-        Chains
+        Pipelines
       </n-button>
-      <n-text strong style="color: #cdd6f4">{{ chain?.name ?? '…' }}</n-text>
-      <n-text v-if="dirty" depth="3" style="font-size: 12px; color: #f9e2af">● unsaved</n-text>
+      <n-text strong style="color: #cdd6f4">{{ pipeline?.name ?? '…' }}</n-text>
+      <n-text v-if="isDirty" depth="3" style="font-size: 12px; color: #f9e2af">● unsaved</n-text>
       <div style="margin-left: auto; display: flex; gap: 8px;">
-        <n-button size="small" @click="onDiscard" :disabled="saving || !dirty">Discard</n-button>
-        <n-button size="small" type="primary" @click="onSave" :loading="saving" :disabled="!dirty">Save</n-button>
+        <n-button size="small" @click="onDiscard" :disabled="saving || !isDirty">Discard</n-button>
+        <n-button size="small" type="primary" @click="onSave" :loading="saving" :disabled="!isDirty">Save</n-button>
       </div>
     </div>
 
@@ -320,6 +389,8 @@ const actionOptions = computed(() =>
           </div>
           <n-scrollbar style="flex: 1;">
             <div style="padding: 0 12px 12px;">
+              <!-- Actions section -->
+              <div style="font-size: 11px; color: #6c7086; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Actions</div>
               <div
                 v-for="action in filteredActions"
                 :key="action.id"
@@ -335,6 +406,26 @@ const actionOptions = computed(() =>
                 {{ action.name }}
                 <span style="font-size: 10px; color: #6c7086; float: right;">#{{ action.id }}</span>
               </div>
+
+              <!-- Sub-Pipelines section -->
+              <div v-if="availablePipelines.length > 0" style="margin-top: 12px;">
+                <div style="font-size: 11px; color: #6c7086; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Sub-Pipelines</div>
+                <div
+                  v-for="pipe in availablePipelines"
+                  :key="pipe.id"
+                  @click="addPipelineNode(pipe)"
+                  style="
+                    padding: 6px 8px; margin-bottom: 4px; border-radius: 4px;
+                    cursor: pointer; font-size: 12px; color: #a78bfa;
+                    background: #1e1533; border: 1px solid #4c1d95;
+                    user-select: none;
+                  "
+                  :style="{ opacity: pipe.active ? 1 : 0.5 }"
+                >
+                  {{ pipe.name }}
+                  <span style="font-size: 10px; color: #6c7086; float: right;">#{{ pipe.id }}</span>
+                </div>
+              </div>
             </div>
           </n-scrollbar>
         </template>
@@ -349,7 +440,7 @@ const actionOptions = computed(() =>
             <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">Label</n-text>
             <n-input v-model:value="editLabel" size="small" placeholder="Node label" style="margin-bottom: 10px;" />
 
-            <template v-if="findNode(selectedNodeId ?? '')?.type === 'action'">
+            <template v-if="selectedNode?.type === 'action'">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">Action</n-text>
               <n-select
                 v-model:value="editActionId"
@@ -360,7 +451,18 @@ const actionOptions = computed(() =>
               />
             </template>
 
-            <template v-if="findNode(selectedNodeId ?? '')?.type === 'condition'">
+            <template v-if="selectedNode?.type === 'pipeline'">
+              <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px;">Sub-Pipeline</n-text>
+              <n-select
+                v-model:value="editSubPipelineId"
+                :options="pipelineOptions"
+                size="small"
+                clearable
+                style="margin-bottom: 10px;"
+              />
+            </template>
+
+            <template v-if="selectedNode?.type === 'condition'">
               <n-divider style="margin: 8px 0">
                 <n-text depth="3" style="font-size: 11px;">Conditions</n-text>
               </n-divider>

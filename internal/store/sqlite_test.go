@@ -59,11 +59,14 @@ func sampleRule() *model.Rule {
 	}
 }
 
-func samplePipeline() *model.Pipeline {
-	return &model.Pipeline{
-		Name:   "test-pipeline",
-		Type:   model.PipelineTypeOllama,
-		Active: true,
+func sampleAction() *model.Action {
+	return &model.Action{
+		Name:      "test-action",
+		Type:      model.ActionTypeInternal,
+		Config:    json.RawMessage(`{"handler":"entity_matcher"}`),
+		Active:    true,
+		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -344,9 +347,7 @@ func TestSavePipeline_SetActive_ListPipelines(t *testing.T) {
 	s := newTestStore(t)
 
 	p := &model.Pipeline{
-		Name:   "sentiment-v1",
-		Type:   model.PipelineTypeONNX,
-		Config: json.RawMessage(`{"path":"/models/sentiment.onnx"}`),
+		Name:   "sentiment-dag",
 		Active: false,
 	}
 	if err := s.SavePipeline(ctx, p); err != nil {
@@ -357,7 +358,7 @@ func TestSavePipeline_SetActive_ListPipelines(t *testing.T) {
 		t.Fatalf("SetPipelineActive: %v", err)
 	}
 
-	pipelines, err := s.ListPipelines(ctx, PipelineFilter{})
+	pipelines, err := s.ListPipelines(ctx)
 	if err != nil {
 		t.Fatalf("ListPipelines: %v", err)
 	}

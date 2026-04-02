@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
@@ -19,34 +20,93 @@ func (s *Server) handleListActions(w http.ResponseWriter, r *http.Request) {
 		b := v == "true"
 		filter.Active = &b
 	}
+	if v := r.URL.Query().Get("type"); v != "" {
+		t := model.ActionType(v)
+		filter.Type = &t
+	}
 	actions, err := s.store.ListActions(r.Context(), filter)
 	if err != nil {
 		s.logger.Error("api: list actions", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list actions")
 		return
 	}
+	if actions == nil {
+		actions = []*model.Action{}
+	}
 	writeJSON(w, http.StatusOK, actions)
 }
 
-func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name       string `json:"name"`
-		PipelineID int64  `json:"pipeline_id"`
+func (s *Server) handleGetAction(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid action ID")
+		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	a, err := s.store.GetAction(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "action not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
+	var a model.Action
+	if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" {
+	if a.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if req.PipelineID == 0 {
-		writeError(w, http.StatusBadRequest, "pipeline_id is required")
+	if a.Type == "" {
+		writeError(w, http.StatusBadRequest, "type is required")
 		return
 	}
-	a := &model.Action{Name: req.Name, PipelineID: req.PipelineID}
-	if err := s.store.SaveAction(r.Context(), a); err != nil {
+	switch a.Type {
+	case model.ActionTypeONNX, model.ActionTypeOllama, model.ActionTypeInternal, model.ActionTypeNotification:
+		// valid
+	default:
+		writeError(w, http.StatusBadRequest, "invalid type: must be onnx, ollama, internal, or notification")
+		return
+	}
+	// For Ollama actions: enforce usecase uniqueness and auto-fill system_prompt.
+	if a.Type == model.ActionTypeOllama {
+		var cfg map[string]any
+		if len(a.Config) > 0 {
+			_ = json.Unmarshal(a.Config, &cfg)
+		}
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		uc, _ := cfg["usecase"].(string)
+		if uc != "" && uc != "custom" {
+			existing, _ := s.store.ListActions(r.Context(), store.ActionFilter{})
+			for _, ex := range existing {
+				var exCfg map[string]any
+				if len(ex.Config) > 0 {
+					_ = json.Unmarshal(ex.Config, &exCfg)
+				}
+				if exCfg != nil {
+					if exUC, _ := exCfg["usecase"].(string); exUC == uc {
+						writeError(w, http.StatusConflict, "an action with usecase '"+uc+"' already exists (delete it first)")
+						return
+					}
+				}
+			}
+			switch uc {
+			case "digest":
+				cfg["system_prompt"] = inference.OllamaDigestSystem
+			case "chat":
+				cfg["system_prompt"] = inference.OllamaChatSystem
+			}
+		}
+		if data, err := json.Marshal(cfg); err == nil {
+			a.Config = data
+		}
+	}
+	if err := s.store.SaveAction(r.Context(), &a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -65,10 +125,7 @@ func (s *Server) handleUpdateAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	var req struct {
-		Name       string `json:"name"`
-		PipelineID int64  `json:"pipeline_id"`
-	}
+	var req model.Action
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -81,8 +138,11 @@ func (s *Server) handleUpdateAction(w http.ResponseWriter, r *http.Request) {
 	if req.Name != "" {
 		a.Name = req.Name
 	}
-	if req.PipelineID != 0 {
-		a.PipelineID = req.PipelineID
+	if req.Type != "" {
+		a.Type = req.Type
+	}
+	if req.Config != nil {
+		a.Config = req.Config
 	}
 	if err := s.store.UpdateAction(r.Context(), a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

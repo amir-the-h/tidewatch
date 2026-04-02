@@ -67,17 +67,10 @@ type EntityCandidateFilter struct {
 	PerPage int
 }
 
-// PipelineFilter defines optional filters for listing pipelines.
-type PipelineFilter struct {
-	Type    *model.PipelineType
-	Active  *bool
-	Usecase *string // filters by config->$.usecase (ollama pipelines)
-}
-
 // ActionFilter defines optional filters for listing actions.
 type ActionFilter struct {
-	PipelineID *int64
-	Active     *bool
+	Type   *model.ActionType
+	Active *bool
 }
 
 // MapPin is a geo-event pin derived from action_execution_metadata.
@@ -148,17 +141,6 @@ type Store interface {
 
 	// TweetRules
 	SaveTweetRule(ctx context.Context, tr *model.TweetRule) error
-
-	// Pipelines
-	SavePipeline(ctx context.Context, p *model.Pipeline) error
-	GetPipeline(ctx context.Context, id int64) (*model.Pipeline, error)
-	ListPipelines(ctx context.Context, filter PipelineFilter) ([]*model.Pipeline, error)
-	UpdatePipeline(ctx context.Context, p *model.Pipeline) error
-	DeletePipeline(ctx context.Context, id int64) error
-	SetPipelineActive(ctx context.Context, id int64, active bool) error
-	ListPipelineLabels(ctx context.Context, pipelineID int64) ([]string, error)
-	AddPipelineLabel(ctx context.Context, pipelineID int64, label string) error
-	RemovePipelineLabel(ctx context.Context, pipelineID int64, label string) error
 
 	// TweetRuleIDs (kept — used by stream listener rule matching)
 	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
@@ -239,31 +221,38 @@ type Store interface {
 	DeleteUser(ctx context.Context, id int64) error
 	CountAdmins(ctx context.Context) (int, error)
 
-	// Actions
+	// Actions (absorbs old Pipelines + Actions)
 	SaveAction(ctx context.Context, a *model.Action) error
 	GetAction(ctx context.Context, id int64) (*model.Action, error)
 	ListActions(ctx context.Context, filter ActionFilter) ([]*model.Action, error)
 	UpdateAction(ctx context.Context, a *model.Action) error
 	DeleteAction(ctx context.Context, id int64) error
 	SetActionActive(ctx context.Context, id int64, active bool) error
+	ListActionLabels(ctx context.Context, actionID int64) ([]string, error)
+	AddActionLabel(ctx context.Context, actionID int64, label string) error
+	RemoveActionLabel(ctx context.Context, actionID int64, label string) error
 
-	// Chains
-	SaveChain(ctx context.Context, c *model.Chain) error
-	GetChain(ctx context.Context, id int64) (*model.Chain, error)
-	ListChains(ctx context.Context) ([]*model.Chain, error)
-	UpdateChain(ctx context.Context, c *model.Chain) error
-	DeleteChain(ctx context.Context, id int64) error
-	SetChainActive(ctx context.Context, id int64, active bool) error
-	GetChainGraph(ctx context.Context, chainID int64) (*model.ChainGraph, error)
-	SaveChainGraph(ctx context.Context, chainID int64, nodes []*model.ChainNodeRequest, edges []*model.ChainEdgeRequest) (*model.ChainGraph, error)
+	// Pipelines (replaces Chains)
+	SavePipeline(ctx context.Context, p *model.Pipeline) error
+	GetPipeline(ctx context.Context, id int64) (*model.Pipeline, error)
+	ListPipelines(ctx context.Context) ([]*model.Pipeline, error)
+	UpdatePipeline(ctx context.Context, p *model.Pipeline) error
+	DeletePipeline(ctx context.Context, id int64) error
+	SetPipelineActive(ctx context.Context, id int64, active bool) error
+	GetPipelineGraph(ctx context.Context, pipelineID int64) (*model.PipelineGraph, error)
+	SavePipelineGraph(ctx context.Context, pipelineID int64, nodes []*model.PipelineNodeRequest, edges []*model.PipelineEdgeRequest) (*model.PipelineGraph, error)
+	GetPipelineIDForNode(ctx context.Context, nodeID int64) (int64, error)
 
-	// TriggerChainLinks
-	SaveTriggerChainLink(ctx context.Context, l *model.TriggerChainLink) error
-	ListTriggerChainLinks(ctx context.Context) ([]*model.TriggerChainLink, error)
-	ListActiveTriggerChainLinks(ctx context.Context, triggerType string) ([]*model.TriggerChainLink, error)
-	DeleteTriggerChainLink(ctx context.Context, id int64) error
-	SetTriggerChainLinkActive(ctx context.Context, id int64, active bool) error
-	GetChainIDForNode(ctx context.Context, nodeID int64) (int64, error)
+	// TriggerPipelineLinks (replaces TriggerChainLinks)
+	SaveTriggerPipelineLink(ctx context.Context, l *model.TriggerPipelineLink) error
+	ListTriggerPipelineLinks(ctx context.Context) ([]*model.TriggerPipelineLink, error)
+	ListActiveTriggerPipelineLinks(ctx context.Context, triggerType string) ([]*model.TriggerPipelineLink, error)
+	DeleteTriggerPipelineLink(ctx context.Context, id int64) error
+	SetTriggerPipelineLinkActive(ctx context.Context, id int64, active bool) error
+
+	// Pipeline node execution tracking (for sub-pipeline fan-in)
+	InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) error
+	MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) (allDone bool, err error)
 
 	// ActionExecutions
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
@@ -298,12 +287,12 @@ type Store interface {
 	DeleteOllamaBackend(ctx context.Context, id int64) error
 	SetOllamaBackendEnabled(ctx context.Context, id int64, enabled bool) error
 
-	// PipelineBackends
-	ListPipelineBackends(ctx context.Context, pipelineID int64) ([]model.PipelineBackend, error)
-	SetPipelineBackends(ctx context.Context, pipelineID int64, assignments []model.PipelineBackend) error
-	RemovePipelineBackend(ctx context.Context, pipelineID, backendID int64) error
-	// ListAllPipelineBackendIDs returns pipelineID → []backendID in priority order (for ActionCache.Load).
-	ListAllPipelineBackendIDs(ctx context.Context) (map[int64][]int64, error)
+	// ActionBackends (replaces PipelineBackends)
+	ListActionBackends(ctx context.Context, actionID int64) ([]model.ActionBackend, error)
+	SetActionBackends(ctx context.Context, actionID int64, assignments []model.ActionBackend) error
+	RemoveActionBackend(ctx context.Context, actionID, backendID int64) error
+	// ListAllActionBackendIDs returns actionID → []backendID in priority order (for ActionCache.Load).
+	ListAllActionBackendIDs(ctx context.Context) (map[int64][]int64, error)
 
 	Close() error
 }

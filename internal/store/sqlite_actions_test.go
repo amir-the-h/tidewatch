@@ -8,6 +8,66 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 )
 
+func TestMarkPipelineNodeLeafComplete(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// Create an action, a pipeline, and a pipeline node to act as parent
+	a := &model.Action{Name: "test-act", Type: model.ActionTypeInternal, Config: []byte(`{}`), Active: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := s.SaveAction(ctx, a); err != nil {
+		t.Fatalf("SaveAction: %v", err)
+	}
+
+	p := &model.Pipeline{Name: "test-pipe", Active: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := s.SavePipeline(ctx, p); err != nil {
+		t.Fatalf("SavePipeline: %v", err)
+	}
+
+	// Save a minimal graph with a start node (parent) and two action leaf nodes
+	graph, err := s.SavePipelineGraph(ctx, p.ID, []*model.PipelineNodeRequest{
+		{ClientID: "s", Type: model.PipelineNodeTypeStart, Label: "start"},
+		{ClientID: "a1", Type: model.PipelineNodeTypeAction, ActionID: &a.ID, Label: "leaf1"},
+		{ClientID: "a2", Type: model.PipelineNodeTypeAction, ActionID: &a.ID, Label: "leaf2"},
+	}, []*model.PipelineEdgeRequest{
+		{SourceClientID: "s", SourceHandle: "default", TargetClientID: "a1"},
+		{SourceClientID: "s", SourceHandle: "default", TargetClientID: "a2"},
+	})
+	if err != nil {
+		t.Fatalf("SavePipelineGraph: %v", err)
+	}
+
+	parentNodeID := graph.Nodes[0].ID // start node acts as parent
+	leaf1ID := graph.Nodes[1].ID
+	leaf2ID := graph.Nodes[2].ID
+	tweetID := "tweet-fan-in"
+
+	// Insert execution tracking rows
+	if err := s.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, leaf1ID); err != nil {
+		t.Fatalf("InsertPipelineNodeExecution leaf1: %v", err)
+	}
+	if err := s.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, leaf2ID); err != nil {
+		t.Fatalf("InsertPipelineNodeExecution leaf2: %v", err)
+	}
+
+	// Complete leaf1 — not all done yet
+	allDone, err := s.MarkPipelineNodeLeafComplete(ctx, parentNodeID, tweetID, leaf1ID)
+	if err != nil {
+		t.Fatalf("MarkPipelineNodeLeafComplete leaf1: %v", err)
+	}
+	if allDone {
+		t.Error("expected allDone=false after completing only 1 of 2 leaves")
+	}
+
+	// Complete leaf2 — now all done
+	allDone, err = s.MarkPipelineNodeLeafComplete(ctx, parentNodeID, tweetID, leaf2ID)
+	if err != nil {
+		t.Fatalf("MarkPipelineNodeLeafComplete leaf2: %v", err)
+	}
+	if !allDone {
+		t.Error("expected allDone=true after completing both leaves")
+	}
+}
+
 // helpers shared by action tests
 
 func seedActionAndTweet(t *testing.T, s Store) (action *model.Action, tweetID string) {
@@ -19,18 +79,8 @@ func seedActionAndTweet(t *testing.T, s Store) (action *model.Action, tweetID st
 		t.Fatalf("SaveTweet: %v", err)
 	}
 
-	p := samplePipeline()
-	if err := s.SavePipeline(ctx, p); err != nil {
-		t.Fatalf("SavePipeline: %v", err)
-	}
-
-	a := &model.Action{
-		Name:       "test-action",
-		PipelineID: p.ID,
-		Active:     true,
-		CreatedAt:  time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
-	}
+	a := sampleAction()
+	a.Name = "test-action-seed"
 	if err := s.SaveAction(ctx, a); err != nil {
 		t.Fatalf("SaveAction: %v", err)
 	}
@@ -93,19 +143,9 @@ func TestDeleteActionExecutions_ScopedToAction(t *testing.T) {
 
 	a1, tweetID := seedActionAndTweet(t, s)
 
-	// Create a second action on the same pipeline
-	p2 := samplePipeline()
-	p2.Name = "pipeline-2"
-	if err := s.SavePipeline(ctx, p2); err != nil {
-		t.Fatalf("SavePipeline p2: %v", err)
-	}
-	a2 := &model.Action{
-		Name:       "action-2",
-		PipelineID: p2.ID,
-		Active:     true,
-		CreatedAt:  time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
-	}
+	// Create a second action
+	a2 := sampleAction()
+	a2.Name = "action-2"
 	if err := s.SaveAction(ctx, a2); err != nil {
 		t.Fatalf("SaveAction a2: %v", err)
 	}

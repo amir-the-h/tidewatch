@@ -60,75 +60,77 @@ func TestOllamaBackends_CRUD(t *testing.T) {
 	}
 }
 
-func TestPipelineBackends_SetAndList(t *testing.T) {
+func TestActionBackends_SetAndList(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	pipe := samplePipeline()
-	if err := s.SavePipeline(ctx, pipe); err != nil {
-		t.Fatalf("SavePipeline: %v", err)
+	act := sampleAction()
+	act.Name = "action-for-backends"
+	if err := s.SaveAction(ctx, act); err != nil {
+		t.Fatalf("SaveAction: %v", err)
 	}
 	b1, _ := s.CreateOllamaBackend(ctx, "b1", "http://b1:11434")
 	b2, _ := s.CreateOllamaBackend(ctx, "b2", "http://b2:11434")
 
-	assignments := []model.PipelineBackend{
-		{PipelineID: pipe.ID, BackendID: b1.ID, Priority: 1},
-		{PipelineID: pipe.ID, BackendID: b2.ID, Priority: 2},
+	assignments := []model.ActionBackend{
+		{ActionID: act.ID, BackendID: b1.ID, Priority: 1},
+		{ActionID: act.ID, BackendID: b2.ID, Priority: 2},
 	}
-	if err := s.SetPipelineBackends(ctx, pipe.ID, assignments); err != nil {
-		t.Fatalf("SetPipelineBackends: %v", err)
+	if err := s.SetActionBackends(ctx, act.ID, assignments); err != nil {
+		t.Fatalf("SetActionBackends: %v", err)
 	}
 
-	list, err := s.ListPipelineBackends(ctx, pipe.ID)
+	list, err := s.ListActionBackends(ctx, act.ID)
 	if err != nil {
-		t.Fatalf("ListPipelineBackends: %v", err)
+		t.Fatalf("ListActionBackends: %v", err)
 	}
 	if len(list) != 2 || list[0].Priority != 1 || list[1].Priority != 2 {
 		t.Fatalf("unexpected list: %+v", list)
 	}
 
-	if err := s.SetPipelineBackends(ctx, pipe.ID, []model.PipelineBackend{
-		{PipelineID: pipe.ID, BackendID: b2.ID, Priority: 1},
+	if err := s.SetActionBackends(ctx, act.ID, []model.ActionBackend{
+		{ActionID: act.ID, BackendID: b2.ID, Priority: 1},
 	}); err != nil {
-		t.Fatalf("SetPipelineBackends replace: %v", err)
+		t.Fatalf("SetActionBackends replace: %v", err)
 	}
-	list, _ = s.ListPipelineBackends(ctx, pipe.ID)
+	list, _ = s.ListActionBackends(ctx, act.ID)
 	if len(list) != 1 || list[0].BackendID != b2.ID {
 		t.Fatalf("expected only b2 after replace: %+v", list)
 	}
 
 	b3, _ := s.CreateOllamaBackend(ctx, "b3", "http://b3:11434")
-	_ = s.SetPipelineBackends(ctx, pipe.ID, []model.PipelineBackend{
-		{PipelineID: pipe.ID, BackendID: b2.ID, Priority: 1},
-		{PipelineID: pipe.ID, BackendID: b3.ID, Priority: 2},
+	_ = s.SetActionBackends(ctx, act.ID, []model.ActionBackend{
+		{ActionID: act.ID, BackendID: b2.ID, Priority: 1},
+		{ActionID: act.ID, BackendID: b3.ID, Priority: 2},
 	})
-	if err := s.RemovePipelineBackend(ctx, pipe.ID, b3.ID); err != nil {
-		t.Fatalf("RemovePipelineBackend: %v", err)
+	if err := s.RemoveActionBackend(ctx, act.ID, b3.ID); err != nil {
+		t.Fatalf("RemoveActionBackend: %v", err)
 	}
-	list, _ = s.ListPipelineBackends(ctx, pipe.ID)
+	list, _ = s.ListActionBackends(ctx, act.ID)
 	if len(list) != 1 || list[0].BackendID != b2.ID {
 		t.Fatalf("expected only b2 after remove: %+v", list)
 	}
 }
 
-func TestListAllPipelineBackendIDs(t *testing.T) {
+func TestListAllActionBackendIDs(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	pipe := samplePipeline()
-	_ = s.SavePipeline(ctx, pipe)
+	act := sampleAction()
+	act.Name = "action-for-all-backends"
+	_ = s.SaveAction(ctx, act)
 	b1, _ := s.CreateOllamaBackend(ctx, "b1", "http://b1:11434")
 	b2, _ := s.CreateOllamaBackend(ctx, "b2", "http://b2:11434")
-	_ = s.SetPipelineBackends(ctx, pipe.ID, []model.PipelineBackend{
-		{PipelineID: pipe.ID, BackendID: b1.ID, Priority: 1},
-		{PipelineID: pipe.ID, BackendID: b2.ID, Priority: 2},
+	_ = s.SetActionBackends(ctx, act.ID, []model.ActionBackend{
+		{ActionID: act.ID, BackendID: b1.ID, Priority: 1},
+		{ActionID: act.ID, BackendID: b2.ID, Priority: 2},
 	})
 
-	m, err := s.ListAllPipelineBackendIDs(ctx)
+	m, err := s.ListAllActionBackendIDs(ctx)
 	if err != nil {
-		t.Fatalf("ListAllPipelineBackendIDs: %v", err)
+		t.Fatalf("ListAllActionBackendIDs: %v", err)
 	}
-	ids, ok := m[pipe.ID]
+	ids, ok := m[act.ID]
 	if !ok || len(ids) != 2 || ids[0] != b1.ID || ids[1] != b2.ID {
 		t.Fatalf("unexpected map: %+v", m)
 	}
