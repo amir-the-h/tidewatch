@@ -24,10 +24,11 @@ export default createRouter({
     { path: '/chat',      component: () => import('../views/ChatView.vue') },
     { path: '/users', component: () => import('../views/UsersView.vue') },
     { path: '/ollama', component: () => import('../views/OllamaView.vue') },
-    { path: '/actions', component: () => import('../views/ActionsView.vue') },
-    { path: '/chains', redirect: '/actions?tab=chains' },
-    { path: '/chains/:id/edit', component: () => import('../views/ChainBuilderView.vue') },
-    { path: '/triggers', redirect: '/actions?tab=triggers' },
+    { path: '/pipelines/:id/build', component: () => import('../views/PipelineBuilderView.vue') },
+    { path: '/actions', redirect: '/pipelines?tab=actions' },
+    { path: '/chains', redirect: '/pipelines?tab=pipelines' },
+    { path: '/chains/:id/edit', redirect: (to) => `/pipelines/${to.params.id}/build` },
+    { path: '/triggers', redirect: '/pipelines?tab=pipelines' },
   ],
 })
 

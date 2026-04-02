@@ -1,14 +1,14 @@
-<!-- web/src/components/PipelineBackendsModal.vue -->
+<!-- web/src/components/ActionBackendsModal.vue -->
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
-import { listPipelineBackends, setPipelineBackends } from '../api/pipelines'
+import { listActionBackends, setActionBackends } from '../api/actions'
 import { listOllamaBackends } from '../api/ollama'
 import type { OllamaBackend } from '../api/ollama'
 
 const props = defineProps<{
-  pipelineId: number
-  pipelineName: string
+  actionId: number
+  actionName: string
   show: boolean
 }>()
 
@@ -41,14 +41,14 @@ watch(() => props.show, async (open) => {
   loading.value = true
   addTarget.value = null
   try {
-    const [pbs, backends] = await Promise.all([
-      listPipelineBackends(props.pipelineId),
+    const [abs, backends] = await Promise.all([
+      listActionBackends(props.actionId),
       listOllamaBackends(),
     ])
     allBackends.value = backends
-    const sorted = [...pbs].sort((a, b) => a.priority - b.priority)
+    const sorted = [...abs].sort((a, b) => a.priority - b.priority)
     assigned.value = sorted
-      .map(pb => backends.find(b => b.id === pb.backend_id))
+      .map(ab => backends.find(b => b.id === ab.backend_id))
       .filter((b): b is OllamaBackend => b !== undefined)
   } catch (e: any) {
     message.error(e.message ?? 'Failed to load backends')
@@ -86,8 +86,8 @@ function addBackend() {
 async function save() {
   saving.value = true
   try {
-    await setPipelineBackends(
-      props.pipelineId,
+    await setActionBackends(
+      props.actionId,
       assigned.value.map((b, i) => ({ backend_id: b.id, priority: i + 1 })),
     )
     message.success('Backend assignments saved')
@@ -109,7 +109,7 @@ function close() {
 <template>
   <n-modal
     :show="show"
-    :title="`Backend Assignments — ${pipelineName}`"
+    :title="`Backend Assignments — ${actionName}`"
     preset="card"
     style="width: 480px;"
     :mask-closable="!saving"

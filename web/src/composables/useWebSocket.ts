@@ -5,7 +5,7 @@ import { useOllamaStore } from '@/stores/ollama'
 import { useExecutionsStore } from '@/stores/executions'
 import { useActionsStore } from '@/stores/actions'
 import { useRulesStore } from '@/stores/rules'
-import { useChainsStore } from '@/stores/chains'
+import { usePipelinesStore } from '@/stores/pipelines'
 import { useSourcesStore } from '@/stores/sources'
 import { useEntitiesStore } from '@/stores/entities'
 import { useNotificationsStore } from '@/stores/notifications'
@@ -36,7 +36,7 @@ function buildHandlers() {
   const failuresStore = useFailuresStore()
   const actionsStore = useActionsStore()
   const rulesStore = useRulesStore()
-  const chainsStore = useChainsStore()
+  const pipelinesStore = usePipelinesStore()
   const sourcesStore = useSourcesStore()
   const entitiesStore = useEntitiesStore()
   const notificationsStore = useNotificationsStore()
@@ -56,8 +56,7 @@ function buildHandlers() {
     ollama_backends:        (p: any) => ollamaStore.setBackends(p),
     action_execution:       (p: any) => executionsStore.prepend(p),
     actions:                (p: any) => actionsStore.setAll(p),
-    pipelines:              (p: any) => modelsStore.setAll(p),
-    chains:                 (p: any) => chainsStore.setAll(p),
+    pipelines:              (p: any) => pipelinesStore.setAll(p),
     rules:                  (p: any) => rulesStore.setAll(p),
     sources:                (p: any) => sourcesStore.setAll(p),
     tracked_entities:       (p: any) => entitiesStore.setAll(p),

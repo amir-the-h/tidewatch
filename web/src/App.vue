@@ -26,7 +26,6 @@ const adminMenuOptions = [
   { label: 'Ollama Backends',  key: '/ollama' },
   { label: 'Notifications',    key: '/notifications' },
   { label: 'Tracker',          key: '/tracker' },
-  { label: 'Actions',          key: '/actions' },
   { label: 'Digest',           key: '/summarize' },
   { label: 'Chat',             key: '/chat' },
   { label: 'Queue',            key: '/queue' },

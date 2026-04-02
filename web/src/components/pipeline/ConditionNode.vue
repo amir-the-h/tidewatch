@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
-import type { ChainCondition } from '../../api/chains'
+import type { PipelineCondition } from '../../api/pipelines'
 
 const props = defineProps<{
   id: string
-  data: { label: string; conditions?: ChainCondition[]; selected?: boolean }
+  data: { label: string; conditions?: PipelineCondition[]; selected?: boolean }
 }>()
 
 const { edges, removeEdges } = useVueFlow()
