@@ -59,9 +59,22 @@ ALTER TABLE pipeline_nodes_new RENAME TO pipeline_nodes;
 
 -- Remap action_executions.action_id from old thin-action IDs to new action IDs
 -- (old actions.pipeline_id == new actions.id, since new actions absorb old pipelines)
+
+-- Guard: abort if any action_executions row references an action with NULL pipeline_id
+SELECT CASE WHEN COUNT(*) > 0
+    THEN RAISE(ABORT, 'migration: action_executions references an action with NULL pipeline_id — data integrity error')
+    END
+FROM action_executions ae
+JOIN actions a ON a.id = ae.action_id
+WHERE a.pipeline_id IS NULL;
+
 UPDATE action_executions
     SET action_id = (SELECT a.pipeline_id FROM actions a WHERE a.id = action_executions.action_id)
     WHERE EXISTS (SELECT 1 FROM actions a WHERE a.id = action_executions.action_id);
+
+-- Note: action_executions rows whose action_id has no match in the old actions table
+-- (orphaned executions) are left with their original action_id. These are pre-existing
+-- data quality issues and are left unchanged as the safest option.
 
 DROP TABLE pipelines;
 DROP TABLE actions;
