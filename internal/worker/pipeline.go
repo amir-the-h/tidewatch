@@ -79,55 +79,132 @@ func PushInitialPipelineTasks(
 			continue
 		}
 
-		actionNodes := directActionTargets(graph, startNode.ID)
 		if logger != nil {
 			logger.Info("pipeline: start node found",
 				"pipeline_id", link.PipelineID,
 				"start_node_id", startNode.ID,
-				"direct_action_nodes", len(actionNodes),
 			)
 		}
 
-		// Push tasks for action nodes directly reachable from Start.
-		// Condition nodes cannot be evaluated yet (no action outputs exist),
-		// so we only follow edges that lead directly to action nodes.
-		for _, actionNode := range actionNodes {
-			if actionNode.ActionID == nil {
-				if logger != nil {
-					logger.Warn("pipeline: action node has no action_id — skipped",
-						"pipeline_id", link.PipelineID, "node_id", actionNode.ID)
-				}
+		// Walk all edges from Start and dispatch based on node type.
+		// This mirrors PushContinuationTasks so the builder can place any
+		// node type directly after Start, not only action nodes.
+		for _, edge := range outgoingEdges(graph, startNode.ID) {
+			node := findNode(graph, edge.TargetNodeID)
+			if node == nil {
 				continue
 			}
-			if cache != nil && cache.Get(*actionNode.ActionID) == nil {
-				if logger != nil {
-					logger.Info("pipeline: skipping task for inactive action",
-						"pipeline_id", link.PipelineID, "node_id", actionNode.ID,
-						"action_id", *actionNode.ActionID)
+			switch node.Type {
+			case model.PipelineNodeTypeAction:
+				if node.ActionID == nil {
+					if logger != nil {
+						logger.Warn("pipeline: action node has no action_id — skipped",
+							"pipeline_id", link.PipelineID, "node_id", node.ID)
+					}
+					continue
 				}
-				continue
-			}
-			task := &queue.Task{
-				TriggerType:    triggerType,
-				Event:          eventPayload,
-				ActionID:       *actionNode.ActionID,
-				PipelineNodeID: actionNode.ID,
-				PipelineID:     link.PipelineID,
-				Context:        map[string]any{},
-			}
-			if pushErr := producer.PushTask(ctx, task); pushErr != nil {
-				if logger != nil {
-					logger.Warn("pipeline: push initial task failed",
-						"pipeline_id", link.PipelineID, "action_id", *actionNode.ActionID,
-						"node_id", actionNode.ID, "error", pushErr)
+				if cache != nil && cache.Get(*node.ActionID) == nil {
+					if logger != nil {
+						logger.Info("pipeline: skipping task for inactive action",
+							"pipeline_id", link.PipelineID, "node_id", node.ID,
+							"action_id", *node.ActionID)
+					}
+					continue
 				}
-			} else if logger != nil {
-				logger.Info("pipeline: queued initial task",
-					"pipeline_id", link.PipelineID,
-					"action_id", *actionNode.ActionID,
-					"node_id", actionNode.ID,
-					"tweet_id", ev.TweetID,
-				)
+				task := &queue.Task{
+					TriggerType:    triggerType,
+					Event:          eventPayload,
+					ActionID:       *node.ActionID,
+					PipelineNodeID: node.ID,
+					PipelineID:     link.PipelineID,
+					Context:        map[string]any{},
+				}
+				if pushErr := producer.PushTask(ctx, task); pushErr != nil {
+					if logger != nil {
+						logger.Warn("pipeline: push initial task failed",
+							"pipeline_id", link.PipelineID, "action_id", *node.ActionID,
+							"node_id", node.ID, "error", pushErr)
+					}
+				} else if logger != nil {
+					logger.Info("pipeline: queued initial task",
+						"pipeline_id", link.PipelineID,
+						"action_id", *node.ActionID,
+						"node_id", node.ID,
+						"tweet_id", ev.TweetID,
+					)
+				}
+
+			case model.PipelineNodeTypePipeline:
+				if node.SubPipelineID == nil {
+					if logger != nil {
+						logger.Warn("pipeline: pipeline node has no sub_pipeline_id — skipped",
+							"pipeline_id", link.PipelineID, "node_id", node.ID)
+					}
+					continue
+				}
+				subGraph, subErr := st.GetPipelineGraph(ctx, *node.SubPipelineID)
+				if subErr != nil {
+					if logger != nil {
+						logger.Warn("pipeline: load sub-pipeline graph failed",
+							"sub_pipeline_id", *node.SubPipelineID, "error", subErr)
+					}
+					continue
+				}
+				terminalIDs := findTerminalNodeIDs(subGraph)
+				if len(terminalIDs) == 0 {
+					if logger != nil {
+						logger.Warn("pipeline: sub-pipeline has no terminal nodes — skipped",
+							"sub_pipeline_id", *node.SubPipelineID)
+					}
+					continue
+				}
+				tweetID := ev.TweetID
+				for _, leafID := range terminalIDs {
+					if insErr := st.InsertPipelineNodeExecution(ctx, node.ID, tweetID, leafID); insErr != nil && logger != nil {
+						logger.Warn("pipeline: insert pipeline node execution failed",
+							"parent_node_id", node.ID, "leaf_node_id", leafID, "error", insErr)
+					}
+				}
+				subStartNode := findStartNode(subGraph)
+				if subStartNode == nil {
+					continue
+				}
+				parentNodeID := node.ID
+				for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
+					if subActionNode.ActionID == nil {
+						continue
+					}
+					if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
+						continue
+					}
+					subTask := &queue.Task{
+						TriggerType:          triggerType,
+						Event:                eventPayload,
+						ActionID:             *subActionNode.ActionID,
+						PipelineNodeID:       subActionNode.ID,
+						PipelineID:           *node.SubPipelineID,
+						ParentPipelineNodeID: &parentNodeID,
+						Context:              map[string]any{},
+					}
+					if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
+						logger.Warn("pipeline: push sub-pipeline initial task failed",
+							"action_id", *subActionNode.ActionID, "error", pushErr)
+					} else if logger != nil {
+						logger.Info("pipeline: queued sub-pipeline initial task",
+							"pipeline_id", link.PipelineID,
+							"sub_pipeline_id", *node.SubPipelineID,
+							"action_id", *subActionNode.ActionID,
+							"node_id", subActionNode.ID,
+							"tweet_id", ev.TweetID,
+						)
+					}
+				}
+
+			case model.PipelineNodeTypeCondition:
+				if logger != nil {
+					logger.Warn("pipeline: condition node directly after start — cannot evaluate without prior outputs, skipped",
+						"pipeline_id", link.PipelineID, "node_id", node.ID)
+				}
 			}
 		}
 	}
