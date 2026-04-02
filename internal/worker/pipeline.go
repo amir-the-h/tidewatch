@@ -13,10 +13,10 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
-// PushInitialPipelineTasks dispatches tasks for the first-level action nodes in all active
-// pipelines linked to triggerType. Called by the stream listener and search client when a
-// new tweet arrives. cache is used to skip tasks for disabled actions; pass nil to
-// disable the check (tasks will still be dropped by the worker if the action is inactive).
+// PushInitialPipelineTasks dispatches tasks for all active pipelines linked to
+// triggerType. Called by the stream listener and search client when a new tweet
+// arrives. cache is used to skip tasks for disabled actions; pass nil to disable
+// the check (tasks will still be dropped by the worker if the action is inactive).
 func PushInitialPipelineTasks(
 	ctx context.Context,
 	st store.Store,
@@ -71,145 +71,174 @@ func PushInitialPipelineTasks(
 			)
 		}
 
-		startNode := findStartNode(graph)
-		if startNode == nil {
-			if logger != nil {
-				logger.Warn("pipeline: no start node found — pipeline skipped", "pipeline_id", link.PipelineID)
-			}
+		PushInitialTasksForGraph(ctx, st, producer, cache, graph, link.PipelineID, triggerType, eventPayload, ev.TweetID, logger)
+	}
+
+	return nil
+}
+
+// PushInitialTasksForGraph walks from the start node of an already-loaded graph
+// and dispatches tasks for all reachable nodes (action and pipeline types).
+// It is used by both the stream listener (via PushInitialPipelineTasks) and the
+// manual backfill handler so they share identical dispatch logic.
+// Returns the number of tasks successfully pushed.
+func PushInitialTasksForGraph(
+	ctx context.Context,
+	st store.Store,
+	producer queue.Producer,
+	cache *ActionCache,
+	graph *model.PipelineGraph,
+	pipelineID int64,
+	triggerType string,
+	eventPayload []byte,
+	tweetID string,
+	logger *slog.Logger,
+) int {
+	startNode := findStartNode(graph)
+	if startNode == nil {
+		if logger != nil {
+			logger.Warn("pipeline: no start node found — pipeline skipped", "pipeline_id", pipelineID)
+		}
+		return 0
+	}
+
+	if logger != nil {
+		logger.Info("pipeline: start node found",
+			"pipeline_id", pipelineID,
+			"start_node_id", startNode.ID,
+		)
+	}
+
+	pushed := 0
+
+	// Walk all edges from Start and dispatch based on node type.
+	// This mirrors PushContinuationTasks so the builder can place any
+	// node type directly after Start, not only action nodes.
+	for _, edge := range outgoingEdges(graph, startNode.ID) {
+		node := findNode(graph, edge.TargetNodeID)
+		if node == nil {
 			continue
 		}
-
-		if logger != nil {
-			logger.Info("pipeline: start node found",
-				"pipeline_id", link.PipelineID,
-				"start_node_id", startNode.ID,
-			)
-		}
-
-		// Walk all edges from Start and dispatch based on node type.
-		// This mirrors PushContinuationTasks so the builder can place any
-		// node type directly after Start, not only action nodes.
-		for _, edge := range outgoingEdges(graph, startNode.ID) {
-			node := findNode(graph, edge.TargetNodeID)
-			if node == nil {
+		switch node.Type {
+		case model.PipelineNodeTypeAction:
+			if node.ActionID == nil {
+				if logger != nil {
+					logger.Warn("pipeline: action node has no action_id — skipped",
+						"pipeline_id", pipelineID, "node_id", node.ID)
+				}
 				continue
 			}
-			switch node.Type {
-			case model.PipelineNodeTypeAction:
-				if node.ActionID == nil {
-					if logger != nil {
-						logger.Warn("pipeline: action node has no action_id — skipped",
-							"pipeline_id", link.PipelineID, "node_id", node.ID)
-					}
-					continue
+			if cache != nil && cache.Get(*node.ActionID) == nil {
+				if logger != nil {
+					logger.Info("pipeline: skipping task for inactive action",
+						"pipeline_id", pipelineID, "node_id", node.ID,
+						"action_id", *node.ActionID)
 				}
-				if cache != nil && cache.Get(*node.ActionID) == nil {
-					if logger != nil {
-						logger.Info("pipeline: skipping task for inactive action",
-							"pipeline_id", link.PipelineID, "node_id", node.ID,
-							"action_id", *node.ActionID)
-					}
-					continue
+				continue
+			}
+			task := &queue.Task{
+				TriggerType:    triggerType,
+				Event:          eventPayload,
+				ActionID:       *node.ActionID,
+				PipelineNodeID: node.ID,
+				PipelineID:     pipelineID,
+				Context:        map[string]any{},
+			}
+			if pushErr := producer.PushTask(ctx, task); pushErr != nil {
+				if logger != nil {
+					logger.Warn("pipeline: push initial task failed",
+						"pipeline_id", pipelineID, "action_id", *node.ActionID,
+						"node_id", node.ID, "error", pushErr)
 				}
-				task := &queue.Task{
-					TriggerType:    triggerType,
-					Event:          eventPayload,
-					ActionID:       *node.ActionID,
-					PipelineNodeID: node.ID,
-					PipelineID:     link.PipelineID,
-					Context:        map[string]any{},
-				}
-				if pushErr := producer.PushTask(ctx, task); pushErr != nil {
-					if logger != nil {
-						logger.Warn("pipeline: push initial task failed",
-							"pipeline_id", link.PipelineID, "action_id", *node.ActionID,
-							"node_id", node.ID, "error", pushErr)
-					}
-				} else if logger != nil {
+			} else {
+				pushed++
+				if logger != nil {
 					logger.Info("pipeline: queued initial task",
-						"pipeline_id", link.PipelineID,
+						"pipeline_id", pipelineID,
 						"action_id", *node.ActionID,
 						"node_id", node.ID,
-						"tweet_id", ev.TweetID,
+						"tweet_id", tweetID,
 					)
 				}
+			}
 
-			case model.PipelineNodeTypePipeline:
-				if node.SubPipelineID == nil {
+		case model.PipelineNodeTypePipeline:
+			if node.SubPipelineID == nil {
+				if logger != nil {
+					logger.Warn("pipeline: pipeline node has no sub_pipeline_id — skipped",
+						"pipeline_id", pipelineID, "node_id", node.ID)
+				}
+				continue
+			}
+			subGraph, subErr := st.GetPipelineGraph(ctx, *node.SubPipelineID)
+			if subErr != nil {
+				if logger != nil {
+					logger.Warn("pipeline: load sub-pipeline graph failed",
+						"sub_pipeline_id", *node.SubPipelineID, "error", subErr)
+				}
+				continue
+			}
+			terminalIDs := findTerminalNodeIDs(subGraph)
+			if len(terminalIDs) == 0 {
+				if logger != nil {
+					logger.Warn("pipeline: sub-pipeline has no terminal nodes — skipped",
+						"sub_pipeline_id", *node.SubPipelineID)
+				}
+				continue
+			}
+			for _, leafID := range terminalIDs {
+				if insErr := st.InsertPipelineNodeExecution(ctx, node.ID, tweetID, leafID); insErr != nil && logger != nil {
+					logger.Warn("pipeline: insert pipeline node execution failed",
+						"parent_node_id", node.ID, "leaf_node_id", leafID, "error", insErr)
+				}
+			}
+			subStartNode := findStartNode(subGraph)
+			if subStartNode == nil {
+				continue
+			}
+			parentNodeID := node.ID
+			for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
+				if subActionNode.ActionID == nil {
+					continue
+				}
+				if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
+					continue
+				}
+				subTask := &queue.Task{
+					TriggerType:          triggerType,
+					Event:                eventPayload,
+					ActionID:             *subActionNode.ActionID,
+					PipelineNodeID:       subActionNode.ID,
+					PipelineID:           *node.SubPipelineID,
+					ParentPipelineNodeID: &parentNodeID,
+					Context:              map[string]any{},
+				}
+				if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
+					logger.Warn("pipeline: push sub-pipeline initial task failed",
+						"action_id", *subActionNode.ActionID, "error", pushErr)
+				} else {
+					pushed++
 					if logger != nil {
-						logger.Warn("pipeline: pipeline node has no sub_pipeline_id — skipped",
-							"pipeline_id", link.PipelineID, "node_id", node.ID)
-					}
-					continue
-				}
-				subGraph, subErr := st.GetPipelineGraph(ctx, *node.SubPipelineID)
-				if subErr != nil {
-					if logger != nil {
-						logger.Warn("pipeline: load sub-pipeline graph failed",
-							"sub_pipeline_id", *node.SubPipelineID, "error", subErr)
-					}
-					continue
-				}
-				terminalIDs := findTerminalNodeIDs(subGraph)
-				if len(terminalIDs) == 0 {
-					if logger != nil {
-						logger.Warn("pipeline: sub-pipeline has no terminal nodes — skipped",
-							"sub_pipeline_id", *node.SubPipelineID)
-					}
-					continue
-				}
-				tweetID := ev.TweetID
-				for _, leafID := range terminalIDs {
-					if insErr := st.InsertPipelineNodeExecution(ctx, node.ID, tweetID, leafID); insErr != nil && logger != nil {
-						logger.Warn("pipeline: insert pipeline node execution failed",
-							"parent_node_id", node.ID, "leaf_node_id", leafID, "error", insErr)
-					}
-				}
-				subStartNode := findStartNode(subGraph)
-				if subStartNode == nil {
-					continue
-				}
-				parentNodeID := node.ID
-				for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
-					if subActionNode.ActionID == nil {
-						continue
-					}
-					if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
-						continue
-					}
-					subTask := &queue.Task{
-						TriggerType:          triggerType,
-						Event:                eventPayload,
-						ActionID:             *subActionNode.ActionID,
-						PipelineNodeID:       subActionNode.ID,
-						PipelineID:           *node.SubPipelineID,
-						ParentPipelineNodeID: &parentNodeID,
-						Context:              map[string]any{},
-					}
-					if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
-						logger.Warn("pipeline: push sub-pipeline initial task failed",
-							"action_id", *subActionNode.ActionID, "error", pushErr)
-					} else if logger != nil {
 						logger.Info("pipeline: queued sub-pipeline initial task",
-							"pipeline_id", link.PipelineID,
+							"pipeline_id", pipelineID,
 							"sub_pipeline_id", *node.SubPipelineID,
 							"action_id", *subActionNode.ActionID,
 							"node_id", subActionNode.ID,
-							"tweet_id", ev.TweetID,
+							"tweet_id", tweetID,
 						)
 					}
 				}
+			}
 
-			case model.PipelineNodeTypeCondition:
-				if logger != nil {
-					logger.Warn("pipeline: condition node directly after start — cannot evaluate without prior outputs, skipped",
-						"pipeline_id", link.PipelineID, "node_id", node.ID)
-				}
+		case model.PipelineNodeTypeCondition:
+			if logger != nil {
+				logger.Warn("pipeline: condition node directly after start — cannot evaluate without prior outputs, skipped",
+					"pipeline_id", pipelineID, "node_id", node.ID)
 			}
 		}
 	}
 
-	return nil
+	return pushed
 }
 
 // PushContinuationTasks is called by the worker after successfully running an action.

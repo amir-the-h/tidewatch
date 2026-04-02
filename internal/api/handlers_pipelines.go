@@ -253,16 +253,11 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load graph and find first-level action nodes.
+	// Load graph once for exclusion-set building and dispatch.
 	graph, err := s.store.GetPipelineGraph(r.Context(), id)
 	if err != nil {
 		s.logger.Error("api: run pipeline: load graph", "pipeline_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to load pipeline graph")
-		return
-	}
-	actionNodes := worker.FirstLevelPipelineNodes(graph)
-	if len(actionNodes) == 0 {
-		writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0})
 		return
 	}
 
@@ -316,30 +311,15 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 			}
-			ev, _ := json.Marshal(queue.TweetEvent{
+			evPayload, _ := json.Marshal(queue.TweetEvent{
 				TweetID:      tweet.ID,
 				Text:         tweet.Text,
 				AuthorHandle: tweet.AuthorHandle,
 			})
-			for _, node := range actionNodes {
-				if node.ActionID == nil {
-					continue
-				}
-				task := &queue.Task{
-					TriggerType:    link.TriggerType,
-					Event:          ev,
-					ActionID:       *node.ActionID,
-					PipelineNodeID: node.ID,
-					PipelineID:     id,
-					Context:        map[string]any{},
-				}
-				if pushErr := s.producer.PushTask(r.Context(), task); pushErr != nil {
-					s.logger.Error("api: run pipeline: push task",
-						"pipeline_id", id, "tweet_id", tweet.ID, "error", pushErr)
-					continue
-				}
-				count++
-			}
+			count += worker.PushInitialTasksForGraph(
+				r.Context(), s.store, s.producer, s.actionCache,
+				graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
+			)
 		}
 	}
 
