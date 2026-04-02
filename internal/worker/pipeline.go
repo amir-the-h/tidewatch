@@ -474,12 +474,13 @@ func pushContinuationTask(
 	logger *slog.Logger,
 ) {
 	task := &queue.Task{
-		TriggerType:    parent.TriggerType,
-		Event:          parent.Event,
-		ActionID:       *node.ActionID,
-		PipelineNodeID: node.ID,
-		PipelineID:     parent.PipelineID,
-		Context:        copyContext(mergedCtx),
+		TriggerType:          parent.TriggerType,
+		Event:                parent.Event,
+		ActionID:             *node.ActionID,
+		PipelineNodeID:       node.ID,
+		PipelineID:           parent.PipelineID,
+		ParentPipelineNodeID: parent.ParentPipelineNodeID,
+		Context:              copyContext(mergedCtx),
 	}
 	if err := producer.PushTask(ctx, task); err != nil && logger != nil {
 		logger.Warn("pipeline: push continuation task failed",
