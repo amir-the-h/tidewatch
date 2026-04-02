@@ -6,7 +6,7 @@ import { useMessage } from 'naive-ui'
 import { listRules } from '../api/rules'
 import { listSources } from '../api/sources'
 import { listTrackedEntities } from '../api/entities'
-import { listPipelines } from '../api/pipelines'
+import { listActions } from '../api/actions'
 import { SparklesOutline, TrashOutline } from '@vicons/ionicons5'
 
 const store = useDigestStore()
@@ -45,7 +45,7 @@ onMounted(async () => {
     listRules(),
     listSources(),
     listTrackedEntities(),
-    listPipelines({ usecase: 'digest', active: true }),
+    listActions({ type: 'ollama', active: true }),
   ])
   if (rulesData.status === 'fulfilled')
     rules.value = rulesData.value.map(r => ({ label: r.name || String(r.id), value: r.id }))

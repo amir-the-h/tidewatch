@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { SendOutline, StopCircleOutline, ArrowBackOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
-import { listPipelines } from '../api/pipelines'
+import { listActions } from '../api/actions'
 
 const router = useRouter()
 const msg    = useMessage()
@@ -38,8 +38,8 @@ watch(() => store.messages.length, scrollToBottom)
 
 onMounted(async () => {
   try {
-    const pipelines = await listPipelines({ usecase: 'chat', active: true })
-    pipelineReady.value = pipelines.length > 0
+    const actions = await listActions({ type: 'ollama', active: true })
+    pipelineReady.value = actions.length > 0
   } catch {}
 
   if (!store.hasSession) {

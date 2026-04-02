@@ -9,7 +9,6 @@ import { usePipelinesStore } from '@/stores/pipelines'
 import { useSourcesStore } from '@/stores/sources'
 import { useEntitiesStore } from '@/stores/entities'
 import { useNotificationsStore } from '@/stores/notifications'
-import { useModelsStore } from '@/stores/models'
 import { useStreamStore } from '@/stores/stream'
 import { useFailuresStore } from '@/stores/failures'
 import { useAuthStore } from '@/stores/auth'
@@ -40,7 +39,6 @@ function buildHandlers() {
   const sourcesStore = useSourcesStore()
   const entitiesStore = useEntitiesStore()
   const notificationsStore = useNotificationsStore()
-  const modelsStore = useModelsStore()
   const tweetsStore = useTweetsStore()
 
   // Suppress unused variable warning — wsStore is referenced in onopen/onclose

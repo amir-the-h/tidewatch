@@ -32,15 +32,15 @@ export const useActionsStore = defineStore('actions', () => {
   }
 
   async function activate(id: number) {
-    const a = await api.activateAction(id)
+    await api.activateAction(id)
     const idx = actions.value.findIndex(x => x.id === id)
-    if (idx !== -1) actions.value[idx] = a
+    if (idx !== -1) actions.value[idx] = { ...actions.value[idx], active: true }
   }
 
   async function deactivate(id: number) {
-    const a = await api.deactivateAction(id)
+    await api.deactivateAction(id)
     const idx = actions.value.findIndex(x => x.id === id)
-    if (idx !== -1) actions.value[idx] = a
+    if (idx !== -1) actions.value[idx] = { ...actions.value[idx], active: false }
   }
 
   async function remove(id: number) {

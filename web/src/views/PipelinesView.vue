@@ -3,13 +3,13 @@ import { ref, computed, onMounted, h } from 'vue'
 import {
   NFlex, NTabs, NTabPane, NTag, NSelect, NInput, NSwitch, NFormItem, NInputNumber, NDivider,
   NText, NSpace, NDataTable, NDynamicTags, NButton, NCard, NIcon, NSpin,
-  NDrawer, NDrawerContent, NPagination, NModal, NRadioGroup, NRadio,
+  NPagination, NModal, NRadioGroup, NRadio,
   useMessage,
   type DataTableColumns, type SelectOption,
 } from 'naive-ui'
 import {
   TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline, ServerOutline, AddOutline,
-  PlayCircleOutline, ListOutline, LogoTwitter, LinkOutline, UnlinkOutline,
+  PlayCircleOutline, LogoTwitter, LinkOutline, UnlinkOutline,
 } from '@vicons/ionicons5'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
@@ -22,7 +22,7 @@ import {
   type Action, type ActionType, type ActionExecution,
 } from '../api/actions'
 import {
-  listPipelines, createPipeline, updatePipeline, deletePipeline, activatePipeline, deactivatePipeline,
+  listPipelines, createPipeline, deletePipeline, activatePipeline, deactivatePipeline,
   runPipeline, listModels,
   type Pipeline, type ModelFile,
 } from '../api/pipelines'
