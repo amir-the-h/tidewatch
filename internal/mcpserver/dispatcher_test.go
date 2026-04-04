@@ -84,6 +84,32 @@ func TestDispatcher_POST_PathParam(t *testing.T) {
 	if gotPath != "/api/pipelines/42/activate" {
 		t.Errorf("expected /api/pipelines/42/activate, got %q", gotPath)
 	}
+	if len(result.Content) == 0 {
+		t.Error("expected non-empty content for 204 response")
+	}
+}
+
+func TestDispatcher_MissingPathParam_ReturnsError(t *testing.T) {
+	d := mcpserver.NewDispatcher("http://localhost:9999") // won't be called
+	td := mcpserver.ToolDef{
+		Name:   "actions_get",
+		Method: "GET",
+		Path:   "/api/actions/{id}",
+		PathParams: []mcpserver.ParamDef{
+			{Name: "id", Type: "integer", Required: true},
+		},
+	}
+
+	var req mcp.CallToolRequest
+	req.Params.Arguments = map[string]any{} // id is missing
+
+	result, err := d.Handle(context.Background(), td, req)
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Error("expected IsError=true for missing path param")
+	}
 }
 
 func TestDispatcher_POST_Body(t *testing.T) {
