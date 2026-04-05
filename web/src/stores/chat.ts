@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { streamChat } from '../api/chat'
 import type { ChatMessage, ChatEvent } from '../api/chat'
 
@@ -17,13 +17,33 @@ export interface DisplayMessage {
   toolSteps: ToolStep[]
 }
 
+const STORAGE_KEY = 'chat_action_id'
+
 export const useChatStore = defineStore('chat', () => {
-  const messages   = ref<DisplayMessage[]>([])
-  const isStreaming = ref(false)
+  // Per-action conversation history keyed by action ID string.
+  const conversations  = ref<Record<string, DisplayMessage[]>>({})
+  const selectedActionId = ref<string>(localStorage.getItem(STORAGE_KEY) ?? '')
+  const isStreaming    = ref(false)
 
   let abortController: AbortController | null = null
-  // Pending tool step: tool_call received but tool_result not yet
   let pendingStep: { name: string; args: Record<string, unknown> } | null = null
+
+  /** Messages for the currently selected action. */
+  const messages = computed<DisplayMessage[]>(
+    () => conversations.value[selectedActionId.value] ?? []
+  )
+
+  /** Switch to a different chat action; preserves that action's history. */
+  function selectAction(id: string) {
+    selectedActionId.value = id
+    localStorage.setItem(STORAGE_KEY, id)
+  }
+
+  function ensureConversation(id: string) {
+    if (!conversations.value[id]) {
+      conversations.value[id] = []
+    }
+  }
 
   /**
    * Append a user message and stream the assistant reply.
@@ -31,42 +51,48 @@ export const useChatStore = defineStore('chat', () => {
    */
   async function sendMessage(content: string): Promise<void> {
     if (isStreaming.value) return
+    const actionId = selectedActionId.value
+    ensureConversation(actionId)
+
+    const conv = conversations.value[actionId]
 
     // Build history to send: only role+content (no toolSteps)
     const history: ChatMessage[] = [
-      ...messages.value.map(m => ({ role: m.role, content: m.content })),
+      ...conv.map(m => ({ role: m.role, content: m.content })),
       { role: 'user' as const, content },
     ]
 
-    messages.value.push({ role: 'user', content, toolSteps: [] })
+    conv.push({ role: 'user', content, toolSteps: [] })
     const assistantMsg: DisplayMessage = { role: 'assistant', content: '', toolSteps: [] }
-    messages.value.push(assistantMsg)
-    const assistantIdx = messages.value.length - 1
+    conv.push(assistantMsg)
+    const assistantIdx = conv.length - 1
 
     isStreaming.value = true
     pendingStep = null
 
     return new Promise((resolve, reject) => {
       abortController = streamChat(
+        actionId,
         history,
         (event: ChatEvent) => {
-          const msg = messages.value[assistantIdx]
+          const msg = conversations.value[actionId][assistantIdx]
           if (event.type === 'tool_call') {
             pendingStep = { name: event.name, args: event.args }
           } else if (event.type === 'tool_result' && pendingStep) {
-            msg.toolSteps = [
-              ...msg.toolSteps,
-              { name: pendingStep.name, args: pendingStep.args, result: event.result },
-            ]
-            messages.value[assistantIdx] = { ...msg }
+            conversations.value[actionId][assistantIdx] = {
+              ...msg,
+              toolSteps: [
+                ...msg.toolSteps,
+                { name: pendingStep.name, args: pendingStep.args, result: event.result },
+              ],
+            }
             pendingStep = null
           } else if (event.type === 'text_chunk') {
-            messages.value[assistantIdx] = {
+            conversations.value[actionId][assistantIdx] = {
               ...msg,
               content: msg.content + event.content,
             }
           }
-          // error events: log but don't crash the UI
         },
         () => {
           isStreaming.value = false
@@ -92,15 +118,20 @@ export const useChatStore = defineStore('chat', () => {
     pendingStep = null
   }
 
-  /** Clear the conversation. */
+  /** Clear the conversation for the currently selected action. */
   function clearSession() {
     stopStreaming()
-    messages.value = []
+    if (selectedActionId.value) {
+      conversations.value[selectedActionId.value] = []
+    }
   }
 
   return {
     messages,
+    conversations,
+    selectedActionId,
     isStreaming,
+    selectAction,
     sendMessage,
     stopStreaming,
     clearSession,
