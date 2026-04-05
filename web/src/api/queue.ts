@@ -23,3 +23,6 @@ export const getQueue = () => apiFetch<QueueResponse>('/api/queue')
 
 export const flushQueue = () =>
   apiFetch<{ flushed: boolean }>('/api/queue', { method: 'DELETE' })
+
+export const flushWorkerBuffer = () =>
+  apiFetch<{ flushed: number }>('/api/workers/buffer', { method: 'DELETE' })
