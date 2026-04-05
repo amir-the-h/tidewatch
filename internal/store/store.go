@@ -106,6 +106,91 @@ type ExecutionFilter struct {
 	PerPage  int
 }
 
+// BulkDeleteRulesFilter defines filters for bulk-deleting rules.
+type BulkDeleteRulesFilter struct {
+	IDs    []int64
+	Active *bool
+	Local  *bool
+}
+
+// BulkDeleteSourcesFilter defines filters for bulk-deleting sources.
+type BulkDeleteSourcesFilter struct {
+	IDs    []int64
+	Active *bool
+	Type   string
+}
+
+// BulkDeletePipelinesFilter defines filters for bulk-deleting pipelines.
+type BulkDeletePipelinesFilter struct {
+	IDs    []int64
+	Active *bool
+}
+
+// BulkDeleteTriggerPipelineLinksFilter defines filters for bulk-deleting trigger-pipeline links.
+type BulkDeleteTriggerPipelineLinksFilter struct {
+	IDs         []int64
+	PipelineID  *int64
+	TriggerType string
+}
+
+// BulkDeleteTrackedEntitiesFilter defines filters for bulk-deleting tracked entities.
+type BulkDeleteTrackedEntitiesFilter struct {
+	IDs    []int64
+	Active *bool
+	Type   string
+}
+
+// BulkDeleteEntityCandidatesFilter defines filters for bulk-deleting entity candidates.
+type BulkDeleteEntityCandidatesFilter struct {
+	IDs            []int64
+	Status         string
+	Type           string
+	AutoPromoted   *bool
+	MinConfidence  *float64
+	MaxConfidence  *float64
+	MinOccurrences *int
+	MaxOccurrences *int
+}
+
+// BulkDeleteActionsFilter defines filters for bulk-deleting actions.
+type BulkDeleteActionsFilter struct {
+	IDs    []int64
+	Active *bool
+	Type   string
+}
+
+// BulkDeleteOllamaBackendsFilter defines filters for bulk-deleting Ollama backends.
+type BulkDeleteOllamaBackendsFilter struct {
+	IDs     []int64
+	Enabled *bool
+}
+
+// BulkDeleteNotificationProvidersFilter defines filters for bulk-deleting notification providers.
+type BulkDeleteNotificationProvidersFilter struct {
+	IDs    []int64
+	Active *bool
+	Type   string
+}
+
+// BulkDeleteNotificationChannelsFilter defines filters for bulk-deleting notification channels.
+type BulkDeleteNotificationChannelsFilter struct {
+	IDs        []int64
+	Active     *bool
+	ProviderID *int64
+}
+
+// BulkDeleteSearchJobsFilter defines filters for bulk-deleting search jobs.
+type BulkDeleteSearchJobsFilter struct {
+	IDs    []string
+	Status string
+}
+
+// BulkDeleteDigestJobsFilter defines filters for bulk-deleting digest jobs.
+type BulkDeleteDigestJobsFilter struct {
+	IDs    []string
+	Status string
+}
+
 // Store is the repository interface for all persistent data.
 type Store interface {
 	// Tweets
@@ -124,6 +209,7 @@ type Store interface {
 	GetSource(ctx context.Context, id int64) (*model.Source, error)
 	ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error)
 	DeleteSource(ctx context.Context, id int64) error
+	BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error)
 	SetSourceActive(ctx context.Context, id int64, active bool) error
 	ActiveRuleRefCount(ctx context.Context, sourceID int64) (int, error)
 	RuleRefCount(ctx context.Context, sourceID int64) (int, error)
@@ -136,6 +222,7 @@ type Store interface {
 	ListRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.Rule, error)
 	UpdateRule(ctx context.Context, rule *model.Rule) error
 	DeleteRule(ctx context.Context, id int64) error
+	BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error)
 	SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error
 	TweetRuleCount(ctx context.Context, ruleID int64) (int, error)
 
@@ -151,6 +238,7 @@ type Store interface {
 	ListNotificationProviders(ctx context.Context) ([]*model.NotificationProvider, error)
 	UpdateNotificationProvider(ctx context.Context, p *model.NotificationProvider) error
 	DeleteNotificationProvider(ctx context.Context, id int64) error
+	BulkDeleteNotificationProviders(ctx context.Context, f BulkDeleteNotificationProvidersFilter) (int64, error)
 	SetNotificationProviderActive(ctx context.Context, id int64, active bool) error
 
 	// NotificationChannels
@@ -159,6 +247,7 @@ type Store interface {
 	ListNotificationChannels(ctx context.Context, providerID *int64) ([]*model.NotificationChannel, error)
 	UpdateNotificationChannel(ctx context.Context, c *model.NotificationChannel) error
 	DeleteNotificationChannel(ctx context.Context, id int64) error
+	BulkDeleteNotificationChannels(ctx context.Context, f BulkDeleteNotificationChannelsFilter) (int64, error)
 	SetNotificationChannelActive(ctx context.Context, id int64, active bool) error
 
 	// TrackedEntities
@@ -167,6 +256,7 @@ type Store interface {
 	ListTrackedEntities(ctx context.Context, filter TrackedEntityFilter) ([]*model.TrackedEntity, error)
 	UpdateTrackedEntity(ctx context.Context, e *model.TrackedEntity) error
 	DeleteTrackedEntity(ctx context.Context, id int64) error
+	BulkDeleteTrackedEntities(ctx context.Context, f BulkDeleteTrackedEntitiesFilter) (int64, error)
 	SetTrackedEntityActive(ctx context.Context, id int64, active bool) error
 
 	// EntityTracks
@@ -184,6 +274,7 @@ type Store interface {
 	CountEntityCandidates(ctx context.Context, filter EntityCandidateFilter) (int, error)
 	UpdateEntityCandidateStatus(ctx context.Context, id int64, status string, promotedEntityID *int64, autoPromoted bool) error
 	DeleteEntityCandidate(ctx context.Context, id int64) error
+	BulkDeleteEntityCandidates(ctx context.Context, f BulkDeleteEntityCandidatesFilter) (int64, error)
 
 	// EntityConnections
 	UpsertEntityConnection(ctx context.Context, fromID, toID int64) error
@@ -204,6 +295,7 @@ type Store interface {
 	UpdateDigestJob(ctx context.Context, job *model.DigestJob) error
 	ListDigestJobs(ctx context.Context, limit int) ([]*model.DigestJob, error)
 	DeleteDigestJob(ctx context.Context, id string) error
+	BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error)
 
 	// SearchJobs
 	SaveSearchJob(ctx context.Context, job *model.SearchJob) error
@@ -211,6 +303,7 @@ type Store interface {
 	UpdateSearchJob(ctx context.Context, job *model.SearchJob) error
 	ListSearchJobs(ctx context.Context, limit int) ([]*model.SearchJob, error)
 	DeleteSearchJob(ctx context.Context, id string) error
+	BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSearchJobsFilter) (int64, error)
 
 	// Users
 	SaveUser(ctx context.Context, u *model.User) error
@@ -227,6 +320,7 @@ type Store interface {
 	ListActions(ctx context.Context, filter ActionFilter) ([]*model.Action, error)
 	UpdateAction(ctx context.Context, a *model.Action) error
 	DeleteAction(ctx context.Context, id int64) error
+	BulkDeleteActions(ctx context.Context, f BulkDeleteActionsFilter) (int64, error)
 	SetActionActive(ctx context.Context, id int64, active bool) error
 	ListActionLabels(ctx context.Context, actionID int64) ([]string, error)
 	AddActionLabel(ctx context.Context, actionID int64, label string) error
@@ -238,6 +332,7 @@ type Store interface {
 	ListPipelines(ctx context.Context) ([]*model.Pipeline, error)
 	UpdatePipeline(ctx context.Context, p *model.Pipeline) error
 	DeletePipeline(ctx context.Context, id int64) error
+	BulkDeletePipelines(ctx context.Context, f BulkDeletePipelinesFilter) (int64, error)
 	SetPipelineActive(ctx context.Context, id int64, active bool) error
 	GetPipelineGraph(ctx context.Context, pipelineID int64) (*model.PipelineGraph, error)
 	SavePipelineGraph(ctx context.Context, pipelineID int64, nodes []*model.PipelineNodeRequest, edges []*model.PipelineEdgeRequest) (*model.PipelineGraph, error)
@@ -248,6 +343,7 @@ type Store interface {
 	ListTriggerPipelineLinks(ctx context.Context) ([]*model.TriggerPipelineLink, error)
 	ListActiveTriggerPipelineLinks(ctx context.Context, triggerType string) ([]*model.TriggerPipelineLink, error)
 	DeleteTriggerPipelineLink(ctx context.Context, id int64) error
+	BulkDeleteTriggerPipelineLinks(ctx context.Context, f BulkDeleteTriggerPipelineLinksFilter) (int64, error)
 	SetTriggerPipelineLinkActive(ctx context.Context, id int64, active bool) error
 
 	// Pipeline node execution tracking (for sub-pipeline fan-in)
@@ -269,9 +365,10 @@ type Store interface {
 	// no metadata rows are included with an empty Metadata map.
 	ListTweetActionSummaries(ctx context.Context, tweetID string) ([]TweetActionSummary, error)
 	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
-	// DeleteActionExecutions deletes all execution records and their metadata for
-	// the given tweets. If actionIDs is non-empty, only executions for those actions
-	// are deleted. Returns the count of deleted execution rows.
+	// DeleteActionExecutions deletes execution records and their metadata.
+	// All parameters are optional: if actionIDs is set, only those actions are
+	// affected; if tweetIDs is set, only those tweets are affected; if both are
+	// empty, all executions are deleted.
 	DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error)
 
 	// TwitterCredentials
@@ -285,6 +382,7 @@ type Store interface {
 	CreateOllamaBackend(ctx context.Context, name, url string) (model.OllamaBackend, error)
 	UpdateOllamaBackend(ctx context.Context, id int64, name, url string) error
 	DeleteOllamaBackend(ctx context.Context, id int64) error
+	BulkDeleteOllamaBackends(ctx context.Context, f BulkDeleteOllamaBackendsFilter) (int64, error)
 	SetOllamaBackendEnabled(ctx context.Context, id int64, enabled bool) error
 
 	// ActionBackends (replaces PipelineBackends)
