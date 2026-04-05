@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, watch, h } from 'vue'
 import {
   NFlex, NTabs, NTabPane, NTag, NSelect, NInput, NSwitch, NFormItem, NInputNumber, NDivider,
   NText, NSpace, NDataTable, NDynamicTags, NButton, NCard, NIcon, NSpin,
@@ -32,6 +32,7 @@ import {
   type TriggerInfo, type TriggerPipelineLink,
 } from '../api/trigger_links'
 import { listChannels, listProviders, type NotificationChannel, type NotificationProvider } from '../api/notifications'
+import { listChatTools } from '../api/chat'
 import { useActionsStore } from '../stores/actions'
 
 const route  = useRoute()
@@ -63,6 +64,9 @@ const formType          = ref<ActionFormType>('onnx')
 const formUsecase       = ref<string>('custom')
 const formModel         = ref('')
 const formSystemPrompt  = ref('')
+const formAllowedTools  = ref<string[]>([])
+const chatTools         = ref<{ name: string; description: string }[]>([])
+const chatToolsLoading  = ref(false)
 const formConfigText    = ref('{}')
 const formHandler       = ref<string | null>(null)
 const formPath          = ref('')
@@ -128,6 +132,9 @@ function addTransformer() {
 // Handlers (for internal type)
 const handlers = ref<string[]>([])
 const handlerOptions = computed(() => handlers.value.map(h => ({ label: h, value: h })))
+const chatToolOptions = computed(() =>
+  chatTools.value.map(t => ({ label: t.name, value: t.name, description: t.description }))
+)
 
 // Models (for onnx type)
 const models = ref<ModelFile[]>([])
@@ -211,6 +218,18 @@ async function fetchActions() {
   }
 }
 
+async function fetchChatTools() {
+  if (chatTools.value.length > 0) return // already loaded
+  chatToolsLoading.value = true
+  try {
+    chatTools.value = await listChatTools()
+  } catch (e: any) {
+    msg.error('Failed to load chat tools: ' + e.message)
+  } finally {
+    chatToolsLoading.value = false
+  }
+}
+
 function resetActionForm() {
   editingActionId.value = null
   formName.value = ''
@@ -218,6 +237,7 @@ function resetActionForm() {
   formUsecase.value = 'custom'
   formModel.value = ''
   formSystemPrompt.value = ''
+  formAllowedTools.value = []
   formConfigText.value = '{}'
   formHandler.value = null
   formPath.value = ''
@@ -258,6 +278,10 @@ function openEditAction(row: Action) {
   formModel.value = row.config?.model ?? ''
   formUsecase.value = row.config?.usecase ?? 'custom'
   formSystemPrompt.value = row.config?.system_prompt ?? ''
+  formAllowedTools.value = Array.isArray(row.config?.allowed_tools) ? [...row.config.allowed_tools] : []
+  if (row.type === 'ollama' && row.config?.usecase === 'chat') {
+    fetchChatTools()
+  }
   // Internal-specific
   formHandler.value = row.config?.handler ?? null
   formDiscoveryMinConfidence.value      = row.config?.min_confidence      ?? 0.75
@@ -317,13 +341,17 @@ async function onSaveAction() {
     }
     config.model = formModel.value.trim()
     config.usecase = formUsecase.value
-    if (formUsecase.value === 'custom' && formSystemPrompt.value.trim()) {
+    if (formSystemPrompt.value.trim()) {
       config.system_prompt = formSystemPrompt.value.trim()
     }
-    if (editingActionId.value === null && formUsecase.value !== 'custom') {
-      const conflict = actionsData.value.find(a => a.config?.usecase === formUsecase.value)
+    if (formUsecase.value === 'chat' && formAllowedTools.value.length > 0) {
+      config.allowed_tools = formAllowedTools.value
+    }
+    // Only enforce uniqueness for digest (allow multiple chat actions)
+    if (editingActionId.value === null && formUsecase.value === 'digest') {
+      const conflict = actionsData.value.find(a => a.config?.usecase === 'digest')
       if (conflict) {
-        msg.error(`A ${formUsecase.value} action already exists ("${conflict.name}"). Delete it first.`)
+        msg.error(`A digest action already exists ("${conflict.name}"). Delete it first.`)
         return
       }
     }
@@ -766,6 +794,12 @@ onMounted(async () => {
     loadExecutions()
   }
 })
+
+watch(formUsecase, (val) => {
+  if (val === 'chat' && formType.value === 'ollama') {
+    fetchChatTools()
+  }
+})
 </script>
 
 <template>
@@ -989,14 +1023,32 @@ onMounted(async () => {
           { label: 'Chat',            value: 'chat'   },
         ]" />
       </n-form-item>
-      <n-form-item v-if="formUsecase === 'custom'" label="System Prompt">
+      <n-form-item label="System Prompt">
         <n-input
           v-model:value="formSystemPrompt"
           type="textarea" :rows="4"
-          placeholder="Leave empty to use the default generic extraction prompt"
+          placeholder="Leave empty to use the default system prompt"
           style="font-family: monospace; font-size: 12px"
         />
       </n-form-item>
+      <!-- Chat tools selector (chat usecase only) -->
+      <template v-if="formUsecase === 'chat'">
+        <n-divider>Chat Tools</n-divider>
+        <n-form-item label="Allowed Tools">
+          <n-select
+            v-model:value="formAllowedTools"
+            multiple
+            filterable
+            clearable
+            :options="chatToolOptions"
+            :loading="chatToolsLoading"
+            placeholder="Leave empty to allow all tools"
+          />
+        </n-form-item>
+        <n-text depth="3" style="font-size: 12px; margin-top: -8px; display: block">
+          Restrict the tools available to this chat assistant. Leave empty to allow all {{ chatTools.length }} tools.
+        </n-text>
+      </template>
     </template>
 
     <!-- Notification pipeline fields -->
