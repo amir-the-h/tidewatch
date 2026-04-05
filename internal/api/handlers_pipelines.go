@@ -261,73 +261,82 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build exclusion set once if new_only is requested.
-	// Collect action IDs from the graph and all referenced sub-pipeline graphs,
-	// since action nodes may live inside sub-pipelines rather than the parent graph.
-	var executedIDs map[string]struct{}
-	if req.NewOnly {
-		executedIDs = make(map[string]struct{})
-		actionIDs := s.collectGraphActionIDs(r.Context(), graph)
-		for _, actionID := range actionIDs {
-			aid := actionID
-			execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{ActionID: &aid})
-			if err != nil {
-				s.logger.Warn("api: run pipeline: fetch executions", "action_id", aid, "error", err)
-				continue
-			}
-			for _, e := range execs {
-				executedIDs[e.TweetID] = struct{}{}
-			}
-		}
-	}
+	// Return 202 immediately — tweet iteration and task pushing happen in the
+	// background so large backlogs don't time out the HTTP connection.
+	writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0, "async": true})
 
-	// Push tasks: for each active trigger link, select eligible tweets and dispatch.
-	count := 0
-	seenTweetIDs := make(map[string]struct{})
+	go func() {
+		ctx := s.ctx
+		newOnly := req.NewOnly
 
-	for _, link := range links {
-		filter := store.TweetFilter{Page: 1, PerPage: 5000}
-		switch link.TriggerType {
-		case "new_tweet", "new_categorization":
-			// all tweets
-		case "entity_matched":
-			filter.HasEntityTrack = true
-		default:
-			continue
-		}
-
-		tweets, err := s.store.ListTweets(r.Context(), filter)
-		if err != nil {
-			s.logger.Error("api: run pipeline: list tweets", "trigger", link.TriggerType, "error", err)
-			continue
-		}
-
-		for _, tweet := range tweets {
-			if _, seen := seenTweetIDs[tweet.ID]; seen {
-				continue
-			}
-			seenTweetIDs[tweet.ID] = struct{}{}
-
-			if req.NewOnly {
-				if _, done := executedIDs[tweet.ID]; done {
+		// Build exclusion set once if new_only is requested.
+		// Collect action IDs from the graph and all referenced sub-pipeline graphs,
+		// since action nodes may live inside sub-pipelines rather than the parent graph.
+		var executedIDs map[string]struct{}
+		if newOnly {
+			executedIDs = make(map[string]struct{})
+			actionIDs := s.collectGraphActionIDs(ctx, graph)
+			for _, actionID := range actionIDs {
+				aid := actionID
+				execs, err := s.store.ListActionExecutions(ctx, store.ExecutionFilter{ActionID: &aid})
+				if err != nil {
+					s.logger.Warn("api: run pipeline: fetch executions", "action_id", aid, "error", err)
 					continue
 				}
+				for _, e := range execs {
+					executedIDs[e.TweetID] = struct{}{}
+				}
 			}
-			ruleIDs, _ := s.store.ListTweetRuleIDs(r.Context(), tweet.ID)
-			evPayload, _ := json.Marshal(queue.TweetEvent{
-				TweetID:      tweet.ID,
-				Text:         tweet.Text,
-				AuthorHandle: tweet.AuthorHandle,
-				RuleIDs:      ruleIDs,
-			})
-			count += worker.PushInitialTasksForGraph(
-				r.Context(), s.store, s.producer, s.actionCache,
-				graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
-			)
 		}
-	}
 
-	writeJSON(w, http.StatusAccepted, map[string]any{"queued": count})
+		// Push tasks: for each active trigger link, select eligible tweets and dispatch.
+		count := 0
+		seenTweetIDs := make(map[string]struct{})
+
+		for _, link := range links {
+			filter := store.TweetFilter{Page: 1, PerPage: 5000}
+			switch link.TriggerType {
+			case "new_tweet", "new_categorization":
+				// all tweets
+			case "entity_matched":
+				filter.HasEntityTrack = true
+			default:
+				continue
+			}
+
+			tweets, err := s.store.ListTweets(ctx, filter)
+			if err != nil {
+				s.logger.Error("api: run pipeline: list tweets", "trigger", link.TriggerType, "error", err)
+				continue
+			}
+
+			for _, tweet := range tweets {
+				if _, seen := seenTweetIDs[tweet.ID]; seen {
+					continue
+				}
+				seenTweetIDs[tweet.ID] = struct{}{}
+
+				if newOnly {
+					if _, done := executedIDs[tweet.ID]; done {
+						continue
+					}
+				}
+				ruleIDs, _ := s.store.ListTweetRuleIDs(ctx, tweet.ID)
+				evPayload, _ := json.Marshal(queue.TweetEvent{
+					TweetID:      tweet.ID,
+					Text:         tweet.Text,
+					AuthorHandle: tweet.AuthorHandle,
+					RuleIDs:      ruleIDs,
+				})
+				count += worker.PushInitialTasksForGraph(
+					ctx, s.store, s.producer, s.actionCache,
+					graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
+				)
+			}
+		}
+
+		s.logger.Info("api: run pipeline: background dispatch complete", "pipeline_id", id, "queued", count)
+	}()
 }
 
 // handleListActionHandlers returns the registered internal action handler names.
@@ -440,4 +449,20 @@ func detectPipelineCycle(ctx context.Context, st store.Store, pipelineID int64, 
 		}
 	}
 	return false, nil
+}
+
+// handleBulkDeletePipelines DELETE /api/pipelines
+func (s *Server) handleBulkDeletePipelines(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeletePipelinesFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeletePipelines(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete pipelines", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete pipelines")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }

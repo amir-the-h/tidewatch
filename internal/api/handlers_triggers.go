@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
 func (s *Server) handleListTriggers(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +49,7 @@ func (s *Server) handleCreateTriggerPipelineLink(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "trigger_type and pipeline_id are required")
 		return
 	}
-	l := &model.TriggerPipelineLink{TriggerType: req.TriggerType, PipelineID: req.PipelineID}
+	l := &model.TriggerPipelineLink{TriggerType: req.TriggerType, PipelineID: req.PipelineID, Active: true}
 	if err := s.store.SaveTriggerPipelineLink(r.Context(), l); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -102,4 +103,20 @@ func (s *Server) handleDeactivateTriggerPipelineLink(w http.ResponseWriter, r *h
 		s.broadcastEvent("trigger_links", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBulkDeleteTriggerPipelineLinks DELETE /api/triggers/links
+func (s *Server) handleBulkDeleteTriggerPipelineLinks(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteTriggerPipelineLinksFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteTriggerPipelineLinks(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete trigger pipeline links", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete trigger pipeline links")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }
