@@ -1810,6 +1810,94 @@ func (s *sqliteStore) DeleteEntityCandidate(ctx context.Context, id int64) error
 	return nil
 }
 
+func (s *sqliteStore) BulkDeleteEntityCandidates(ctx context.Context, f BulkDeleteEntityCandidatesFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, f.Status)
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+	if f.AutoPromoted != nil {
+		clauses = append(clauses, "auto_promoted = ?")
+		args = append(args, boolToInt(*f.AutoPromoted))
+	}
+	if f.MinConfidence != nil {
+		clauses = append(clauses, "avg_confidence >= ?")
+		args = append(args, *f.MinConfidence)
+	}
+	if f.MaxConfidence != nil {
+		clauses = append(clauses, "avg_confidence <= ?")
+		args = append(args, *f.MaxConfidence)
+	}
+	if f.MinOccurrences != nil {
+		clauses = append(clauses, "occurrence_count >= ?")
+		args = append(args, *f.MinOccurrences)
+	}
+	if f.MaxOccurrences != nil {
+		clauses = append(clauses, "occurrence_count <= ?")
+		args = append(args, *f.MaxOccurrences)
+	}
+
+	query := "DELETE FROM entity_candidates"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete entity candidates: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// Stub implementations for other BulkDelete methods (Tasks 3-8, 11)
+func (s *sqliteStore) BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteTrackedEntities(ctx context.Context, f BulkDeleteTrackedEntitiesFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSearchJobsFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteActions(ctx context.Context, f BulkDeleteActionsFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeletePipelines(ctx context.Context, f BulkDeletePipelinesFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteTriggerPipelineLinks(ctx context.Context, f BulkDeleteTriggerPipelineLinksFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteNotificationProviders(ctx context.Context, f BulkDeleteNotificationProvidersFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteNotificationChannels(ctx context.Context, f BulkDeleteNotificationChannelsFilter) (int64, error) {
+	panic("not implemented")
+}
+func (s *sqliteStore) BulkDeleteOllamaBackends(ctx context.Context, f BulkDeleteOllamaBackendsFilter) (int64, error) {
+	panic("not implemented")
+}
+
 // scanEntityCandidate scans a single entity_candidates row from rows or a row.
 func scanEntityCandidate(row scanner) (*model.EntityCandidate, error) {
 	var c model.EntityCandidate

@@ -814,3 +814,132 @@ func TestGetEntityConnectionSubgraph_EntityWithNoConnectionsReturnsEmpty(t *test
 		t.Fatalf("want empty slice, got %d", len(conns))
 	}
 }
+
+// ── BulkDeleteEntityCandidates ───────────────────────────────────────────────
+
+func seedCandidate(t *testing.T, s Store, word, typ, status string, conf float64) *model.EntityCandidate {
+	t.Helper()
+	c := &model.EntityCandidate{
+		Word:          word,
+		Type:          typ,
+		AvgConfidence: conf,
+		Sources:       []string{"test"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(context.Background(), c); err != nil {
+		t.Fatalf("UpsertEntityCandidate(%q): %v", word, err)
+	}
+	// Update status if it's not "pending" (UpsertEntityCandidate always sets to "pending")
+	if status != "pending" {
+		if err := s.UpdateEntityCandidateStatus(context.Background(), c.ID, status, nil, false); err != nil {
+			t.Fatalf("UpdateEntityCandidateStatus(%q): %v", word, err)
+		}
+		c.Status = status
+	} else {
+		c.Status = "pending"
+	}
+	return c
+}
+
+func TestBulkDeleteEntityCandidates_All(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.8)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	pending := "pending"
+	count, _ := s.CountEntityCandidates(context.Background(), EntityCandidateFilter{Status: &pending})
+	if count != 0 {
+		t.Errorf("expected 0 remaining, got %d", count)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	c1 := seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.8)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{IDs: []int64{c1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	// c2 must still exist
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("c2 should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByStatus(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "promoted", 0.95)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{Status: "pending"})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	// promoted must survive
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("promoted candidate should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByType(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.8)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{Type: "I-LOC"})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("I-PER candidate should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByConfidenceRange(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.3)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.9)
+
+	maxConf := 0.5
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{MaxConfidence: &maxConf})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("high-confidence candidate should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_NoMatch(t *testing.T) {
+	s := newTestStore(t)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{Status: "pending"})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 deleted, got %d", n)
+	}
+}
