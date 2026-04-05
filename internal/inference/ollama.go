@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
 )
 
 const (
@@ -81,6 +83,24 @@ func (b *ollamaBackend) updateScore(tokensPerSec float64) {
 type ollamaEval struct {
 	EvalCount    int   `json:"eval_count"`
 	EvalDuration int64 `json:"eval_duration"` // nanoseconds
+}
+
+// ollamaAgentMsg is the message format for AgentStream requests/responses.
+type ollamaAgentMsg struct {
+	Role      string             `json:"role"`
+	Content   string             `json:"content,omitempty"`
+	ToolCalls []ollamaAgentTCall `json:"tool_calls,omitempty"`
+}
+
+// ollamaAgentTCall is a single tool call returned by Ollama.
+type ollamaAgentTCall struct {
+	Function ollamaAgentTCallFunc `json:"function"`
+}
+
+// ollamaAgentTCallFunc carries the name and arguments of a tool call.
+type ollamaAgentTCallFunc struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 // OllamaPipeline implements Pipeline by calling one or more locally-running
@@ -656,6 +676,169 @@ func (p *OllamaPipeline) EstimateTokens(ctx context.Context, texts []string) (in
 	}
 }
 
+// AgentStream runs the agentic tool-calling loop. It sends messages + tool
+// definitions to Ollama (stream:false), executes any tool_calls via executor,
+// writes SSE events for each step, and emits the final text as a text_chunk
+// event followed by [DONE].
+//
+// SSE event format:
+//
+//	data: {"type":"tool_call","name":"...","args":{...}}\n\n
+//	data: {"type":"tool_result","name":"...","result":"..."}\n\n
+//	data: {"type":"text_chunk","content":"..."}\n\n
+//	data: [DONE]\n\n
+//
+// On Ollama backend errors the backend is marked unhealthy and a new one is
+// acquired; all previously accumulated tool call history is preserved across
+// retries.
+func (p *OllamaPipeline) AgentStream(
+	ctx context.Context,
+	messages []ChatMessage,
+	tools []mcpserver.OllamaTool,
+	executor ToolExecutor,
+	w io.Writer,
+) error {
+	type agentChatReq struct {
+		Model    string                 `json:"model"`
+		Messages []ollamaAgentMsg       `json:"messages"`
+		Tools    []mcpserver.OllamaTool `json:"tools,omitempty"`
+		Stream   bool                   `json:"stream"`
+	}
+	type agentChatResp struct {
+		Message ollamaAgentMsg `json:"message"`
+		Done    bool           `json:"done"`
+	}
+
+	flusher, canFlush := w.(interface{ Flush() })
+	emit := func(event map[string]any) {
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+
+	// Build initial message history with system message prepended.
+	systemContent := OllamaChatSystem
+	if p.systemPrompt != "" {
+		systemContent = p.systemPrompt
+	}
+	msgs := make([]ollamaAgentMsg, 0, len(messages)+1)
+	msgs = append(msgs, ollamaAgentMsg{Role: "system", Content: systemContent})
+	for _, m := range messages {
+		msgs = append(msgs, ollamaAgentMsg{Role: m.Role, Content: m.Content})
+	}
+
+	for { // backend retry loop
+		b, err := p.acquire(ctx)
+		if err != nil {
+			return fmt.Errorf("inference: ollama: agent stream: acquire: %w", err)
+		}
+
+		if err := p.ensureLoaded(b); err != nil {
+			if isBackendError(err) {
+				p.pool.MarkUnhealthy(b)
+				continue
+			}
+			p.pool.Release(b)
+			return fmt.Errorf("inference: ollama: agent stream: ensure loaded: %w", err)
+		}
+
+		var loopErr error
+		for { // tool-calling loop on this backend
+			reqBody, err := json.Marshal(agentChatReq{
+				Model:    p.model,
+				Messages: msgs,
+				Tools:    tools,
+				Stream:   false,
+			})
+			if err != nil {
+				loopErr = fmt.Errorf("inference: ollama: agent: marshal: %w", err)
+				break
+			}
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(reqBody))
+			if err != nil {
+				loopErr = fmt.Errorf("inference: ollama: agent: build request: %w", err)
+				break
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := b.client.Do(req)
+			if err != nil {
+				loopErr = err
+				break
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				raw, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				loopErr = &ollamaHTTPError{statusCode: resp.StatusCode, body: string(raw)}
+				break
+			}
+
+			var chatResp agentChatResp
+			if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+				resp.Body.Close()
+				loopErr = fmt.Errorf("inference: ollama: agent: decode: %w", err)
+				break
+			}
+			resp.Body.Close()
+
+			if len(chatResp.Message.ToolCalls) == 0 {
+				// No tool calls: emit the final text and finish.
+				emit(map[string]any{"type": "text_chunk", "content": chatResp.Message.Content})
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				if canFlush {
+					flusher.Flush()
+				}
+				p.pool.Release(b)
+				return nil
+			}
+
+			// Append assistant message (with tool_calls) to history.
+			msgs = append(msgs, chatResp.Message)
+
+			// Execute each tool call.
+			for _, tc := range chatResp.Message.ToolCalls {
+				emit(map[string]any{
+					"type": "tool_call",
+					"name": tc.Function.Name,
+					"args": tc.Function.Arguments,
+				})
+
+				result, execErr := executor.Execute(ctx, tc.Function.Name, tc.Function.Arguments)
+				if execErr != nil {
+					result = fmt.Sprintf("error: %v", execErr)
+				}
+				const maxResultBytes = 8 * 1024
+				if len(result) > maxResultBytes {
+					result = result[:maxResultBytes] + "[truncated]"
+				}
+
+				emit(map[string]any{
+					"type":   "tool_result",
+					"name":   tc.Function.Name,
+					"result": result,
+				})
+
+				msgs = append(msgs, ollamaAgentMsg{Role: "tool", Content: result})
+			}
+			// Loop back: send updated conversation to Ollama.
+		}
+
+		// loopErr is set — decide whether to retry with a new backend.
+		if loopErr != nil {
+			if isBackendError(loopErr) {
+				p.pool.MarkUnhealthy(b)
+				continue
+			}
+			p.pool.Release(b)
+			return loopErr
+		}
+	}
+}
+
 // getContextLimit queries Ollama's /api/show on the given backend for the
 // model's context window size. Falls back to 8192 if unavailable.
 func (p *OllamaPipeline) getContextLimit(ctx context.Context, b *ollamaBackend) int {
@@ -727,10 +910,8 @@ func (p *OllamaPipeline) tokenize(ctx context.Context, b *ollamaBackend, text st
 	return len(result.Tokens), nil
 }
 
-// OllamaChatSystem is the system prompt for interactive chat sessions over tweets.
-const OllamaChatSystem = `You are an intelligence analyst specialising in Iran. You have been provided with a set of tweets from open-source monitoring as context.
-
-Answer questions about these tweets accurately and concisely. If a question cannot be answered from the provided tweets, say so clearly. Do not fabricate information not present in the tweets.`
+// OllamaChatSystem is the default system prompt for the agentic chat assistant.
+const OllamaChatSystem = `You are an intelligent assistant for the iran-watcher monitoring application. You have tools to query and manage all aspects of the system — tweets, rules, pipelines, actions, tracked entities, and more. Use your tools to look up information before answering. Be concise and accurate.`
 
 // Summarize calls Ollama with a summarization prompt over the given text.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries.
