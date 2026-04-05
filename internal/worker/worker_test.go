@@ -273,6 +273,9 @@ func (m *mockStore) ListActions(_ context.Context, _ store.ActionFilter) ([]*mod
 }
 func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error    { return nil }
 func (m *mockStore) DeleteAction(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) BulkDeleteActions(_ context.Context, _ store.BulkDeleteActionsFilter) (int64, error) {
+	return 0, nil
+}
 func (m *mockStore) SetActionActive(_ context.Context, _ int64, _ bool) error { return nil }
 
 // ActionExecutions
@@ -340,6 +343,39 @@ func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityCon
 func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return nil }
 func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
 	return []*model.EntityConnection{}, nil
+}
+func (m *mockStore) BulkDeleteSources(_ context.Context, _ store.BulkDeleteSourcesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteRules(_ context.Context, _ store.BulkDeleteRulesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteNotificationProviders(_ context.Context, _ store.BulkDeleteNotificationProvidersFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteNotificationChannels(_ context.Context, _ store.BulkDeleteNotificationChannelsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteTrackedEntities(_ context.Context, _ store.BulkDeleteTrackedEntitiesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteEntityCandidates(_ context.Context, _ store.BulkDeleteEntityCandidatesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSearchJobsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeletePipelines(_ context.Context, _ store.BulkDeletePipelinesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteTriggerPipelineLinks(_ context.Context, _ store.BulkDeleteTriggerPipelineLinksFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteOllamaBackends(_ context.Context, _ store.BulkDeleteOllamaBackendsFilter) (int64, error) {
+	return 0, nil
 }
 func (m *mockStore) Close() error { return nil }
 
@@ -629,6 +665,25 @@ func (b *blockPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[s
 	return map[string]any{"label": "test"}, nil
 }
 
+// ctxBlockPipeline blocks Run until ctx is cancelled, then returns ctx.Err().
+type ctxBlockPipeline struct {
+	name    string
+	started chan struct{} // receives a value when Run begins
+}
+
+func (c *ctxBlockPipeline) Name() string                 { return c.name }
+func (c *ctxBlockPipeline) Type() inference.PipelineType { return inference.PipelineTypeONNX }
+func (c *ctxBlockPipeline) Load(_ string) error          { return nil }
+func (c *ctxBlockPipeline) Close() error                 { return nil }
+func (c *ctxBlockPipeline) Run(ctx context.Context, _ inference.PipelineInput) (map[string]any, error) {
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 // ── enrichContext tests ───────────────────────────────────────────────────────
 
 func TestEnrichContext_ZeroShot_TopLabel(t *testing.T) {
@@ -721,4 +776,46 @@ func TestPushContinuationTasks_PipelineNode(t *testing.T) {
 	t.Skip("implement after store + pipeline.go exist")
 	_ = ctx
 	_ = prod
+}
+
+func TestManager_Flush_CancelsActiveWorkers(t *testing.T) {
+	started := make(chan struct{}, 1)
+	pipe := &ctxBlockPipeline{name: "block", started: started}
+
+	action := &model.Action{ID: 1, Name: "block", Active: true}
+	cache := buildCacheWithEntries(map[int64]*CacheEntry{
+		1: {Action: action, Pipeline: pipe},
+	})
+
+	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, "tweet-flush")}}
+	mgr := NewManager(2, consumer, &mockProducer{}, &mockStore{}, cache, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = mgr.Start(ctx) }()
+
+	// Wait for the pipeline to start blocking.
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pipeline did not start within 2s")
+	}
+
+	// Flush should cancel the in-flight task.
+	n := mgr.Flush()
+	if n != 1 {
+		t.Errorf("Flush() returned %d, want 1", n)
+	}
+
+	// Give the worker a moment to finish cleanup.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		if int(mgr.active.Load()) == 0 {
+			break
+		}
+	}
+	if mgr.active.Load() != 0 {
+		t.Errorf("expected 0 active workers after Flush, got %d", mgr.active.Load())
+	}
 }

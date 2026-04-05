@@ -30,6 +30,7 @@ type Manager struct {
 	logger             *slog.Logger
 	active             atomic.Int32
 	workerActions      sync.Map // key: int (worker ID), value: WorkerInfo
+	workerCancels      sync.Map // key: int (worker ID), value: context.CancelFunc
 	completionTrackers sync.Map // key: int64 (action_id), value: *rateTracker
 }
 
@@ -171,7 +172,15 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		if task == nil {
 			continue
 		}
-		m.processTask(ctx, id, task)
+		func() {
+			taskCtx, taskCancel := context.WithCancel(ctx)
+			m.workerCancels.Store(id, taskCancel)
+			defer func() {
+				taskCancel()
+				m.workerCancels.Delete(id)
+			}()
+			m.processTask(taskCtx, id, task)
+		}()
 	}
 }
 
@@ -529,8 +538,21 @@ func (m *Manager) emitDigestEvent(job *model.DigestJob, pipelineName string) {
 	})
 }
 
-// Flush and FlushPipeline are no-ops in the simplified model.
-func (m *Manager) Flush() int                 { return 0 }
+// Flush cancels the context of every worker that is currently executing a
+// task. Workers blocked in BRPOP (idle) are unaffected. Returns the number
+// of in-flight tasks that were cancelled.
+func (m *Manager) Flush() int {
+	n := 0
+	m.workerCancels.Range(func(_, v any) bool {
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
+		}
+		n++
+		return true
+	})
+	return n
+}
+
 func (m *Manager) FlushPipeline(_ string) int { return 0 }
 
 // decodeMetaValue JSON-decodes a DB-stored metadata value so it can be used
