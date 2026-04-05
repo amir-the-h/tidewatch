@@ -176,9 +176,14 @@ function truncateResult(result: string): string {
             }"
           >
             <span v-if="m.content">{{ m.content }}</span>
-            <!-- Streaming cursor -->
+            <!-- Spinner while waiting for first chunk (no content yet) -->
+            <n-spin
+              v-if="!m.content && m.role === 'assistant' && store.isStreaming && i === store.messages.length - 1"
+              size="small"
+            />
+            <!-- Streaming cursor (shown after first token arrives) -->
             <span
-              v-if="store.isStreaming && i === store.messages.length - 1 && m.role === 'assistant'"
+              v-else-if="m.content && store.isStreaming && i === store.messages.length - 1 && m.role === 'assistant'"
               style="
                 display: inline-block;
                 width: 2px; height: 14px;
@@ -187,11 +192,6 @@ function truncateResult(result: string): string {
                 vertical-align: text-bottom;
                 animation: blink 1s step-end infinite;
               "
-            />
-            <!-- Spinner while waiting for first chunk (no content yet) -->
-            <n-spin
-              v-else-if="!m.content && m.role === 'assistant' && store.isStreaming && i === store.messages.length - 1"
-              size="small"
             />
           </div>
         </div>
