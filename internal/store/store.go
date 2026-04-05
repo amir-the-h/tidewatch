@@ -117,7 +117,7 @@ type BulkDeleteRulesFilter struct {
 type BulkDeleteSourcesFilter struct {
 	IDs    []int64
 	Active *bool
-	Type   string
+	Type   model.SourceType
 }
 
 // BulkDeletePipelinesFilter defines filters for bulk-deleting pipelines.
@@ -156,7 +156,7 @@ type BulkDeleteEntityCandidatesFilter struct {
 type BulkDeleteActionsFilter struct {
 	IDs    []int64
 	Active *bool
-	Type   string
+	Type   model.ActionType
 }
 
 // BulkDeleteOllamaBackendsFilter defines filters for bulk-deleting Ollama backends.
@@ -182,13 +182,13 @@ type BulkDeleteNotificationChannelsFilter struct {
 // BulkDeleteSearchJobsFilter defines filters for bulk-deleting search jobs.
 type BulkDeleteSearchJobsFilter struct {
 	IDs    []string
-	Status string
+	Status model.SearchJobStatus
 }
 
 // BulkDeleteDigestJobsFilter defines filters for bulk-deleting digest jobs.
 type BulkDeleteDigestJobsFilter struct {
 	IDs    []string
-	Status string
+	Status model.DigestStatus
 }
 
 // Store is the repository interface for all persistent data.
@@ -365,10 +365,9 @@ type Store interface {
 	// no metadata rows are included with an empty Metadata map.
 	ListTweetActionSummaries(ctx context.Context, tweetID string) ([]TweetActionSummary, error)
 	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
-	// DeleteActionExecutions deletes execution records and their metadata.
-	// All parameters are optional: if actionIDs is set, only those actions are
-	// affected; if tweetIDs is set, only those tweets are affected; if both are
-	// empty, all executions are deleted.
+	// DeleteActionExecutions deletes all execution records and their metadata for
+	// the given tweets. If actionIDs is non-empty, only executions for those actions
+	// are deleted. Returns the count of deleted execution rows.
 	DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error)
 
 	// TwitterCredentials
