@@ -1,12 +1,23 @@
 package mcpserver
 
-import "github.com/amir-the-h/iran-watcher/internal/inference"
+// OllamaTool describes one function tool in Ollama's JSON Schema format.
+type OllamaTool struct {
+	Type     string         `json:"type"` // always "function"
+	Function OllamaToolFunc `json:"function"`
+}
+
+// OllamaToolFunc is the function definition within an OllamaTool.
+type OllamaToolFunc struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"` // JSON Schema object
+}
 
 // BuildOllamaTools converts all registered ToolDefs to Ollama's JSON Schema
 // tool format. Called at request time by the chat handler.
-func BuildOllamaTools() []inference.OllamaTool {
+func BuildOllamaTools() []OllamaTool {
 	all := AllTools()
-	out := make([]inference.OllamaTool, 0, len(all))
+	out := make([]OllamaTool, 0, len(all))
 	for _, td := range all {
 		out = append(out, toolDefToOllama(td))
 	}
@@ -24,7 +35,7 @@ func init() {
 	}
 }
 
-func toolDefToOllama(td ToolDef) inference.OllamaTool {
+func toolDefToOllama(td ToolDef) OllamaTool {
 	props := map[string]interface{}{}
 	var required []string
 
@@ -56,9 +67,9 @@ func toolDefToOllama(td ToolDef) inference.OllamaTool {
 		params["required"] = required
 	}
 
-	return inference.OllamaTool{
+	return OllamaTool{
 		Type: "function",
-		Function: inference.OllamaToolFunc{
+		Function: OllamaToolFunc{
 			Name:        td.Name,
 			Description: td.Description,
 			Parameters:  params,
