@@ -239,3 +239,88 @@ func TestDeleteActionExecutions_MetadataAlsoCleaned(t *testing.T) {
 		t.Errorf("expected 0 metadata rows after delete, got %d", len(meta))
 	}
 }
+
+// ── BulkDeleteActions ────────────────────────────────────────────────────────
+
+func TestBulkDeleteActions_All(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	a1 := sampleAction()
+	a1.Name = "action-1"
+	if err := s.SaveAction(ctx, a1); err != nil {
+		t.Fatalf("SaveAction a1: %v", err)
+	}
+	a2 := sampleAction()
+	a2.Name = "action-2"
+	if err := s.SaveAction(ctx, a2); err != nil {
+		t.Fatalf("SaveAction a2: %v", err)
+	}
+
+	n, err := s.BulkDeleteActions(ctx, BulkDeleteActionsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteActions: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	actions, _ := s.ListActions(ctx, ActionFilter{})
+	if len(actions) != 0 {
+		t.Errorf("expected 0 actions remaining, got %d", len(actions))
+	}
+}
+
+func TestBulkDeleteActions_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	a1 := sampleAction()
+	a1.Name = "action-1"
+	if err := s.SaveAction(ctx, a1); err != nil {
+		t.Fatalf("SaveAction a1: %v", err)
+	}
+	a2 := sampleAction()
+	a2.Name = "action-2"
+	if err := s.SaveAction(ctx, a2); err != nil {
+		t.Fatalf("SaveAction a2: %v", err)
+	}
+
+	n, err := s.BulkDeleteActions(ctx, BulkDeleteActionsFilter{IDs: []int64{a1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteActions: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	actions, _ := s.ListActions(ctx, ActionFilter{})
+	if len(actions) != 1 || actions[0].ID != a2.ID {
+		t.Errorf("expected only a2 remaining")
+	}
+}
+
+func TestBulkDeleteActions_ByType(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	a1 := sampleAction() // type = model.ActionTypeInternal
+	a1.Name = "internal-action"
+	if err := s.SaveAction(ctx, a1); err != nil {
+		t.Fatalf("SaveAction a1: %v", err)
+	}
+	a2 := sampleAction()
+	a2.Name = "onnx-action"
+	a2.Type = model.ActionTypeONNX
+	a2.Config = []byte(`{"model":"test"}`)
+	if err := s.SaveAction(ctx, a2); err != nil {
+		t.Fatalf("SaveAction a2: %v", err)
+	}
+
+	n, err := s.BulkDeleteActions(ctx, BulkDeleteActionsFilter{Type: model.ActionTypeInternal})
+	if err != nil {
+		t.Fatalf("BulkDeleteActions: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	actions, _ := s.ListActions(ctx, ActionFilter{})
+	if len(actions) != 1 || actions[0].ID != a2.ID {
+		t.Errorf("expected only ONNX action remaining")
+	}
+}

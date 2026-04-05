@@ -2020,10 +2020,7 @@ func (s *sqliteStore) BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSear
 	return n, nil
 }
 
-// Stub implementations for remaining BulkDelete methods (Tasks 5-8).
-func (s *sqliteStore) BulkDeleteActions(ctx context.Context, f BulkDeleteActionsFilter) (int64, error) {
-	panic("not implemented")
-}
+// Stub implementations for remaining BulkDelete methods (Tasks 6-8).
 func (s *sqliteStore) BulkDeletePipelines(ctx context.Context, f BulkDeletePipelinesFilter) (int64, error) {
 	panic("not implemented")
 }
