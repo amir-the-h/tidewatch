@@ -104,6 +104,15 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
 		},
 		{
+			Name:        "rules_bulk_delete",
+			Description: "Bulk-delete rules. All filters optional — omit all to delete every rule. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/rules",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), local (bool, optional). All optional.",
+			},
+		},
+		{
 			Name:        "rules_activate",
 			Description: "Activate a rule (pushes to X filtered stream if non-local).",
 			Method:      "POST",
@@ -150,6 +159,15 @@ func AllTools() []ToolDef {
 			Method:      "DELETE",
 			Path:        "/api/sources/{id}",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Source ID", Required: true}},
+		},
+		{
+			Name:        "sources_bulk_delete",
+			Description: "Bulk-delete sources. All filters optional — omit all to delete every source. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/sources",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string, optional). All optional.",
+			},
 		},
 		{
 			Name:        "sources_deactivate",
@@ -258,6 +276,15 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
 		},
 		{
+			Name:        "tracked_entities_bulk_delete",
+			Description: "Bulk-delete tracked entities. All filters optional — omit all to delete every tracked entity. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/tracked-entities",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string, optional). All optional.",
+			},
+		},
+		{
 			Name:        "tracked_entities_activate",
 			Description: "Activate a tracked entity.",
 			Method:      "POST",
@@ -348,6 +375,16 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Candidate ID", Required: true}},
 		},
 
+		{
+			Name:        "entity_candidates_bulk_delete",
+			Description: "Bulk-delete entity candidates. All filters optional — omit all to delete every candidate. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/entity-candidates",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), status (string: pending/promoted/rejected, optional), type (string: I-PER/I-LOC/I-ORG/I-MISC, optional), auto_promoted (bool, optional), min_confidence (float, optional), max_confidence (float, optional), min_occurrences (int, optional), max_occurrences (int, optional). All optional.",
+			},
+		},
+
 		// ── Entity Connections ───────────────────────────────────────────────
 		{
 			Name:        "entity_connections_list",
@@ -412,6 +449,15 @@ func AllTools() []ToolDef {
 			Method:      "DELETE",
 			Path:        "/api/pipelines/{id}",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+		},
+		{
+			Name:        "pipelines_bulk_delete",
+			Description: "Bulk-delete pipelines. All filters optional — omit all to delete every pipeline. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/pipelines",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional). All optional.",
+			},
 		},
 		{
 			Name:        "pipelines_activate",
@@ -485,6 +531,15 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Link ID", Required: true}},
 		},
 		{
+			Name:        "triggers_links_bulk_delete",
+			Description: "Bulk-delete trigger-to-pipeline links. All filters optional — omit all to delete every link. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/triggers/links",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), pipeline_id (int, optional), trigger_type (string, optional). All optional.",
+			},
+		},
+		{
 			Name:        "triggers_links_activate",
 			Description: "Activate a trigger-to-pipeline link.",
 			Method:      "POST",
@@ -542,6 +597,15 @@ func AllTools() []ToolDef {
 			Method:      "DELETE",
 			Path:        "/api/actions/{id}",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+		},
+		{
+			Name:        "actions_bulk_delete",
+			Description: "Bulk-delete actions. All filters optional — omit all to delete every action. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/actions",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string: onnx/ollama/internal, optional). All optional.",
+			},
 		},
 		{
 			Name:        "actions_activate",
@@ -607,11 +671,11 @@ func AllTools() []ToolDef {
 		},
 		{
 			Name:        "executions_delete",
-			Description: "Delete executions for specified tweet IDs, optionally filtered to specific action IDs.",
+			Description: "Bulk-delete execution records and their metadata. All filters are optional: omit all to delete every execution. Supply action_ids to scope to specific actions, pipeline_id to scope to all actions in a pipeline, tweet_ids to scope to specific tweets, or any combination.",
 			Method:      "DELETE",
 			Path:        "/api/executions",
 			Body: &BodyDef{
-				Description: "Object with fields: tweet_ids (array of strings, required), action_ids (array of integers, optional).",
+				Description: "Object with optional fields: tweet_ids (array of strings), action_ids (array of integers), pipeline_id (integer). If all are omitted, all executions are deleted.",
 			},
 		},
 
@@ -676,6 +740,15 @@ func AllTools() []ToolDef {
 			Method:      "DELETE",
 			Path:        "/api/ollama/backends/{id}",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Backend ID", Required: true}},
+		},
+		{
+			Name:        "ollama_backends_bulk_delete",
+			Description: "Bulk-delete Ollama backends. All filters optional — omit all to delete every backend. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/ollama/backends",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), enabled (bool, optional). All optional.",
+			},
 		},
 		{
 			Name:        "ollama_backends_enable",
@@ -750,6 +823,16 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Search job ID", Required: true}},
 		},
 
+		{
+			Name:        "search_jobs_bulk_delete",
+			Description: "Bulk-delete search jobs. All filters optional — omit all to delete every search job. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/search",
+			Body: &BodyDef{
+				Description: "ids ([]string, optional), status (string: pending/done/error, optional). All optional.",
+			},
+		},
+
 		// ── Summaries ────────────────────────────────────────────────────────
 		{
 			Name:        "summaries_list",
@@ -793,6 +876,16 @@ func AllTools() []ToolDef {
 			Method:      "DELETE",
 			Path:        "/api/digest/{id}",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Digest job ID", Required: true}},
+		},
+
+		{
+			Name:        "digest_bulk_delete",
+			Description: "Bulk-delete digest jobs. All filters optional — omit all to delete every digest job. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/digest",
+			Body: &BodyDef{
+				Description: "ids ([]string, optional), status (string: pending/done/error, optional). All optional.",
+			},
 		},
 
 		// ── Chat ─────────────────────────────────────────────────────────────
@@ -870,6 +963,15 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Provider ID", Required: true}},
 		},
 		{
+			Name:        "notification_providers_bulk_delete",
+			Description: "Bulk-delete notification providers. All filters optional — omit all to delete every provider. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/notification-providers",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string: pushover/telegram, optional). All optional.",
+			},
+		},
+		{
 			Name:        "notification_providers_activate",
 			Description: "Activate a notification provider.",
 			Method:      "POST",
@@ -923,6 +1025,15 @@ func AllTools() []ToolDef {
 			Method:      "DELETE",
 			Path:        "/api/notification-channels/{id}",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Channel ID", Required: true}},
+		},
+		{
+			Name:        "notification_channels_bulk_delete",
+			Description: "Bulk-delete notification channels. All filters optional — omit all to delete every channel. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/notification-channels",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), provider_id (int, optional). All optional.",
+			},
 		},
 		{
 			Name:        "notification_channels_activate",
