@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,10 +35,27 @@ func (lw *lockedWriter) Flush() {
 	}
 }
 
+// handleChatTools returns all available MCP tool names and descriptions.
+//
+// GET /api/chat/tools
+// Response: [{"name":"...","description":"..."}]
+func (s *Server) handleChatTools(w http.ResponseWriter, r *http.Request) {
+	all := mcpserver.AllTools()
+	type toolInfo struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	out := make([]toolInfo, len(all))
+	for i, td := range all {
+		out[i] = toolInfo{Name: td.Name, Description: td.Description}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // handleChatStream runs the agentic chat loop and streams events as SSE.
 //
 // POST /api/chat/stream
-// Body: { "messages": [{"role":"user","content":"..."}] }
+// Body: { "action_id": "123", "messages": [{"role":"user","content":"..."}] }
 // Response: text/event-stream
 //
 // Event types:
@@ -51,11 +69,6 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "action cache not available")
 		return
 	}
-	cp := s.findChatPipeline()
-	if cp == nil {
-		writeError(w, http.StatusUnprocessableEntity, "no active chat-capable model (requires an active Ollama action)")
-		return
-	}
 	if s.toolExec == nil {
 		writeError(w, http.StatusServiceUnavailable, "tool executor not configured")
 		return
@@ -63,6 +76,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 	// Decode and validate request before committing to SSE response.
 	var req struct {
+		ActionID string                  `json:"action_id"`
 		Messages []inference.ChatMessage `json:"messages"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -74,7 +88,23 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools := mcpserver.BuildOllamaTools(nil)
+	var actionID int64
+	if req.ActionID != "" {
+		var err error
+		actionID, err = strconv.ParseInt(req.ActionID, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid action_id")
+			return
+		}
+	}
+
+	cp, allowedTools := s.findChatPipeline(actionID)
+	if cp == nil {
+		writeError(w, http.StatusUnprocessableEntity, "no active chat-capable model (requires an active Ollama action)")
+		return
+	}
+
+	tools := mcpserver.BuildOllamaTools(allowedTools)
 
 	// Commit to SSE — no more early returns after this point.
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -111,27 +141,45 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// findChatPipeline returns the active pipeline with usecase=="chat".
-// Falls back to any ChatPipeline if none has that usecase.
-// Uses the action cache (active actions only) so deactivated Ollama pipelines are excluded.
-func (s *Server) findChatPipeline() inference.ChatPipeline {
+// findChatPipeline returns the chat pipeline and its allowed tool list for the
+// given action ID. If actionID is 0, falls back to the first active action with
+// usecase=="chat", then any active ChatPipeline.
+// Returns (nil, nil) if no suitable action is found.
+func (s *Server) findChatPipeline(actionID int64) (inference.ChatPipeline, []string) {
 	if s.actionCache == nil {
-		return nil
+		return nil, nil
 	}
+
+	// Targeted lookup by action ID.
+	if actionID > 0 {
+		e := s.actionCache.Get(actionID)
+		if e == nil {
+			return nil, nil
+		}
+		cp, ok := e.Pipeline.(inference.ChatPipeline)
+		if !ok {
+			return nil, nil
+		}
+		return cp, actionAllowedTools(e.Action.Config)
+	}
+
+	// Fallback: find any active chat action.
 	var fallback inference.ChatPipeline
+	var fallbackTools []string
 	for _, e := range s.actionCache.All() {
 		cp, ok := e.Pipeline.(inference.ChatPipeline)
 		if !ok {
 			continue
 		}
 		if actionUsecase(e.Action.Config) == "chat" {
-			return cp
+			return cp, actionAllowedTools(e.Action.Config)
 		}
 		if fallback == nil {
 			fallback = cp
+			fallbackTools = actionAllowedTools(e.Action.Config)
 		}
 	}
-	return fallback
+	return fallback, fallbackTools
 }
 
 // actionUsecase extracts the "usecase" field from an action's JSON config.
@@ -146,4 +194,19 @@ func actionUsecase(cfg json.RawMessage) string {
 		return ""
 	}
 	return c.Usecase
+}
+
+// actionAllowedTools extracts the "allowed_tools" field from an action's JSON config.
+// Returns nil if absent (meaning all tools are allowed).
+func actionAllowedTools(cfg json.RawMessage) []string {
+	if len(cfg) == 0 {
+		return nil
+	}
+	var c struct {
+		AllowedTools []string `json:"allowed_tools"`
+	}
+	if err := json.Unmarshal(cfg, &c); err != nil {
+		return nil
+	}
+	return c.AllowedTools
 }

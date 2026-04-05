@@ -264,6 +264,7 @@ func NewServer(
 				r.Delete("/digest/{id}", srv.handleDeleteDigest)
 
 				// Chat
+				r.Get("/chat/tools", srv.handleChatTools)
 				r.Post("/chat/stream", srv.handleChatStream)
 
 				// Failures (dead-letter queue)
