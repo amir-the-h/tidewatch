@@ -153,7 +153,7 @@ func (s *Server) findChatPipeline(actionID int64) (inference.ChatPipeline, []str
 	// Targeted lookup by action ID.
 	if actionID > 0 {
 		e := s.actionCache.Get(actionID)
-		if e == nil {
+		if e == nil || !e.Action.Active {
 			return nil, nil
 		}
 		cp, ok := e.Pipeline.(inference.ChatPipeline)
