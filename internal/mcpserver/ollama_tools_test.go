@@ -17,6 +17,13 @@ func TestBuildOllamaTools_EmptyAllowed_ReturnsAll(t *testing.T) {
 	}
 }
 
+func TestBuildOllamaTools_EmptySlice_ReturnsAll(t *testing.T) {
+	tools := mcpserver.BuildOllamaTools([]string{})
+	if len(tools) < 50 {
+		t.Errorf("expected at least 50 tools for empty slice, got %d", len(tools))
+	}
+}
+
 func TestBuildOllamaTools_FilteredAllowed(t *testing.T) {
 	tools := mcpserver.BuildOllamaTools([]string{"tweets_list", "health_get"})
 	if len(tools) != 2 {
