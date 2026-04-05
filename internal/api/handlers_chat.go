@@ -74,7 +74,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools := mcpserver.BuildOllamaTools()
+	tools := mcpserver.BuildOllamaTools(nil)
 
 	// Commit to SSE — no more early returns after this point.
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -111,7 +111,8 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// findChatPipeline prefers the pipeline named "digest"; falls back to any ChatPipeline.
+// findChatPipeline returns the active pipeline with usecase=="chat".
+// Falls back to any ChatPipeline if none has that usecase.
 // Uses the action cache (active actions only) so deactivated Ollama pipelines are excluded.
 func (s *Server) findChatPipeline() inference.ChatPipeline {
 	if s.actionCache == nil {
@@ -123,7 +124,7 @@ func (s *Server) findChatPipeline() inference.ChatPipeline {
 		if !ok {
 			continue
 		}
-		if e.Pipeline.Name() == "digest" {
+		if actionUsecase(e.Action.Config) == "chat" {
 			return cp
 		}
 		if fallback == nil {
@@ -131,4 +132,18 @@ func (s *Server) findChatPipeline() inference.ChatPipeline {
 		}
 	}
 	return fallback
+}
+
+// actionUsecase extracts the "usecase" field from an action's JSON config.
+func actionUsecase(cfg json.RawMessage) string {
+	if len(cfg) == 0 {
+		return ""
+	}
+	var c struct {
+		Usecase string `json:"usecase"`
+	}
+	if err := json.Unmarshal(cfg, &c); err != nil {
+		return ""
+	}
+	return c.Usecase
 }

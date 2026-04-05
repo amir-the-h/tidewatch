@@ -13,13 +13,27 @@ type OllamaToolFunc struct {
 	Parameters  map[string]interface{} `json:"parameters"` // JSON Schema object
 }
 
-// BuildOllamaTools converts all registered ToolDefs to Ollama's JSON Schema
-// tool format. Called at request time by the chat handler.
-func BuildOllamaTools() []OllamaTool {
+// BuildOllamaTools converts registered ToolDefs to Ollama's JSON Schema format.
+// allowed is a list of tool names to include; nil or empty means all tools.
+// Called at request time by the chat handler.
+func BuildOllamaTools(allowed []string) []OllamaTool {
 	all := AllTools()
-	out := make([]OllamaTool, 0, len(all))
+	if len(allowed) == 0 {
+		out := make([]OllamaTool, 0, len(all))
+		for _, td := range all {
+			out = append(out, toolDefToOllama(td))
+		}
+		return out
+	}
+	filter := make(map[string]bool, len(allowed))
+	for _, name := range allowed {
+		filter[name] = true
+	}
+	out := make([]OllamaTool, 0, len(allowed))
 	for _, td := range all {
-		out = append(out, toolDefToOllama(td))
+		if filter[td.Name] {
+			out = append(out, toolDefToOllama(td))
+		}
 	}
 	return out
 }
