@@ -1112,3 +1112,45 @@ func TestBulkDeleteTrackedEntities_ByType(t *testing.T) {
 		t.Errorf("expected only ORG entity remaining, e1.ID=%d", e1.ID)
 	}
 }
+
+func TestBulkDeleteSources_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	src1 := sampleSource()
+	src1.Name = "src-1"
+	_ = s.SaveSource(ctx, src1)
+	src2 := sampleSource()
+	src2.Name = "src-2"
+	_ = s.SaveSource(ctx, src2)
+
+	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{IDs: []int64{src1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteSources: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	if len(srcs) != 1 || srcs[0].ID != src2.ID {
+		t.Errorf("expected only src2 remaining")
+	}
+}
+
+func TestBulkDeleteTrackedEntities_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	e1 := seedTrackedEntity(t, s, "Tehran")
+	e2 := seedTrackedEntity(t, s, "Rouhani")
+
+	n, err := s.BulkDeleteTrackedEntities(ctx, BulkDeleteTrackedEntitiesFilter{IDs: []int64{e1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteTrackedEntities: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	entities, _ := s.ListTrackedEntities(ctx, TrackedEntityFilter{})
+	if len(entities) != 1 || entities[0].ID != e2.ID {
+		t.Errorf("expected only e2 remaining")
+	}
+}
