@@ -8,21 +8,38 @@ export interface ChatMessage {
   content: string
 }
 
+export interface ChatToolInfo {
+  name: string
+  description: string
+}
+
 export type ChatEvent =
   | { type: 'tool_call'; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; name: string; result: string }
   | { type: 'text_chunk'; content: string }
   | { type: 'error'; message: string }
 
+/** Returns all available MCP tool names and descriptions. */
+export async function listChatTools(): Promise<ChatToolInfo[]> {
+  const token = localStorage.getItem('iran_watcher_token')
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(`${apiBase}/api/chat/tools`, { headers })
+  if (!res.ok) throw new Error(`Failed to load tools: ${res.statusText}`)
+  return res.json()
+}
+
 /**
  * Streams an agentic chat response via SSE (POST /api/chat/stream).
  * Returns an AbortController; call .abort() to cancel mid-stream.
  *
+ * actionId: ID of the chat action to use. Empty string = server fallback.
  * onEvent is called for each parsed ChatEvent.
  * onDone is called once the [DONE] sentinel is received.
  * onError is called on network or server errors (not on abort).
  */
 export function streamChat(
+  actionId: string,
   messages: ChatMessage[],
   onEvent: (event: ChatEvent) => void,
   onDone: () => void,
@@ -36,10 +53,13 @@ export function streamChat(
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
+      const body: Record<string, unknown> = { messages }
+      if (actionId) body['action_id'] = actionId
+
       const res = await fetch(`${apiBase}/api/chat/stream`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       })
 
@@ -49,8 +69,8 @@ export function streamChat(
         return
       }
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: res.statusText }))
-        throw new Error((body as any).error ?? res.statusText)
+        const b = await res.json().catch(() => ({ error: res.statusText }))
+        throw new Error((b as any).error ?? res.statusText)
       }
 
       const reader = res.body!.getReader()
