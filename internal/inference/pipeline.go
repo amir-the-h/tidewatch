@@ -85,6 +85,25 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+// OllamaTool describes one function tool in Ollama's JSON Schema format.
+type OllamaTool struct {
+	Type     string         `json:"type"` // always "function"
+	Function OllamaToolFunc `json:"function"`
+}
+
+// OllamaToolFunc is the function definition within an OllamaTool.
+type OllamaToolFunc struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"` // JSON Schema object
+}
+
+// ToolExecutor executes a named tool with the given arguments and returns the
+// result as a plain string. Used by AgentStream to execute MCP tool calls.
+type ToolExecutor interface {
+	Execute(ctx context.Context, name string, args map[string]any) (string, error)
+}
+
 // ChatPipeline is implemented by pipelines that support streaming chat.
 type ChatPipeline interface {
 	Pipeline
