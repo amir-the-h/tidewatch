@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -1164,5 +1165,131 @@ func TestBulkDeleteTrackedEntities_ByIDs(t *testing.T) {
 	entities, _ := s.ListTrackedEntities(ctx, TrackedEntityFilter{})
 	if len(entities) != 1 || entities[0].ID != e2.ID {
 		t.Errorf("expected only e2 remaining")
+	}
+}
+
+// ── BulkDeleteSearchJobs ─────────────────────────────────────────────────────
+
+func seedSearchJob(t *testing.T, s Store, status model.SearchJobStatus) *model.SearchJob {
+	t.Helper()
+	job := &model.SearchJob{
+		ID:        fmt.Sprintf("search-%d", time.Now().UnixNano()),
+		Status:    status,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.SaveSearchJob(context.Background(), job); err != nil {
+		t.Fatalf("SaveSearchJob: %v", err)
+	}
+	return job
+}
+
+func TestBulkDeleteSearchJobs_All(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchJob(t, s, model.SearchJobStatusDone)
+	seedSearchJob(t, s, model.SearchJobStatusError)
+
+	n, err := s.BulkDeleteSearchJobs(context.Background(), BulkDeleteSearchJobsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteSearchJobs: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+}
+
+func TestBulkDeleteSearchJobs_ByStatus(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchJob(t, s, model.SearchJobStatusDone)
+	j2 := seedSearchJob(t, s, model.SearchJobStatusError)
+
+	n, err := s.BulkDeleteSearchJobs(context.Background(), BulkDeleteSearchJobsFilter{Status: model.SearchJobStatusDone})
+	if err != nil {
+		t.Fatalf("BulkDeleteSearchJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetSearchJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("error job should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteSearchJobs_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	j1 := seedSearchJob(t, s, model.SearchJobStatusDone)
+	j2 := seedSearchJob(t, s, model.SearchJobStatusDone)
+
+	n, err := s.BulkDeleteSearchJobs(context.Background(), BulkDeleteSearchJobsFilter{IDs: []string{j1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteSearchJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetSearchJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("j2 should still exist: %v", err)
+	}
+}
+
+// ── BulkDeleteDigestJobs ─────────────────────────────────────────────────────
+
+func seedDigestJob(t *testing.T, s Store, status model.DigestStatus) *model.DigestJob {
+	t.Helper()
+	job := &model.DigestJob{
+		ID:        fmt.Sprintf("digest-%d", time.Now().UnixNano()),
+		Status:    status,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.SaveDigestJob(context.Background(), job); err != nil {
+		t.Fatalf("SaveDigestJob: %v", err)
+	}
+	return job
+}
+
+func TestBulkDeleteDigestJobs_All(t *testing.T) {
+	s := newTestStore(t)
+	seedDigestJob(t, s, model.DigestStatusDone)
+	seedDigestJob(t, s, model.DigestStatusError)
+
+	n, err := s.BulkDeleteDigestJobs(context.Background(), BulkDeleteDigestJobsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteDigestJobs: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+}
+
+func TestBulkDeleteDigestJobs_ByStatus(t *testing.T) {
+	s := newTestStore(t)
+	seedDigestJob(t, s, model.DigestStatusDone)
+	j2 := seedDigestJob(t, s, model.DigestStatusError)
+
+	n, err := s.BulkDeleteDigestJobs(context.Background(), BulkDeleteDigestJobsFilter{Status: model.DigestStatusDone})
+	if err != nil {
+		t.Fatalf("BulkDeleteDigestJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetDigestJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("error digest job should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteDigestJobs_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	j1 := seedDigestJob(t, s, model.DigestStatusDone)
+	j2 := seedDigestJob(t, s, model.DigestStatusDone)
+
+	n, err := s.BulkDeleteDigestJobs(context.Background(), BulkDeleteDigestJobsFilter{IDs: []string{j1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteDigestJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetDigestJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("j2 should still exist: %v", err)
 	}
 }

@@ -1964,10 +1964,61 @@ func (s *sqliteStore) BulkDeleteTrackedEntities(ctx context.Context, f BulkDelet
 
 // Stub implementations for other BulkDelete methods (Tasks 4-8, 11)
 func (s *sqliteStore) BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error) {
-	panic("not implemented")
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, f.Status)
+	}
+
+	query := "DELETE FROM digest_jobs"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete digest jobs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
+
 func (s *sqliteStore) BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSearchJobsFilter) (int64, error) {
-	panic("not implemented")
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, f.Status)
+	}
+
+	query := "DELETE FROM search_jobs"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete search jobs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 func (s *sqliteStore) BulkDeleteActions(ctx context.Context, f BulkDeleteActionsFilter) (int64, error) {
 	panic("not implemented")
