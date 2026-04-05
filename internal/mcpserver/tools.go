@@ -895,7 +895,7 @@ func AllTools() []ToolDef {
 			Method:      "POST",
 			Path:        "/api/chat/stream",
 			Body: &BodyDef{
-				Description: "Object with field: messages (array of {role: string, content: string}).",
+				Description: "Object with fields: action_id (string, optional — ID of the chat action to use), messages (array of {role, content}, required).",
 			},
 		},
 
