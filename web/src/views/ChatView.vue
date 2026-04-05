@@ -4,7 +4,6 @@ import { ref, nextTick, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { SendOutline, StopCircleOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
-import type { ToolStep } from '../stores/chat'
 
 const msg   = useMessage()
 const store = useChatStore()
