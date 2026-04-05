@@ -130,9 +130,6 @@ func (d *Dispatcher) Execute(ctx context.Context, name string, args map[string]a
 			return tc.Text, nil
 		}
 	}
-	if result.IsError {
-		return "error from tool", nil
-	}
 	return "", nil
 }
 
