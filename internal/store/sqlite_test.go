@@ -978,10 +978,14 @@ func TestBulkDeleteRules_ByIDs(t *testing.T) {
 	ctx := context.Background()
 	r1 := sampleRule()
 	r1.Name = "rule-1"
-	_ = s.SaveRule(ctx, r1)
+	if err := s.SaveRule(ctx, r1); err != nil {
+		t.Fatalf("SaveRule r1: %v", err)
+	}
 	r2 := sampleRule()
 	r2.Name = "rule-2"
-	_ = s.SaveRule(ctx, r2)
+	if err := s.SaveRule(ctx, r2); err != nil {
+		t.Fatalf("SaveRule r2: %v", err)
+	}
 
 	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{IDs: []int64{r1.ID}})
 	if err != nil {
@@ -1053,11 +1057,15 @@ func TestBulkDeleteSources_ByType(t *testing.T) {
 	src1 := sampleSource()
 	src1.Name = "kw-src"
 	src1.Type = model.SourceTypeKeyword
-	_ = s.SaveSource(ctx, src1)
+	if err := s.SaveSource(ctx, src1); err != nil {
+		t.Fatalf("SaveSource src1: %v", err)
+	}
 	src2 := sampleSource()
 	src2.Name = "ph-src"
 	src2.Type = model.SourceTypePhrase
-	_ = s.SaveSource(ctx, src2)
+	if err := s.SaveSource(ctx, src2); err != nil {
+		t.Fatalf("SaveSource src2: %v", err)
+	}
 
 	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{Type: model.SourceTypeKeyword})
 	if err != nil {
@@ -1118,10 +1126,14 @@ func TestBulkDeleteSources_ByIDs(t *testing.T) {
 	ctx := context.Background()
 	src1 := sampleSource()
 	src1.Name = "src-1"
-	_ = s.SaveSource(ctx, src1)
+	if err := s.SaveSource(ctx, src1); err != nil {
+		t.Fatalf("SaveSource src1: %v", err)
+	}
 	src2 := sampleSource()
 	src2.Name = "src-2"
-	_ = s.SaveSource(ctx, src2)
+	if err := s.SaveSource(ctx, src2); err != nil {
+		t.Fatalf("SaveSource src2: %v", err)
+	}
 
 	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{IDs: []int64{src1.ID}})
 	if err != nil {
