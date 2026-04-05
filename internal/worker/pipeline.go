@@ -111,6 +111,23 @@ func PushInitialTasksForGraph(
 
 	pushed := 0
 
+	// Build an initial context from the event so that conditions placed
+	// directly after Start can be evaluated (e.g. rule_matches).
+	var initCtx map[string]any
+	{
+		var ev queue.TweetEvent
+		if err := json.Unmarshal(eventPayload, &ev); err == nil {
+			initCtx = map[string]any{
+				"rule_ids":     ev.RuleIDs,
+				"tweet_id":     ev.TweetID,
+				"tweet":        ev.Text,
+				"tweet_author": ev.AuthorHandle,
+			}
+		} else {
+			initCtx = map[string]any{}
+		}
+	}
+
 	// Walk all edges from Start and dispatch based on node type.
 	// This mirrors PushContinuationTasks so the builder can place any
 	// node type directly after Start, not only action nodes.
@@ -223,9 +240,122 @@ func PushInitialTasksForGraph(
 			}
 
 		case model.PipelineNodeTypeCondition:
+			passed := evaluateConditionsVerbose(node.Conditions, initCtx, pipelineID, node.ID, logger)
+			wantHandle := "pass"
+			if !passed {
+				wantHandle = "fail"
+			}
 			if logger != nil {
-				logger.Warn("pipeline: condition node directly after start — cannot evaluate without prior outputs, skipped",
-					"pipeline_id", pipelineID, "node_id", node.ID)
+				logger.Info("pipeline: condition node at start evaluated",
+					"pipeline_id", pipelineID, "node_id", node.ID,
+					"passed", passed, "branch", wantHandle)
+			}
+			for _, condEdge := range outgoingEdges(graph, node.ID) {
+				h := condEdge.SourceHandle
+				if h == "" {
+					h = "pass"
+				}
+				if h != wantHandle {
+					continue
+				}
+				nextNode := findNode(graph, condEdge.TargetNodeID)
+				if nextNode == nil {
+					continue
+				}
+				switch nextNode.Type {
+				case model.PipelineNodeTypeAction:
+					if nextNode.ActionID == nil {
+						continue
+					}
+					if cache != nil && cache.Get(*nextNode.ActionID) == nil {
+						if logger != nil {
+							logger.Info("pipeline: skipping task for inactive action (post-start-condition)",
+								"pipeline_id", pipelineID, "node_id", nextNode.ID,
+								"action_id", *nextNode.ActionID)
+						}
+						continue
+					}
+					task := &queue.Task{
+						TriggerType:    triggerType,
+						Event:          eventPayload,
+						ActionID:       *nextNode.ActionID,
+						PipelineNodeID: nextNode.ID,
+						PipelineID:     pipelineID,
+						Context:        map[string]any{},
+					}
+					if pushErr := producer.PushTask(ctx, task); pushErr != nil {
+						if logger != nil {
+							logger.Warn("pipeline: push initial task failed (post-start-condition)",
+								"pipeline_id", pipelineID, "action_id", *nextNode.ActionID,
+								"node_id", nextNode.ID, "error", pushErr)
+						}
+					} else {
+						pushed++
+						if logger != nil {
+							logger.Info("pipeline: queued initial task (post-start-condition)",
+								"pipeline_id", pipelineID,
+								"action_id", *nextNode.ActionID,
+								"node_id", nextNode.ID,
+								"tweet_id", tweetID,
+							)
+						}
+					}
+				case model.PipelineNodeTypePipeline:
+					if nextNode.SubPipelineID == nil {
+						continue
+					}
+					subGraph, subErr := st.GetPipelineGraph(ctx, *nextNode.SubPipelineID)
+					if subErr != nil {
+						if logger != nil {
+							logger.Warn("pipeline: load sub-pipeline graph failed (post-start-condition)",
+								"sub_pipeline_id", *nextNode.SubPipelineID, "error", subErr)
+						}
+						continue
+					}
+					subStartNode := findStartNode(subGraph)
+					if subStartNode == nil {
+						continue
+					}
+					parentNodeID := nextNode.ID
+					for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
+						if subActionNode.ActionID == nil {
+							continue
+						}
+						if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
+							continue
+						}
+						entryNodeID := subActionNode.ID
+						if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
+							logger.Warn("pipeline: insert pipeline node execution failed (post-start-condition)",
+								"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
+						}
+						subTask := &queue.Task{
+							TriggerType:            triggerType,
+							Event:                  eventPayload,
+							ActionID:               *subActionNode.ActionID,
+							PipelineNodeID:         subActionNode.ID,
+							PipelineID:             *nextNode.SubPipelineID,
+							ParentPipelineNodeID:   &parentNodeID,
+							SubPipelineEntryNodeID: &entryNodeID,
+							Context:                map[string]any{},
+						}
+						if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
+							logger.Warn("pipeline: push sub-pipeline initial task failed (post-start-condition)",
+								"action_id", *subActionNode.ActionID, "error", pushErr)
+						} else {
+							pushed++
+							if logger != nil {
+								logger.Info("pipeline: queued sub-pipeline initial task (post-start-condition)",
+									"pipeline_id", pipelineID,
+									"sub_pipeline_id", *nextNode.SubPipelineID,
+									"action_id", *subActionNode.ActionID,
+									"node_id", subActionNode.ID,
+									"tweet_id", tweetID,
+								)
+							}
+						}
+					}
+				}
 			}
 		}
 	}

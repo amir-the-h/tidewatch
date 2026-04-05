@@ -14,9 +14,15 @@ type Server struct {
 	dispatcher *Dispatcher
 }
 
-// New creates a Server that proxies all iran-watcher endpoints to baseURL.
+// New creates a Server that proxies all iran-watcher endpoints to baseURL with no auth.
 func New(baseURL string) *Server {
-	d := NewDispatcher(baseURL)
+	return NewWithCredentials(baseURL, "", "")
+}
+
+// NewWithCredentials creates a Server that logs in with username/password and manages
+// token acquisition and rotation automatically.
+func NewWithCredentials(baseURL, username, password string) *Server {
+	d := NewDispatcherWithCredentials(baseURL, username, password)
 
 	s := server.NewMCPServer("iran-watcher", "1.0.0")
 

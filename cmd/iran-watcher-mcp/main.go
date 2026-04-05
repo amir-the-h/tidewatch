@@ -11,6 +11,8 @@ import (
 func main() {
 	baseURL := envOrDefault("IRAN_WATCHER_MCP_BASE_URL", "http://localhost:8080")
 	httpAddr := os.Getenv("IRAN_WATCHER_MCP_HTTP")
+	username := os.Getenv("IRAN_WATCHER_MCP_USERNAME")
+	password := os.Getenv("IRAN_WATCHER_MCP_PASSWORD")
 
 	// Simple flag parsing — no cobra/pflag dependency in this binary.
 	args := os.Args[1:]
@@ -26,6 +28,16 @@ func main() {
 				httpAddr = args[i+1]
 				i++
 			}
+		case "--username":
+			if i+1 < len(args) {
+				username = args[i+1]
+				i++
+			}
+		case "--password":
+			if i+1 < len(args) {
+				password = args[i+1]
+				i++
+			}
 		case "--help", "-h":
 			fmt.Fprintln(os.Stdout, "iran-watcher-mcp — MCP server for iran-watcher REST API")
 			fmt.Fprintln(os.Stdout, "")
@@ -37,6 +49,10 @@ func main() {
 			fmt.Fprintln(os.Stdout, "                      Env: IRAN_WATCHER_MCP_BASE_URL")
 			fmt.Fprintln(os.Stdout, "  --http string       Bind address for HTTP/SSE transport (e.g. :3001)")
 			fmt.Fprintln(os.Stdout, "                      Env: IRAN_WATCHER_MCP_HTTP")
+			fmt.Fprintln(os.Stdout, "  --username string   iran-watcher admin username for API auth")
+			fmt.Fprintln(os.Stdout, "                      Env: IRAN_WATCHER_MCP_USERNAME")
+			fmt.Fprintln(os.Stdout, "  --password string   iran-watcher admin password for API auth")
+			fmt.Fprintln(os.Stdout, "                      Env: IRAN_WATCHER_MCP_PASSWORD")
 			fmt.Fprintln(os.Stdout, "")
 			fmt.Fprintln(os.Stdout, "Default (no --http): serves MCP over stdio (for Claude Code, Cursor, etc.).")
 			fmt.Fprintln(os.Stdout, "With --http: also starts an SSE server for programmatic clients.")
@@ -44,7 +60,7 @@ func main() {
 		}
 	}
 
-	srv := mcpserver.New(baseURL)
+	srv := mcpserver.NewWithCredentials(baseURL, username, password)
 	ctx := context.Background()
 
 	if httpAddr != "" {

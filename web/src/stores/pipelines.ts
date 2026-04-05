@@ -35,7 +35,7 @@ export const usePipelinesStore = defineStore('pipelines', () => {
     if (p) p.active = false
   }
 
-  async function run(id: number, newOnly: boolean): Promise<{ queued: number }> {
+  async function run(id: number, newOnly: boolean): Promise<{ queued: number; async?: boolean }> {
     return runPipeline(id, newOnly)
   }
 

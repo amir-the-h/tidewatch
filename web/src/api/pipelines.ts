@@ -85,7 +85,7 @@ export const savePipelineGraph = (id: number, nodes: PipelineNodeRequest[], edge
     body: JSON.stringify({ nodes, edges }),
   })
 export const runPipeline = (id: number, newOnly: boolean) =>
-  apiFetch<{ queued: number }>(`/api/pipelines/${id}/run`, {
+  apiFetch<{ queued: number; async?: boolean }>(`/api/pipelines/${id}/run`, {
     method: 'POST',
     body: JSON.stringify({ new_only: newOnly }),
   })

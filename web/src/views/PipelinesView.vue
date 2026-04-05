@@ -90,10 +90,14 @@ const formMapCoordinateType = ref('array_of_pairs')
 const formMapPopupTemplate  = ref('')
 
 // entity_discovery-specific
-const formDiscoveryMinConfidence    = ref(0.75)
-const formDiscoveryMinFrequency     = ref(3)
-const formDiscoveryAutoPromoteTypes = ref<string[]>([])
-const formDiscoveryEntityKey        = ref('entities')
+const formDiscoveryMinConfidence      = ref(0.75)
+const formDiscoveryMinFrequency       = ref(3)
+const formDiscoveryAutoPromoteTypes   = ref<string[]>([])
+const formDiscoveryEntityKey          = ref('entities')
+const formDiscoveryStripLabelPrefixes = ref<string[]>([])
+
+// onnx-specific
+const formStripBioPrefix = ref(false)
 
 const transformerTypeOptions = [
   { label: 'Zip Arrays',     value: 'zip_arrays'     },
@@ -229,10 +233,12 @@ function resetActionForm() {
   formMapCoordinateKey.value = ''
   formMapCoordinateType.value = 'array_of_pairs'
   formMapPopupTemplate.value = ''
-  formDiscoveryMinConfidence.value    = 0.75
-  formDiscoveryMinFrequency.value     = 3
-  formDiscoveryAutoPromoteTypes.value = []
-  formDiscoveryEntityKey.value        = 'entities'
+  formDiscoveryMinConfidence.value      = 0.75
+  formDiscoveryMinFrequency.value       = 3
+  formDiscoveryAutoPromoteTypes.value   = []
+  formDiscoveryEntityKey.value          = 'entities'
+  formDiscoveryStripLabelPrefixes.value = []
+  formStripBioPrefix.value              = false
 }
 
 function openCreateAction() {
@@ -254,13 +260,15 @@ function openEditAction(row: Action) {
   formSystemPrompt.value = row.config?.system_prompt ?? ''
   // Internal-specific
   formHandler.value = row.config?.handler ?? null
-  formDiscoveryMinConfidence.value    = row.config?.min_confidence    ?? 0.75
-  formDiscoveryMinFrequency.value     = row.config?.min_frequency     ?? 3
-  formDiscoveryAutoPromoteTypes.value = Array.isArray(row.config?.auto_promote_types) ? [...row.config.auto_promote_types] : []
-  formDiscoveryEntityKey.value        = row.config?.entity_key        ?? 'entities'
+  formDiscoveryMinConfidence.value      = row.config?.min_confidence      ?? 0.75
+  formDiscoveryMinFrequency.value       = row.config?.min_frequency       ?? 3
+  formDiscoveryAutoPromoteTypes.value   = Array.isArray(row.config?.auto_promote_types)   ? [...row.config.auto_promote_types]   : []
+  formDiscoveryEntityKey.value          = row.config?.entity_key          ?? 'entities'
+  formDiscoveryStripLabelPrefixes.value = Array.isArray(row.config?.strip_label_prefixes) ? [...row.config.strip_label_prefixes] : []
   // ONNX-specific
   formPath.value = row.config?.path ?? ''
   formLabels.value = Array.isArray(row.config?.labels) ? [...row.config.labels] : []
+  formStripBioPrefix.value = row.config?.strip_bio_prefix ?? false
   // Transformers
   formTransformers.value = Array.isArray(row.config?.transformers)
     ? row.config.transformers.map((t: any) => ({
@@ -369,6 +377,7 @@ async function onSaveAction() {
       }
       config.path = formPath.value.trim()
       if (formLabels.value.length > 0) config.labels = formLabels.value
+      if (formStripBioPrefix.value) config.strip_bio_prefix = true
     }
     if (formType.value === 'internal' && formHandler.value) {
       config.handler = formHandler.value
@@ -378,6 +387,8 @@ async function onSaveAction() {
       config.min_frequency      = formDiscoveryMinFrequency.value
       config.auto_promote_types = formDiscoveryAutoPromoteTypes.value
       config.entity_key         = formDiscoveryEntityKey.value
+      if (formDiscoveryStripLabelPrefixes.value.length > 0)
+        config.strip_label_prefixes = formDiscoveryStripLabelPrefixes.value
     }
   }
 
@@ -553,7 +564,9 @@ async function onConfirmRunPipeline(): Promise<false | void> {
   runningPipeline.value = true
   try {
     const res = await runPipeline(runPipelineRow.value.id, runNewOnly.value)
-    msg.success(`Queued ${res.queued} tweets for "${runPipelineRow.value.name}"`)
+    msg.success(res.async
+      ? `Pipeline "${runPipelineRow.value.name}" is running in the background`
+      : `Queued ${res.queued} tweets for "${runPipelineRow.value.name}"`)
     showRunModal.value = false
   } catch (e: any) { msg.error(e.message) }
   finally { runningPipeline.value = false }
@@ -953,6 +966,15 @@ onMounted(async () => {
       <n-form-item label="Entity Key">
         <n-input v-model:value="formDiscoveryEntityKey" placeholder="entities" />
       </n-form-item>
+      <n-form-item label="Strip Label Prefixes">
+        <n-flex vertical :size="4">
+          <n-dynamic-tags v-model:value="formDiscoveryStripLabelPrefixes" />
+          <n-text depth="3" style="font-size: 11px">
+            Strip these prefixes from NER labels before storing entity types.
+            Use <code>B-</code> and <code>I-</code> for BIO-tagged models (e.g. "I-LOC" → "LOC").
+          </n-text>
+        </n-flex>
+      </n-form-item>
     </template>
 
     <!-- Ollama-specific -->
@@ -1029,6 +1051,11 @@ onMounted(async () => {
       </n-form-item>
       <n-form-item v-if="formType === 'onnx'" label="Labels">
         <n-dynamic-tags v-model:value="formLabels" />
+      </n-form-item>
+      <n-form-item v-if="formType === 'onnx'" label="BIO Label Stripping">
+        <n-checkbox v-model:checked="formStripBioPrefix">
+          Strip B-/I- prefixes from NER labels (for models outputting "I-LOC", "B-PER" style labels)
+        </n-checkbox>
       </n-form-item>
       <n-form-item label="Config (JSON)">
         <n-input
