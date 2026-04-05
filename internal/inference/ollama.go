@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
 )
 
 const (
@@ -81,6 +82,26 @@ func (b *ollamaBackend) updateScore(tokensPerSec float64) {
 type ollamaEval struct {
 	EvalCount    int   `json:"eval_count"`
 	EvalDuration int64 `json:"eval_duration"` // nanoseconds
+}
+
+// ollamaAgentMsg is the message format for AgentStream requests/responses.
+type ollamaAgentMsg struct {
+	Role       string             `json:"role"`
+	Content    string             `json:"content,omitempty"`
+	ToolCalls  []ollamaAgentTCall `json:"tool_calls,omitempty"`
+	ToolCallID string             `json:"tool_call_id,omitempty"`
+}
+
+// ollamaAgentTCall is a single tool call returned by Ollama.
+type ollamaAgentTCall struct {
+	ID       string               `json:"id,omitempty"`
+	Function ollamaAgentTCallFunc `json:"function"`
+}
+
+// ollamaAgentTCallFunc carries the name and arguments of a tool call.
+type ollamaAgentTCallFunc struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 // OllamaPipeline implements Pipeline by calling one or more locally-running
@@ -497,51 +518,64 @@ Produce a structured intelligence briefing that:
 
 Write in plain text with clear section headings. Be concise and factual. Synthesise across tweets — do not list them individually.`
 
-// ChatStream sends a streaming multi-turn chat to Ollama with tweet context
-// prepended to the system message. It writes SSE lines to w as chunks arrive:
+
+// AgentStream runs the agentic tool-calling loop. It sends messages + tool
+// definitions to Ollama (stream:false), executes any tool_calls via executor,
+// writes SSE events for each step, and emits the final text as a text_chunk
+// event followed by [DONE].
 //
-//	data: "chunk text"\n\n
+// SSE event format:
+//
+//	data: {"type":"tool_call","name":"...","args":{...}}\n\n
+//	data: {"type":"tool_result","name":"...","result":"..."}\n\n
+//	data: {"type":"text_chunk","content":"..."}\n\n
 //	data: [DONE]\n\n
 //
-// The caller must set Content-Type: text/event-stream and flush headers before
-// calling this method. w is type-asserted to http.Flusher; if the assertion
-// succeeds each chunk is flushed immediately for real-time streaming.
-// On backend errors (network or 5xx) it marks the backend unhealthy and retries.
-func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, messages []ChatMessage, w io.Writer) error {
-	var sb strings.Builder
-	sb.WriteString(OllamaChatSystem)
-	if len(tweetContext) > 0 {
-		sb.WriteString("\n\nCONTEXT TWEETS:\n")
-		for i, t := range tweetContext {
-			fmt.Fprintf(&sb, "[%d] %s\n\n", i+1, t)
+// On Ollama backend errors the backend is marked unhealthy and a new one is
+// acquired; all previously accumulated tool call history is preserved across
+// retries.
+func (p *OllamaPipeline) AgentStream(
+	ctx context.Context,
+	messages []ChatMessage,
+	tools []mcpserver.OllamaTool,
+	executor ToolExecutor,
+	w io.Writer,
+) error {
+	type agentChatReq struct {
+		Model    string                 `json:"model"`
+		Messages []ollamaAgentMsg       `json:"messages"`
+		Tools    []mcpserver.OllamaTool `json:"tools,omitempty"`
+		Stream   bool                   `json:"stream"`
+	}
+	type agentChatResp struct {
+		Message ollamaAgentMsg `json:"message"`
+		Done    bool           `json:"done"`
+	}
+
+	flusher, canFlush := w.(interface{ Flush() })
+	emit := func(event map[string]any) {
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if canFlush {
+			flusher.Flush()
 		}
 	}
 
-	type ollamaMsg struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
+	// Build initial message history with system message prepended.
+	systemContent := OllamaChatSystem
+	if p.systemPrompt != "" {
+		systemContent = p.systemPrompt
 	}
-	type chatReq struct {
-		Model    string      `json:"model"`
-		Messages []ollamaMsg `json:"messages"`
-		Stream   bool        `json:"stream"`
-	}
-
-	msgs := make([]ollamaMsg, 0, len(messages)+1)
-	msgs = append(msgs, ollamaMsg{Role: "system", Content: sb.String()})
+	msgs := make([]ollamaAgentMsg, 0, len(messages)+1)
+	msgs = append(msgs, ollamaAgentMsg{Role: "system", Content: systemContent})
 	for _, m := range messages {
-		msgs = append(msgs, ollamaMsg{Role: m.Role, Content: m.Content})
+		msgs = append(msgs, ollamaAgentMsg{Role: m.Role, Content: m.Content})
 	}
 
-	body, err := json.Marshal(chatReq{Model: p.model, Messages: msgs, Stream: true})
-	if err != nil {
-		return fmt.Errorf("inference: ollama: chat stream: marshal: %w", err)
-	}
-
-	for {
+	for { // backend retry loop
 		b, err := p.acquire(ctx)
 		if err != nil {
-			return fmt.Errorf("inference: ollama: chat stream: %w", err)
+			return fmt.Errorf("inference: ollama: agent stream: acquire: %w", err)
 		}
 
 		if err := p.ensureLoaded(b); err != nil {
@@ -550,187 +584,107 @@ func (p *OllamaPipeline) ChatStream(ctx context.Context, tweetContext []string, 
 				continue
 			}
 			p.pool.Release(b)
-			return fmt.Errorf("inference: ollama: chat stream: ensure loaded: %w", err)
+			return fmt.Errorf("inference: ollama: agent stream: ensure loaded: %w", err)
 		}
 
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(body))
-		if reqErr != nil {
-			p.pool.Release(b)
-			return fmt.Errorf("inference: ollama: chat stream: build request: %w", reqErr)
-		}
-		req.Header.Set("Content-Type", "application/json")
+		var loopErr error
+		for { // tool-calling loop on this backend
+			reqBody, err := json.Marshal(agentChatReq{
+				Model:    p.model,
+				Messages: msgs,
+				Tools:    tools,
+				Stream:   false,
+			})
+			if err != nil {
+				loopErr = fmt.Errorf("inference: ollama: agent: marshal: %w", err)
+				break
+			}
 
-		resp, doErr := b.client.Do(req)
-		if doErr != nil {
-			p.pool.MarkUnhealthy(b)
-			continue
-		}
+			reqCtx, cancel := context.WithTimeout(ctx, ollamaRequestTimeout)
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(reqBody))
+			if err != nil {
+				cancel()
+				loopErr = fmt.Errorf("inference: ollama: agent: build request: %w", err)
+				break
+			}
+			req.Header.Set("Content-Type", "application/json")
 
-		if resp.StatusCode != http.StatusOK {
-			raw, _ := io.ReadAll(resp.Body)
+			resp, err := b.client.Do(req)
+			cancel()
+			if err != nil {
+				loopErr = err
+				break
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				raw, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				loopErr = &ollamaHTTPError{statusCode: resp.StatusCode, body: string(raw)}
+				break
+			}
+
+			var chatResp agentChatResp
+			if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+				resp.Body.Close()
+				loopErr = fmt.Errorf("inference: ollama: agent: decode: %w", err)
+				break
+			}
 			resp.Body.Close()
-			httpErr := &ollamaHTTPError{statusCode: resp.StatusCode, body: string(raw)}
-			if isBackendError(httpErr) {
-				p.pool.MarkUnhealthy(b)
-				continue
-			}
-			p.pool.Release(b)
-			return httpErr
-		}
 
-		type streamChunk struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-			Done         bool  `json:"done"`
-			EvalCount    int   `json:"eval_count"`
-			EvalDuration int64 `json:"eval_duration"`
-		}
-
-		flusher, canFlush := w.(interface{ Flush() })
-
-		scanner := bufio.NewScanner(resp.Body)
-		var scanErr error
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			var chunk streamChunk
-			if err := json.Unmarshal(line, &chunk); err != nil {
-				continue
-			}
-			if chunk.Done {
-				p.recordEval(b, ollamaEval{EvalCount: chunk.EvalCount, EvalDuration: chunk.EvalDuration})
+			if len(chatResp.Message.ToolCalls) == 0 {
+				// No tool calls: emit the final text and finish.
+				emit(map[string]any{"type": "text_chunk", "content": chatResp.Message.Content})
 				fmt.Fprintf(w, "data: [DONE]\n\n")
 				if canFlush {
 					flusher.Flush()
 				}
-				resp.Body.Close()
 				p.pool.Release(b)
 				return nil
 			}
-			if chunk.Message.Content != "" {
-				encoded, _ := json.Marshal(chunk.Message.Content)
-				fmt.Fprintf(w, "data: %s\n\n", encoded)
-				if canFlush {
-					flusher.Flush()
+
+			// Append assistant message (with tool_calls) to history.
+			msgs = append(msgs, chatResp.Message)
+
+			// Execute each tool call.
+			for _, tc := range chatResp.Message.ToolCalls {
+				emit(map[string]any{
+					"type": "tool_call",
+					"name": tc.Function.Name,
+					"args": tc.Function.Arguments,
+				})
+
+				result, execErr := executor.Execute(ctx, tc.Function.Name, tc.Function.Arguments)
+				if execErr != nil {
+					result = fmt.Sprintf("error: %v", execErr)
 				}
+				const maxResultBytes = 8 * 1024
+				if len(result) > maxResultBytes {
+					result = result[:maxResultBytes] + "[truncated]"
+				}
+
+				emit(map[string]any{
+					"type":   "tool_result",
+					"name":   tc.Function.Name,
+					"result": result,
+				})
+
+				msgs = append(msgs, ollamaAgentMsg{Role: "tool", Content: result, ToolCallID: tc.ID})
 			}
-		}
-		scanErr = scanner.Err()
-		resp.Body.Close()
-		p.pool.Release(b)
-		return scanErr
-	}
-}
-
-// EstimateTokens returns the approximate token count for the given texts and
-// the model's context-window limit. It calls Ollama's /api/tokenize endpoint
-// for an accurate count; if that fails it falls back to len(text)/4.
-// Uses any available backend — token counts and context limits are model
-// properties, identical across all backends.
-// On backend errors (network or 5xx) it marks the backend unhealthy and retries.
-func (p *OllamaPipeline) EstimateTokens(ctx context.Context, texts []string) (int, int, error) {
-	combined := strings.Join(texts, "\n\n")
-
-	for {
-		b, err := p.acquire(ctx)
-		if err != nil {
-			return 0, 0, fmt.Errorf("inference: ollama: estimate tokens: %w", err)
+			// Loop back: send updated conversation to Ollama.
 		}
 
-		limit := p.getContextLimit(ctx, b)
-		tokens, err := p.tokenize(ctx, b, combined)
-		if err != nil {
-			if isBackendError(err) {
-				p.pool.MarkUnhealthy(b)
-				continue
-			}
-			p.pool.Release(b)
-			// Rough fallback: ~4 chars per token
-			return len(combined) / 4, limit, nil
+		// loopErr is always set when we exit the inner loop via break.
+		if isBackendError(loopErr) {
+			p.pool.MarkUnhealthy(b)
+			continue
 		}
 		p.pool.Release(b)
-		return tokens, limit, nil
+		return loopErr
 	}
 }
 
-// getContextLimit queries Ollama's /api/show on the given backend for the
-// model's context window size. Falls back to 8192 if unavailable.
-func (p *OllamaPipeline) getContextLimit(ctx context.Context, b *ollamaBackend) int {
-	const defaultLimit = 8192
-
-	body, _ := json.Marshal(map[string]string{"model": p.model})
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/show", bytes.NewReader(body))
-	if err != nil {
-		return defaultLimit
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return defaultLimit
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		ModelInfo map[string]json.RawMessage `json:"model_info"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return defaultLimit
-	}
-	for k, v := range result.ModelInfo {
-		if strings.Contains(k, "context_length") {
-			var n int
-			if err := json.Unmarshal(v, &n); err == nil && n > 0 {
-				return n
-			}
-		}
-	}
-	return defaultLimit
-}
-
-// tokenize calls Ollama's /api/tokenize endpoint on the given backend and
-// returns the token count.
-func (p *OllamaPipeline) tokenize(ctx context.Context, b *ollamaBackend, text string) (int, error) {
-	body, _ := json.Marshal(map[string]string{"model": p.model, "prompt": text})
-
-	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/tokenize", bytes.NewReader(body))
-	if err != nil {
-		return 0, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, &ollamaHTTPError{statusCode: resp.StatusCode, body: "tokenize failed"}
-	}
-
-	var result struct {
-		Tokens []int `json:"tokens"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 0, err
-	}
-	return len(result.Tokens), nil
-}
-
-// OllamaChatSystem is the system prompt for interactive chat sessions over tweets.
-const OllamaChatSystem = `You are an intelligence analyst specialising in Iran. You have been provided with a set of tweets from open-source monitoring as context.
-
-Answer questions about these tweets accurately and concisely. If a question cannot be answered from the provided tweets, say so clearly. Do not fabricate information not present in the tweets.`
+// OllamaChatSystem is the default system prompt for the agentic chat assistant.
+const OllamaChatSystem = `You are an intelligent assistant for the iran-watcher monitoring application. You have tools to query and manage all aspects of the system — tweets, rules, pipelines, actions, tracked entities, and more. Use your tools to look up information before answering. Be concise and accurate.`
 
 // Summarize calls Ollama with a summarization prompt over the given text.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries.

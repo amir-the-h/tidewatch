@@ -11,17 +11,14 @@ import { deleteExecutions } from '../api/tweets'
 import { listActions } from '../api/actions'
 import type { Action } from '../api/actions'
 import { formatDateTime } from '../utils/format'
-import { EyeOutline, TrashOutline, TrashBinOutline, FunnelOutline, CloseCircleOutline, RefreshOutline, OpenOutline, ChatbubblesOutline } from '@vicons/ionicons5'
+import { EyeOutline, TrashOutline, TrashBinOutline, FunnelOutline, CloseCircleOutline, RefreshOutline, OpenOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
-import { useChatStore } from '../stores/chat'
-import { estimateTokens } from '../api/chat'
 
 const route  = useRoute()
 const router = useRouter()
 
 const store      = useTweetsStore()
 const rulesStore = useRulesStore()
-const chatStore  = useChatStore()
 const msg        = useMessage()
 
 const filterRuleId = ref<number | null>(null)
@@ -67,7 +64,6 @@ function cleanArray(arr: unknown[]): unknown[] {
 
 const checkedRowKeys    = ref<DataTableRowKey[]>([])
 const hasSelection      = computed(() => checkedRowKeys.value.length > 0)
-const estimatingForChat = ref(false)
 
 function syncQueryToUrl() {
   const q: Record<string, string> = {}
@@ -276,25 +272,6 @@ async function reprocessSelected() {
   }
 }
 
-async function chatWithSelected() {
-  const ids = checkedRowKeys.value as string[]
-  estimatingForChat.value = true
-  try {
-    const est = await estimateTokens(ids)
-    if (!est.ok) {
-      msg.error(`Too many tokens: ${est.tokens.toLocaleString()} / ${est.limit.toLocaleString()} — select fewer tweets.`)
-      return
-    }
-    chatStore.initSession(ids)
-    chatStore.estimate = est
-    router.push('/chat')
-  } catch (e: any) {
-    msg.error('Token estimate failed: ' + e.message)
-  } finally {
-    estimatingForChat.value = false
-  }
-}
-
 const columns: DataTableColumns<Tweet> = [
   { type: 'selection', multiple: true },
   { title: 'ID',      key: 'id', width: 160, ellipsis: true },
@@ -386,14 +363,6 @@ const columns: DataTableColumns<Tweet> = [
           </n-button>
         </template>
         Delete selected
-      </n-tooltip>
-      <n-tooltip trigger="hover">
-        <template #trigger>
-          <n-button size="small" :loading="estimatingForChat" @click="chatWithSelected">
-            <template #icon><n-icon><ChatbubblesOutline /></n-icon></template>
-          </n-button>
-        </template>
-        Chat with selected tweets
       </n-tooltip>
       <n-button-group size="small">
         <n-popconfirm @positive-click="bulkClearAll">

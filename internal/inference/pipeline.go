@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
 )
 
 // PipelineType mirrors model.PipelineType but lives in inference to avoid
@@ -85,11 +87,16 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
-// ChatPipeline is implemented by pipelines that support streaming chat.
+// ToolExecutor executes a named tool with the given arguments and returns the
+// result as a plain string. Used by AgentStream to execute MCP tool calls.
+type ToolExecutor interface {
+	Execute(ctx context.Context, name string, args map[string]any) (string, error)
+}
+
+// ChatPipeline is implemented by pipelines that support the agentic chat loop.
 type ChatPipeline interface {
 	Pipeline
-	ChatStream(ctx context.Context, tweetContext []string, messages []ChatMessage, w io.Writer) error
-	EstimateTokens(ctx context.Context, texts []string) (estimated int, contextLimit int, err error)
+	AgentStream(ctx context.Context, messages []ChatMessage, tools []mcpserver.OllamaTool, executor ToolExecutor, w io.Writer) error
 }
 
 // BackendStat is a runtime snapshot of one Ollama backend.

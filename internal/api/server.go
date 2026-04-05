@@ -81,6 +81,7 @@ type Server struct {
 	ollamaFastWaitTimeout   time.Duration
 	jwtSecret               string
 	dispatcher              *notifier.Dispatcher
+	toolExec                inference.ToolExecutor
 	searchScheduler         searchScheduler // nil if search not configured
 	pool                    workerPoolStatsProvider
 	sizer                   queueSizer
@@ -115,6 +116,7 @@ func NewServer(
 	sizer queueSizer,
 	lister queue.FailureLister,
 	modelsDir string,
+	toolExec inference.ToolExecutor,
 ) *Server {
 	srv := &Server{
 		store:                 s,
@@ -130,6 +132,7 @@ func NewServer(
 		ollamaFastWaitTimeout: ollamaFastWaitTimeout,
 		jwtSecret:             jwtSecret,
 		dispatcher:            dispatcher,
+		toolExec:              toolExec,
 		searchScheduler:       ss,
 		pool:                  pool,
 		sizer:                 sizer,
@@ -261,7 +264,6 @@ func NewServer(
 				r.Delete("/digest/{id}", srv.handleDeleteDigest)
 
 				// Chat
-				r.Post("/chat/estimate", srv.handleChatEstimate)
 				r.Post("/chat/stream", srv.handleChatStream)
 
 				// Failures (dead-letter queue)
@@ -568,6 +570,7 @@ func NewServerWithConcreteRules(
 	sizer queueSizer,
 	lister queue.FailureLister,
 	modelsDir string,
+	toolExec inference.ToolExecutor,
 ) *Server {
-	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, backendPool, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister, modelsDir)
+	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, backendPool, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister, modelsDir, toolExec)
 }
