@@ -197,3 +197,19 @@ func (s *Server) handleDeleteEntityCandidate(w http.ResponseWriter, r *http.Requ
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleBulkDeleteEntityCandidates DELETE /api/entity-candidates
+func (s *Server) handleBulkDeleteEntityCandidates(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteEntityCandidatesFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteEntityCandidates(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete entity candidates", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete entity candidates")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}

@@ -286,3 +286,19 @@ func (s *Server) handleListEntityTracks(w http.ResponseWriter, r *http.Request) 
 		"per_page":   filter.PerPage,
 	})
 }
+
+// handleBulkDeleteTrackedEntities DELETE /api/tracked-entities
+func (s *Server) handleBulkDeleteTrackedEntities(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteTrackedEntitiesFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteTrackedEntities(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete tracked entities", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete tracked entities")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}

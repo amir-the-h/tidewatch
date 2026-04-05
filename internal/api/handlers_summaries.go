@@ -14,7 +14,6 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
-	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 // handleListSummaries returns paginated tweet+summary pairs for tweets that
@@ -166,24 +165,79 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDigest accepts digest parameters, creates a digest job, and enqueues a
-// task for each active action with trigger_type=digest_requested. Poll GET
-// /digest/{id} for status and result.
+// task for each action wired to the digest_requested trigger via TriggerPipelineLink.
+// Poll GET /digest/{id} for status and result.
 func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	if s.actionCache == nil {
 		writeError(w, http.StatusServiceUnavailable, "action cache not available")
 		return
 	}
 
-	entries := s.actionCache.All()
-	// Filter to digest-capable entries (pipelines implementing DigestPipeline).
-	var digestEntries []*worker.CacheEntry
-	for _, e := range entries {
-		if _, ok := e.Pipeline.(inference.DigestPipeline); ok {
-			digestEntries = append(digestEntries, e)
+	// Resolve which actions should handle this digest by walking the pipeline
+	// graphs linked to the "digest_requested" trigger — the same mechanism the
+	// stream listener uses for new_tweet. This prevents dispatching to every
+	// Ollama-backed action in the cache (all implement DigestPipeline).
+	links, err := s.store.ListActiveTriggerPipelineLinks(r.Context(), "digest_requested")
+	if err != nil {
+		s.logger.Error("api: digest: list trigger links", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to query digest trigger links")
+		return
+	}
+	if len(links) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "no active digest pipeline configured (link a pipeline to the digest_requested trigger)")
+		return
+	}
+
+	// Collect the first-level action IDs from each linked pipeline graph.
+	type digestTarget struct {
+		actionID int64
+	}
+	var targets []digestTarget
+	seen := make(map[int64]bool)
+	for _, link := range links {
+		graph, gErr := s.store.GetPipelineGraph(r.Context(), link.PipelineID)
+		if gErr != nil {
+			s.logger.Warn("api: digest: load pipeline graph", "pipeline_id", link.PipelineID, "error", gErr)
+			continue
+		}
+		// Find the start node.
+		var startNodeID int64
+		for _, n := range graph.Nodes {
+			if string(n.Type) == "start" {
+				startNodeID = n.ID
+				break
+			}
+		}
+		if startNodeID == 0 {
+			continue
+		}
+		// Walk edges from the start node to find action nodes.
+		for _, edge := range graph.Edges {
+			if edge.SourceNodeID != startNodeID {
+				continue
+			}
+			for _, node := range graph.Nodes {
+				if node.ID != edge.TargetNodeID || string(node.Type) != "action" || node.ActionID == nil {
+					continue
+				}
+				actionID := *node.ActionID
+				if seen[actionID] {
+					continue
+				}
+				entry := s.actionCache.Get(actionID)
+				if entry == nil {
+					continue
+				}
+				if _, ok := entry.Pipeline.(inference.DigestPipeline); !ok {
+					continue
+				}
+				seen[actionID] = true
+				targets = append(targets, digestTarget{actionID: actionID})
+			}
 		}
 	}
-	if len(digestEntries) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "no active digest action configured (create an action backed by an Ollama pipeline)")
+	if len(targets) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "no active digest action found in linked pipeline (ensure the action is active and backed by an Ollama model)")
 		return
 	}
 
@@ -209,15 +263,15 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ev, _ := json.Marshal(queue.DigestEvent{DigestJobID: job.ID})
-	for _, entry := range digestEntries {
+	for _, t := range targets {
 		task := &queue.Task{
 			TriggerType: "digest_requested",
 			Event:       ev,
-			ActionID:    entry.Action.ID,
+			ActionID:    t.actionID,
 			Context:     map[string]any{"digest_job_id": job.ID},
 		}
 		if err := s.producer.PushTask(r.Context(), task); err != nil {
-			s.logger.Error("api: digest: push task", "action_id", entry.Action.ID, "job_id", job.ID, "error", err)
+			s.logger.Error("api: digest: push task", "action_id", t.actionID, "job_id", job.ID, "error", err)
 		}
 	}
 
@@ -267,4 +321,20 @@ func parseIntParam(s string, def int) int {
 		return def
 	}
 	return v
+}
+
+// handleBulkDeleteDigestJobs DELETE /api/digest
+func (s *Server) handleBulkDeleteDigestJobs(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteDigestJobsFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteDigestJobs(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete digest jobs", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete digest jobs")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }
