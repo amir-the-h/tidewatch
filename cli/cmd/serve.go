@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/config"
 	"github.com/amir-the-h/iran-watcher/internal/hub"
 	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
 	"github.com/amir-the-h/iran-watcher/internal/pipeline"
@@ -194,7 +196,18 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("serve: seed admin: %w", err)
 	}
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir)
+	// Build the tool executor: a Dispatcher that calls back into this API server.
+	_, apiPort, _ := net.SplitHostPort(cfg.API.Bind)
+	if apiPort == "" {
+		apiPort = "8080"
+	}
+	toolExec := mcpserver.NewDispatcherWithCredentials(
+		"http://127.0.0.1:"+apiPort,
+		cfg.Auth.AdminUsername,
+		cfg.Auth.AdminPassword,
+	)
+
+	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir, toolExec)
 	srv.WithHub(h)
 
 	sigCh := make(chan os.Signal, 1)
