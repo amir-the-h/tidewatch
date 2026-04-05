@@ -1,32 +1,29 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { estimateTokens, streamChat } from '../api/chat'
-import type { ChatMessage, TokenEstimate } from '../api/chat'
+import { ref } from 'vue'
+import { streamChat } from '../api/chat'
+import type { ChatMessage, ChatEvent } from '../api/chat'
 
 export type { ChatMessage }
 
+export interface ToolStep {
+  name: string
+  args: Record<string, unknown>
+  result: string
+}
+
+export interface DisplayMessage {
+  role: 'user' | 'assistant'
+  content: string
+  toolSteps: ToolStep[]
+}
+
 export const useChatStore = defineStore('chat', () => {
-  const tweetIds   = ref<string[]>([])
-  const messages   = ref<ChatMessage[]>([])
+  const messages   = ref<DisplayMessage[]>([])
   const isStreaming = ref(false)
-  const estimate   = ref<TokenEstimate | null>(null)
 
   let abortController: AbortController | null = null
-
-  /** Initialise a new chat session with the given tweet IDs, clearing history. */
-  function initSession(ids: string[]) {
-    stopStreaming()
-    tweetIds.value  = ids
-    messages.value  = []
-    estimate.value  = null
-    isStreaming.value = false
-  }
-
-  /** Fetch and cache the token estimate for the current tweet set. */
-  async function loadEstimate() {
-    if (tweetIds.value.length === 0) return
-    estimate.value = await estimateTokens(tweetIds.value)
-  }
+  // Pending tool step: tool_call received but tool_result not yet
+  let pendingStep: { name: string; args: Record<string, unknown> } | null = null
 
   /**
    * Append a user message and stream the assistant reply.
@@ -35,34 +32,52 @@ export const useChatStore = defineStore('chat', () => {
   async function sendMessage(content: string): Promise<void> {
     if (isStreaming.value) return
 
-    // Snapshot the conversation history to send (excluding pending reply)
-    const history: ChatMessage[] = [...messages.value, { role: 'user', content }]
+    // Build history to send: only role+content (no toolSteps)
+    const history: ChatMessage[] = [
+      ...messages.value.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content },
+    ]
 
-    messages.value.push({ role: 'user', content })
-    messages.value.push({ role: 'assistant', content: '' })
+    messages.value.push({ role: 'user', content, toolSteps: [] })
+    const assistantMsg: DisplayMessage = { role: 'assistant', content: '', toolSteps: [] }
+    messages.value.push(assistantMsg)
     const assistantIdx = messages.value.length - 1
 
     isStreaming.value = true
+    pendingStep = null
 
     return new Promise((resolve, reject) => {
       abortController = streamChat(
-        tweetIds.value,
-        // Send only user/assistant turns — backend adds the system+context message
-        history.filter(m => m.role !== 'system'),
-        (chunk) => {
-          messages.value[assistantIdx] = {
-            ...messages.value[assistantIdx],
-            content: messages.value[assistantIdx].content + chunk,
+        history,
+        (event: ChatEvent) => {
+          const msg = messages.value[assistantIdx]
+          if (event.type === 'tool_call') {
+            pendingStep = { name: event.name, args: event.args }
+          } else if (event.type === 'tool_result' && pendingStep) {
+            msg.toolSteps = [
+              ...msg.toolSteps,
+              { name: pendingStep.name, args: pendingStep.args, result: event.result },
+            ]
+            messages.value[assistantIdx] = { ...msg }
+            pendingStep = null
+          } else if (event.type === 'text_chunk') {
+            messages.value[assistantIdx] = {
+              ...msg,
+              content: msg.content + event.content,
+            }
           }
+          // error events: log but don't crash the UI
         },
         () => {
           isStreaming.value = false
-          abortController  = null
+          abortController = null
+          pendingStep = null
           resolve()
         },
         (err) => {
           isStreaming.value = false
-          abortController  = null
+          abortController = null
+          pendingStep = null
           reject(err)
         },
       )
@@ -72,28 +87,20 @@ export const useChatStore = defineStore('chat', () => {
   /** Cancel an in-progress stream. */
   function stopStreaming() {
     abortController?.abort()
-    abortController  = null
+    abortController = null
     isStreaming.value = false
+    pendingStep = null
   }
 
-  /** Discard the current session entirely. */
+  /** Clear the conversation. */
   function clearSession() {
     stopStreaming()
-    tweetIds.value  = []
-    messages.value  = []
-    estimate.value  = null
+    messages.value = []
   }
 
-  const hasSession = computed(() => tweetIds.value.length > 0)
-
   return {
-    tweetIds,
     messages,
     isStreaming,
-    estimate,
-    hasSession,
-    initSession,
-    loadEstimate,
     sendMessage,
     stopStreaming,
     clearSession,
