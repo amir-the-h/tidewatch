@@ -2020,11 +2020,6 @@ func (s *sqliteStore) BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSear
 	return n, nil
 }
 
-// Stub implementations for remaining BulkDelete methods (Task 8).
-func (s *sqliteStore) BulkDeleteOllamaBackends(ctx context.Context, f BulkDeleteOllamaBackendsFilter) (int64, error) {
-	panic("not implemented")
-}
-
 // scanEntityCandidate scans a single entity_candidates row from rows or a row.
 func scanEntityCandidate(row scanner) (*model.EntityCandidate, error) {
 	var c model.EntityCandidate
