@@ -1962,7 +1962,6 @@ func (s *sqliteStore) BulkDeleteTrackedEntities(ctx context.Context, f BulkDelet
 	return n, nil
 }
 
-// Stub implementations for other BulkDelete methods (Tasks 4-8, 11)
 func (s *sqliteStore) BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error) {
 	var clauses []string
 	var args []any
@@ -2020,6 +2019,8 @@ func (s *sqliteStore) BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSear
 	n, _ := res.RowsAffected()
 	return n, nil
 }
+
+// Stub implementations for remaining BulkDelete methods (Tasks 5-8).
 func (s *sqliteStore) BulkDeleteActions(ctx context.Context, f BulkDeleteActionsFilter) (int64, error) {
 	panic("not implemented")
 }
