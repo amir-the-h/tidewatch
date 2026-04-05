@@ -890,21 +890,12 @@ func AllTools() []ToolDef {
 
 		// ── Chat ─────────────────────────────────────────────────────────────
 		{
-			Name:        "chat_estimate",
-			Description: "Estimate token count for a set of tweet IDs against the chat model's context window.",
-			Method:      "POST",
-			Path:        "/api/chat/estimate",
-			Body: &BodyDef{
-				Description: "Object with field: tweet_ids (array of tweet ID strings).",
-			},
-		},
-		{
 			Name:        "chat_stream",
-			Description: "Stream an LLM chat response grounded in a set of tweets. Returns raw SSE chunks.",
+			Description: "Stream an agentic LLM response via SSE. The model autonomously calls iran-watcher tools to answer questions.",
 			Method:      "POST",
 			Path:        "/api/chat/stream",
 			Body: &BodyDef{
-				Description: "Object with fields: tweet_ids (array of strings), messages (array of {role: string, content: string}).",
+				Description: "Object with field: messages (array of {role: string, content: string}).",
 			},
 		},
 
