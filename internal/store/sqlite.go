@@ -1863,16 +1863,106 @@ func (s *sqliteStore) BulkDeleteEntityCandidates(ctx context.Context, f BulkDele
 	return n, nil
 }
 
-// Stub implementations for other BulkDelete methods (Tasks 3-8, 11)
 func (s *sqliteStore) BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error) {
-	panic("not implemented")
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Local != nil {
+		clauses = append(clauses, "local = ?")
+		args = append(args, boolToInt(*f.Local))
+	}
+
+	query := "DELETE FROM rules"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete rules: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
+
 func (s *sqliteStore) BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error) {
-	panic("not implemented")
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+
+	query := "DELETE FROM sources"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete sources: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
+
 func (s *sqliteStore) BulkDeleteTrackedEntities(ctx context.Context, f BulkDeleteTrackedEntitiesFilter) (int64, error) {
-	panic("not implemented")
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+
+	query := "DELETE FROM tracked_entities"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete tracked entities: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
+
+// Stub implementations for other BulkDelete methods (Tasks 4-8, 11)
 func (s *sqliteStore) BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error) {
 	panic("not implemented")
 }
