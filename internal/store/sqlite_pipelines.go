@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -80,6 +81,35 @@ func (s *sqliteStore) DeletePipeline(ctx context.Context, id int64) error {
 		return fmt.Errorf("store: delete pipeline: %w", err)
 	}
 	return nil
+}
+
+func (s *sqliteStore) BulkDeletePipelines(ctx context.Context, f BulkDeletePipelinesFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+
+	query := "DELETE FROM pipelines"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete pipelines: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (s *sqliteStore) SetPipelineActive(ctx context.Context, id int64, active bool) error {
@@ -289,6 +319,39 @@ func (s *sqliteStore) DeleteTriggerPipelineLink(ctx context.Context, id int64) e
 		return fmt.Errorf("store: delete trigger pipeline link: %w", err)
 	}
 	return nil
+}
+
+func (s *sqliteStore) BulkDeleteTriggerPipelineLinks(ctx context.Context, f BulkDeleteTriggerPipelineLinksFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.PipelineID != nil {
+		clauses = append(clauses, "pipeline_id = ?")
+		args = append(args, *f.PipelineID)
+	}
+	if f.TriggerType != "" {
+		clauses = append(clauses, "trigger_type = ?")
+		args = append(args, f.TriggerType)
+	}
+
+	query := "DELETE FROM trigger_pipeline_links"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete trigger pipeline links: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (s *sqliteStore) SetTriggerPipelineLinkActive(ctx context.Context, id int64, active bool) error {
