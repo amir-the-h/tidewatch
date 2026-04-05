@@ -64,6 +64,7 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "type is required")
 		return
 	}
+	a.Active = true // new actions are active by default
 	switch a.Type {
 	case model.ActionTypeONNX, model.ActionTypeOllama, model.ActionTypeInternal, model.ActionTypeNotification:
 		// valid
@@ -312,4 +313,20 @@ func (s *Server) reloadActionCache(ctx context.Context) error {
 		return nil
 	}
 	return s.actionCache.Load(ctx)
+}
+
+// handleBulkDeleteActions DELETE /api/actions
+func (s *Server) handleBulkDeleteActions(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteActionsFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteActions(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete actions", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete actions")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
 // handleSearchRun creates a background search job and returns immediately.
@@ -128,4 +129,20 @@ func (s *Server) handleDeleteSearchJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBulkDeleteSearchJobs DELETE /api/search
+func (s *Server) handleBulkDeleteSearchJobs(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteSearchJobsFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteSearchJobs(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete search jobs", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete search jobs")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }

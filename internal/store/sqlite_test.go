@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -812,5 +813,483 @@ func TestGetEntityConnectionSubgraph_EntityWithNoConnectionsReturnsEmpty(t *test
 	}
 	if len(conns) != 0 {
 		t.Fatalf("want empty slice, got %d", len(conns))
+	}
+}
+
+// ── BulkDeleteEntityCandidates ───────────────────────────────────────────────
+
+func seedCandidate(t *testing.T, s Store, word, typ, status string, conf float64) *model.EntityCandidate {
+	t.Helper()
+	c := &model.EntityCandidate{
+		Word:          word,
+		Type:          typ,
+		AvgConfidence: conf,
+		Sources:       []string{"test"},
+		FirstSeenAt:   time.Now().UTC(),
+		LastSeenAt:    time.Now().UTC(),
+	}
+	if err := s.UpsertEntityCandidate(context.Background(), c); err != nil {
+		t.Fatalf("UpsertEntityCandidate(%q): %v", word, err)
+	}
+	// Update status if it's not "pending" (UpsertEntityCandidate always sets to "pending")
+	if status != "pending" {
+		if err := s.UpdateEntityCandidateStatus(context.Background(), c.ID, status, nil, false); err != nil {
+			t.Fatalf("UpdateEntityCandidateStatus(%q): %v", word, err)
+		}
+		c.Status = status
+	} else {
+		c.Status = "pending"
+	}
+	return c
+}
+
+func TestBulkDeleteEntityCandidates_All(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.8)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	pending := "pending"
+	count, _ := s.CountEntityCandidates(context.Background(), EntityCandidateFilter{Status: &pending})
+	if count != 0 {
+		t.Errorf("expected 0 remaining, got %d", count)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	c1 := seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.8)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{IDs: []int64{c1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	// c2 must still exist
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("c2 should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByStatus(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "promoted", 0.95)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{Status: "pending"})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	// promoted must survive
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("promoted candidate should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByType(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.9)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.8)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{Type: "I-LOC"})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("I-PER candidate should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_ByConfidenceRange(t *testing.T) {
+	s := newTestStore(t)
+	seedCandidate(t, s, "Tehran", "I-LOC", "pending", 0.3)
+	c2 := seedCandidate(t, s, "Rouhani", "I-PER", "pending", 0.9)
+
+	maxConf := 0.5
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{MaxConfidence: &maxConf})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetEntityCandidate(context.Background(), c2.ID); err != nil {
+		t.Errorf("high-confidence candidate should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteEntityCandidates_NoMatch(t *testing.T) {
+	s := newTestStore(t)
+
+	n, err := s.BulkDeleteEntityCandidates(context.Background(), BulkDeleteEntityCandidatesFilter{Status: "pending"})
+	if err != nil {
+		t.Fatalf("BulkDeleteEntityCandidates: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 deleted, got %d", n)
+	}
+}
+
+// ── BulkDeleteRules ──────────────────────────────────────────────────────────
+
+func TestBulkDeleteRules_All(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	r1 := sampleRule()
+	r1.Name = "rule-1"
+	if err := s.SaveRule(ctx, r1); err != nil {
+		t.Fatalf("SaveRule: %v", err)
+	}
+	r2 := sampleRule()
+	r2.Name = "rule-2"
+	if err := s.SaveRule(ctx, r2); err != nil {
+		t.Fatalf("SaveRule: %v", err)
+	}
+
+	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteRules: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	rules, _ := s.ListRules(ctx, RuleFilter{})
+	if len(rules) != 0 {
+		t.Errorf("expected 0 rules remaining, got %d", len(rules))
+	}
+}
+
+func TestBulkDeleteRules_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	r1 := sampleRule()
+	r1.Name = "rule-1"
+	if err := s.SaveRule(ctx, r1); err != nil {
+		t.Fatalf("SaveRule r1: %v", err)
+	}
+	r2 := sampleRule()
+	r2.Name = "rule-2"
+	if err := s.SaveRule(ctx, r2); err != nil {
+		t.Fatalf("SaveRule r2: %v", err)
+	}
+
+	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{IDs: []int64{r1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteRules: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	rules, _ := s.ListRules(ctx, RuleFilter{})
+	if len(rules) != 1 || rules[0].ID != r2.ID {
+		t.Errorf("expected only r2 remaining")
+	}
+}
+
+func TestBulkDeleteRules_ByLocal(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	r1 := sampleRule()
+	r1.Name = "local-rule"
+	r1.Local = true
+	_ = s.SaveRule(ctx, r1)
+	r2 := sampleRule()
+	r2.Name = "remote-rule"
+	r2.Local = false
+	_ = s.SaveRule(ctx, r2)
+
+	localTrue := true
+	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{Local: &localTrue})
+	if err != nil {
+		t.Fatalf("BulkDeleteRules: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	rules, _ := s.ListRules(ctx, RuleFilter{})
+	if len(rules) != 1 || rules[0].ID != r2.ID {
+		t.Errorf("expected only remote rule remaining")
+	}
+}
+
+// ── BulkDeleteSources ────────────────────────────────────────────────────────
+
+func TestBulkDeleteSources_All(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	src1 := sampleSource()
+	src1.Name = "src-1"
+	_ = s.SaveSource(ctx, src1)
+	src2 := sampleSource()
+	src2.Name = "src-2"
+	_ = s.SaveSource(ctx, src2)
+
+	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteSources: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	if len(srcs) != 0 {
+		t.Errorf("expected 0 sources remaining, got %d", len(srcs))
+	}
+}
+
+func TestBulkDeleteSources_ByType(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	src1 := sampleSource()
+	src1.Name = "kw-src"
+	src1.Type = model.SourceTypeKeyword
+	if err := s.SaveSource(ctx, src1); err != nil {
+		t.Fatalf("SaveSource src1: %v", err)
+	}
+	src2 := sampleSource()
+	src2.Name = "ph-src"
+	src2.Type = model.SourceTypePhrase
+	if err := s.SaveSource(ctx, src2); err != nil {
+		t.Fatalf("SaveSource src2: %v", err)
+	}
+
+	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{Type: model.SourceTypeKeyword})
+	if err != nil {
+		t.Fatalf("BulkDeleteSources: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	if len(srcs) != 1 || srcs[0].ID != src2.ID {
+		t.Errorf("expected only phrase source remaining")
+	}
+}
+
+// ── BulkDeleteTrackedEntities ────────────────────────────────────────────────
+
+func TestBulkDeleteTrackedEntities_All(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedTrackedEntity(t, s, "Tehran")
+	seedTrackedEntity(t, s, "Rouhani")
+
+	n, err := s.BulkDeleteTrackedEntities(ctx, BulkDeleteTrackedEntitiesFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteTrackedEntities: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	entities, _ := s.ListTrackedEntities(ctx, TrackedEntityFilter{})
+	if len(entities) != 0 {
+		t.Errorf("expected 0 entities remaining, got %d", len(entities))
+	}
+}
+
+func TestBulkDeleteTrackedEntities_ByType(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	e1 := seedTrackedEntity(t, s, "Tehran")   // type = "PER" from seedTrackedEntity
+	e2 := &model.TrackedEntity{Name: "IRGC", Type: "ORG", Aliases: []string{}, Active: true}
+	_ = s.SaveTrackedEntity(ctx, e2)
+
+	n, err := s.BulkDeleteTrackedEntities(ctx, BulkDeleteTrackedEntitiesFilter{Type: "PER"})
+	if err != nil {
+		t.Fatalf("BulkDeleteTrackedEntities: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	entities, _ := s.ListTrackedEntities(ctx, TrackedEntityFilter{})
+	if len(entities) != 1 || entities[0].ID != e2.ID {
+		t.Errorf("expected only ORG entity remaining, e1.ID=%d", e1.ID)
+	}
+}
+
+func TestBulkDeleteSources_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	src1 := sampleSource()
+	src1.Name = "src-1"
+	if err := s.SaveSource(ctx, src1); err != nil {
+		t.Fatalf("SaveSource src1: %v", err)
+	}
+	src2 := sampleSource()
+	src2.Name = "src-2"
+	if err := s.SaveSource(ctx, src2); err != nil {
+		t.Fatalf("SaveSource src2: %v", err)
+	}
+
+	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{IDs: []int64{src1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteSources: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	if len(srcs) != 1 || srcs[0].ID != src2.ID {
+		t.Errorf("expected only src2 remaining")
+	}
+}
+
+func TestBulkDeleteTrackedEntities_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	e1 := seedTrackedEntity(t, s, "Tehran")
+	e2 := seedTrackedEntity(t, s, "Rouhani")
+
+	n, err := s.BulkDeleteTrackedEntities(ctx, BulkDeleteTrackedEntitiesFilter{IDs: []int64{e1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteTrackedEntities: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	entities, _ := s.ListTrackedEntities(ctx, TrackedEntityFilter{})
+	if len(entities) != 1 || entities[0].ID != e2.ID {
+		t.Errorf("expected only e2 remaining")
+	}
+}
+
+// ── BulkDeleteSearchJobs ─────────────────────────────────────────────────────
+
+func seedSearchJob(t *testing.T, s Store, status model.SearchJobStatus) *model.SearchJob {
+	t.Helper()
+	job := &model.SearchJob{
+		ID:        fmt.Sprintf("search-%d", time.Now().UnixNano()),
+		Status:    status,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.SaveSearchJob(context.Background(), job); err != nil {
+		t.Fatalf("SaveSearchJob: %v", err)
+	}
+	return job
+}
+
+func TestBulkDeleteSearchJobs_All(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchJob(t, s, model.SearchJobStatusDone)
+	seedSearchJob(t, s, model.SearchJobStatusError)
+
+	n, err := s.BulkDeleteSearchJobs(context.Background(), BulkDeleteSearchJobsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteSearchJobs: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+}
+
+func TestBulkDeleteSearchJobs_ByStatus(t *testing.T) {
+	s := newTestStore(t)
+	seedSearchJob(t, s, model.SearchJobStatusDone)
+	j2 := seedSearchJob(t, s, model.SearchJobStatusError)
+
+	n, err := s.BulkDeleteSearchJobs(context.Background(), BulkDeleteSearchJobsFilter{Status: model.SearchJobStatusDone})
+	if err != nil {
+		t.Fatalf("BulkDeleteSearchJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetSearchJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("error job should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteSearchJobs_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	j1 := seedSearchJob(t, s, model.SearchJobStatusDone)
+	j2 := seedSearchJob(t, s, model.SearchJobStatusDone)
+
+	n, err := s.BulkDeleteSearchJobs(context.Background(), BulkDeleteSearchJobsFilter{IDs: []string{j1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteSearchJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetSearchJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("j2 should still exist: %v", err)
+	}
+}
+
+// ── BulkDeleteDigestJobs ─────────────────────────────────────────────────────
+
+func seedDigestJob(t *testing.T, s Store, status model.DigestStatus) *model.DigestJob {
+	t.Helper()
+	job := &model.DigestJob{
+		ID:        fmt.Sprintf("digest-%d", time.Now().UnixNano()),
+		Status:    status,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.SaveDigestJob(context.Background(), job); err != nil {
+		t.Fatalf("SaveDigestJob: %v", err)
+	}
+	return job
+}
+
+func TestBulkDeleteDigestJobs_All(t *testing.T) {
+	s := newTestStore(t)
+	seedDigestJob(t, s, model.DigestStatusDone)
+	seedDigestJob(t, s, model.DigestStatusError)
+
+	n, err := s.BulkDeleteDigestJobs(context.Background(), BulkDeleteDigestJobsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteDigestJobs: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+}
+
+func TestBulkDeleteDigestJobs_ByStatus(t *testing.T) {
+	s := newTestStore(t)
+	seedDigestJob(t, s, model.DigestStatusDone)
+	j2 := seedDigestJob(t, s, model.DigestStatusError)
+
+	n, err := s.BulkDeleteDigestJobs(context.Background(), BulkDeleteDigestJobsFilter{Status: model.DigestStatusDone})
+	if err != nil {
+		t.Fatalf("BulkDeleteDigestJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetDigestJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("error digest job should still exist: %v", err)
+	}
+}
+
+func TestBulkDeleteDigestJobs_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	j1 := seedDigestJob(t, s, model.DigestStatusDone)
+	j2 := seedDigestJob(t, s, model.DigestStatusDone)
+
+	n, err := s.BulkDeleteDigestJobs(context.Background(), BulkDeleteDigestJobsFilter{IDs: []string{j1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteDigestJobs: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	if _, err := s.GetDigestJob(context.Background(), j2.ID); err != nil {
+		t.Errorf("j2 should still exist: %v", err)
 	}
 }

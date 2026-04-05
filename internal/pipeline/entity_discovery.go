@@ -20,10 +20,14 @@ type discoveryStore interface {
 
 // entityDiscoveryConfig holds the user-configured thresholds and settings.
 type entityDiscoveryConfig struct {
-	MinConfidence    float64  `json:"min_confidence"`
-	MinFrequency     int      `json:"min_frequency"`
-	AutoPromoteTypes []string `json:"auto_promote_types"`
-	EntityKey        string   `json:"entity_key"`
+	MinConfidence      float64  `json:"min_confidence"`
+	MinFrequency       int      `json:"min_frequency"`
+	AutoPromoteTypes   []string `json:"auto_promote_types"`
+	EntityKey          string   `json:"entity_key"`
+	// StripLabelPrefixes removes these prefixes from NER labels before storing the
+	// entity type and checking auto_promote_types. Use ["B-", "I-"] for BIO-tagged
+	// models that output labels like "I-LOC" instead of "LOC".
+	StripLabelPrefixes []string `json:"strip_label_prefixes"`
 }
 
 // EntityDiscoveryPipeline extracts entities from the execution context,
@@ -94,7 +98,7 @@ func (p *EntityDiscoveryPipeline) Run(ctx context.Context, input inference.Pipel
 		}
 		c := &model.EntityCandidate{
 			Word:          word,
-			Type:          ne.Label,
+			Type:          p.normalizeLabel(ne.Label),
 			AvgConfidence: float64(ne.Score),
 			Sources:       []string{p.name},
 		}
@@ -182,6 +186,18 @@ func (p *EntityDiscoveryPipeline) autoPromote(ctx context.Context, c *model.Enti
 	c.Status = "promoted"
 	c.PromotedEntityID = &e.ID
 	return nil
+}
+
+// normalizeLabel strips configured prefixes from a NER label before it is used
+// as an entity type. For example, with strip_label_prefixes ["B-", "I-"],
+// "I-LOC" becomes "LOC".
+func (p *EntityDiscoveryPipeline) normalizeLabel(label string) string {
+	for _, prefix := range p.config.StripLabelPrefixes {
+		if strings.HasPrefix(label, prefix) {
+			return label[len(prefix):]
+		}
+	}
+	return label
 }
 
 // normalizeNERWord strips tokenizer artifacts produced by HuggingFace BPE/WordPiece models:

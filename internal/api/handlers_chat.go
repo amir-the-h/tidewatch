@@ -19,8 +19,8 @@ import (
 // Body: { "tweet_ids": ["..."] }
 // Response: { "tokens": int, "limit": int, "ok": bool, "tweet_count": int }
 func (s *Server) handleChatEstimate(w http.ResponseWriter, r *http.Request) {
-	if s.registry == nil {
-		writeError(w, http.StatusServiceUnavailable, "registry not available")
+	if s.actionCache == nil {
+		writeError(w, http.StatusServiceUnavailable, "action cache not available")
 		return
 	}
 	cp := s.findChatPipeline()
@@ -66,8 +66,8 @@ func (s *Server) handleChatEstimate(w http.ResponseWriter, r *http.Request) {
 // Body: { "tweet_ids": ["..."], "messages": [{"role":"user","content":"..."}] }
 // Response: text/event-stream
 func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
-	if s.registry == nil {
-		writeError(w, http.StatusServiceUnavailable, "registry not available")
+	if s.actionCache == nil {
+		writeError(w, http.StatusServiceUnavailable, "action cache not available")
 		return
 	}
 	cp := s.findChatPipeline()
@@ -135,16 +135,22 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // findChatPipeline prefers the pipeline named "digest"; falls back to any ChatPipeline.
+// Uses the action cache (active actions only) so deactivated Ollama pipelines are excluded.
 func (s *Server) findChatPipeline() inference.ChatPipeline {
+	if s.actionCache == nil {
+		return nil
+	}
 	var fallback inference.ChatPipeline
-	for _, p := range s.registry.All() {
-		if cp, ok := p.(inference.ChatPipeline); ok {
-			if p.Name() == "digest" {
-				return cp
-			}
-			if fallback == nil {
-				fallback = cp
-			}
+	for _, e := range s.actionCache.All() {
+		cp, ok := e.Pipeline.(inference.ChatPipeline)
+		if !ok {
+			continue
+		}
+		if e.Pipeline.Name() == "digest" {
+			return cp
+		}
+		if fallback == nil {
+			fallback = cp
 		}
 	}
 	return fallback

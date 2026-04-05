@@ -112,6 +112,75 @@ func TestActionBackends_SetAndList(t *testing.T) {
 	}
 }
 
+func seedOllamaBackend(t *testing.T, s Store, name string, enabled bool) int64 {
+	t.Helper()
+	b, err := s.CreateOllamaBackend(context.Background(), name, "http://"+name+":11434")
+	if err != nil {
+		t.Fatalf("CreateOllamaBackend(%q): %v", name, err)
+	}
+	if !enabled {
+		if err := s.SetOllamaBackendEnabled(context.Background(), b.ID, false); err != nil {
+			t.Fatalf("SetOllamaBackendEnabled: %v", err)
+		}
+	}
+	return b.ID
+}
+
+func TestBulkDeleteOllamaBackends_All(t *testing.T) {
+	s := newTestStore(t)
+	seedOllamaBackend(t, s, "backend-1", true)
+	seedOllamaBackend(t, s, "backend-2", false)
+
+	n, err := s.BulkDeleteOllamaBackends(context.Background(), BulkDeleteOllamaBackendsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteOllamaBackends: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	backends, _ := s.ListOllamaBackends(context.Background())
+	if len(backends) != 0 {
+		t.Errorf("expected 0 backends remaining, got %d", len(backends))
+	}
+}
+
+func TestBulkDeleteOllamaBackends_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	id1 := seedOllamaBackend(t, s, "backend-1", true)
+	id2 := seedOllamaBackend(t, s, "backend-2", true)
+
+	n, err := s.BulkDeleteOllamaBackends(context.Background(), BulkDeleteOllamaBackendsFilter{IDs: []int64{id1}})
+	if err != nil {
+		t.Fatalf("BulkDeleteOllamaBackends: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	backends, _ := s.ListOllamaBackends(context.Background())
+	if len(backends) != 1 || backends[0].ID != id2 {
+		t.Errorf("expected only backend-2 remaining")
+	}
+}
+
+func TestBulkDeleteOllamaBackends_ByEnabled(t *testing.T) {
+	s := newTestStore(t)
+	id1 := seedOllamaBackend(t, s, "enabled-backend", true)
+	id2 := seedOllamaBackend(t, s, "disabled-backend", false)
+
+	enabledFalse := false
+	n, err := s.BulkDeleteOllamaBackends(context.Background(), BulkDeleteOllamaBackendsFilter{Enabled: &enabledFalse})
+	if err != nil {
+		t.Fatalf("BulkDeleteOllamaBackends: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	backends, _ := s.ListOllamaBackends(context.Background())
+	if len(backends) != 1 || backends[0].ID != id1 {
+		t.Errorf("expected only enabled backend remaining, id2=%d", id2)
+	}
+}
+
 func TestListAllActionBackendIDs(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)

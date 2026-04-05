@@ -1810,6 +1810,216 @@ func (s *sqliteStore) DeleteEntityCandidate(ctx context.Context, id int64) error
 	return nil
 }
 
+func (s *sqliteStore) BulkDeleteEntityCandidates(ctx context.Context, f BulkDeleteEntityCandidatesFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, f.Status)
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+	if f.AutoPromoted != nil {
+		clauses = append(clauses, "auto_promoted = ?")
+		args = append(args, boolToInt(*f.AutoPromoted))
+	}
+	if f.MinConfidence != nil {
+		clauses = append(clauses, "avg_confidence >= ?")
+		args = append(args, *f.MinConfidence)
+	}
+	if f.MaxConfidence != nil {
+		clauses = append(clauses, "avg_confidence <= ?")
+		args = append(args, *f.MaxConfidence)
+	}
+	if f.MinOccurrences != nil {
+		clauses = append(clauses, "occurrence_count >= ?")
+		args = append(args, *f.MinOccurrences)
+	}
+	if f.MaxOccurrences != nil {
+		clauses = append(clauses, "occurrence_count <= ?")
+		args = append(args, *f.MaxOccurrences)
+	}
+
+	query := "DELETE FROM entity_candidates"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete entity candidates: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+func (s *sqliteStore) BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Local != nil {
+		clauses = append(clauses, "local = ?")
+		args = append(args, boolToInt(*f.Local))
+	}
+
+	query := "DELETE FROM rules"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete rules: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+func (s *sqliteStore) BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+
+	query := "DELETE FROM sources"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete sources: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+func (s *sqliteStore) BulkDeleteTrackedEntities(ctx context.Context, f BulkDeleteTrackedEntitiesFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+
+	query := "DELETE FROM tracked_entities"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete tracked entities: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+func (s *sqliteStore) BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, f.Status)
+	}
+
+	query := "DELETE FROM digest_jobs"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete digest jobs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+func (s *sqliteStore) BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSearchJobsFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, f.Status)
+	}
+
+	query := "DELETE FROM search_jobs"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete search jobs: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // scanEntityCandidate scans a single entity_candidates row from rows or a row.
 func scanEntityCandidate(row scanner) (*model.EntityCandidate, error) {
 	var c model.EntityCandidate

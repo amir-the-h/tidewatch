@@ -39,6 +39,9 @@ RUN CGO_ENABLED=1 GOOS=linux \
     CGO_LDFLAGS="-L/usr/local/lib" \
     go build -ldflags="-s -w" -o iran-watcher ./cmd/iran-watcher
 
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build -ldflags="-s -w" -o iran-watcher-mcp ./cmd/iran-watcher-mcp
+
 # ──────────────────────────────────────────────
 # Runtime stage
 # ──────────────────────────────────────────────
@@ -58,6 +61,7 @@ COPY --from=builder /usr/local/lib/libonnxruntime_providers_cuda.so     /usr/loc
 RUN ldconfig
 
 COPY --from=builder /app/iran-watcher /usr/local/bin/iran-watcher
+COPY --from=builder /app/iran-watcher-mcp /usr/local/bin/iran-watcher-mcp
 
 RUN mkdir -p /configs /data /models
 COPY configs/default.yaml /configs/config.yaml

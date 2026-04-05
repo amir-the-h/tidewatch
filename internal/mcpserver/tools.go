@@ -1,0 +1,1107 @@
+package mcpserver
+
+// ToolDef declares one REST endpoint as an MCP tool.
+type ToolDef struct {
+	Name        string
+	Description string
+	Method      string     // GET, POST, PUT, DELETE
+	Path        string     // e.g. "/api/tweets/{id}"
+	PathParams  []ParamDef // always required; substituted into path template
+	QueryParams []ParamDef // optional query string fields
+	Body        *BodyDef   // nil if endpoint takes no request body
+}
+
+// ParamDef describes a single parameter.
+type ParamDef struct {
+	Name        string
+	Description string
+	Required    bool
+	Type        string // "string" | "integer" | "boolean"
+}
+
+// BodyDef describes a request body.
+type BodyDef struct {
+	Description string
+}
+
+// AllTools returns the complete ToolDef table for all iran-watcher REST endpoints.
+// Source of truth: internal/api/server.go route registrations.
+func AllTools() []ToolDef {
+	return []ToolDef{
+
+		// ── Auth ─────────────────────────────────────────────────────────────
+		{
+			Name:        "auth_me",
+			Description: "Return the currently authenticated user's profile.",
+			Method:      "GET",
+			Path:        "/api/auth/me",
+		},
+
+		// ── Health / Stream ──────────────────────────────────────────────────
+		{
+			Name:        "health_get",
+			Description: "Return API health status.",
+			Method:      "GET",
+			Path:        "/api/health",
+		},
+		{
+			Name:        "stream_status_get",
+			Description: "Return current X filtered stream connection status.",
+			Method:      "GET",
+			Path:        "/api/stream/status",
+		},
+		{
+			Name:        "stream_connect",
+			Description: "Connect to the X filtered stream (admin only).",
+			Method:      "POST",
+			Path:        "/api/stream/connect",
+		},
+		{
+			Name:        "stream_disconnect",
+			Description: "Disconnect from the X filtered stream (admin only).",
+			Method:      "POST",
+			Path:        "/api/stream/disconnect",
+		},
+
+		// ── Rules ────────────────────────────────────────────────────────────
+		{
+			Name:        "rules_list",
+			Description: "List all stream filter rules.",
+			Method:      "GET",
+			Path:        "/api/rules",
+		},
+		{
+			Name:        "rules_get",
+			Description: "Get a single rule by ID.",
+			Method:      "GET",
+			Path:        "/api/rules/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
+		},
+		{
+			Name:        "rules_create",
+			Description: "Create a new stream filter rule.",
+			Method:      "POST",
+			Path:        "/api/rules",
+			Body: &BodyDef{
+				Description: "Rule definition. Fields: name (string, required), expression (object, required), local (bool), active (bool).",
+			},
+		},
+		{
+			Name:        "rules_update",
+			Description: "Update an existing rule.",
+			Method:      "PUT",
+			Path:        "/api/rules/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Updated rule fields: name (string), expression (object), local (bool).",
+			},
+		},
+		{
+			Name:        "rules_delete",
+			Description: "Delete a rule by ID.",
+			Method:      "DELETE",
+			Path:        "/api/rules/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
+		},
+		{
+			Name:        "rules_bulk_delete",
+			Description: "Bulk-delete rules. All filters optional — omit all to delete every rule. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/rules",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), local (bool, optional). All optional.",
+			},
+		},
+		{
+			Name:        "rules_activate",
+			Description: "Activate a rule (pushes to X filtered stream if non-local).",
+			Method:      "POST",
+			Path:        "/api/rules/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
+		},
+		{
+			Name:        "rules_deactivate",
+			Description: "Deactivate a rule.",
+			Method:      "POST",
+			Path:        "/api/rules/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
+		},
+
+		// ── Sources ──────────────────────────────────────────────────────────
+		{
+			Name:        "sources_list",
+			Description: "List all tweet sources.",
+			Method:      "GET",
+			Path:        "/api/sources",
+		},
+		{
+			Name:        "sources_create",
+			Description: "Create a new source.",
+			Method:      "POST",
+			Path:        "/api/sources",
+			Body: &BodyDef{
+				Description: "Source definition. Fields: name (string, required), type (string), config (object).",
+			},
+		},
+		{
+			Name:        "sources_update",
+			Description: "Update a source.",
+			Method:      "PUT",
+			Path:        "/api/sources/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Source ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Updated source fields: name (string), type (string), config (object).",
+			},
+		},
+		{
+			Name:        "sources_delete",
+			Description: "Delete a source.",
+			Method:      "DELETE",
+			Path:        "/api/sources/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Source ID", Required: true}},
+		},
+		{
+			Name:        "sources_bulk_delete",
+			Description: "Bulk-delete sources. All filters optional — omit all to delete every source. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/sources",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string, optional). All optional.",
+			},
+		},
+		{
+			Name:        "sources_deactivate",
+			Description: "Deactivate a source.",
+			Method:      "POST",
+			Path:        "/api/sources/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Source ID", Required: true}},
+		},
+
+		// ── Tweets ───────────────────────────────────────────────────────────
+		{
+			Name:        "tweets_list",
+			Description: "List tweets with optional filtering. Returns paginated results with total count.",
+			Method:      "GET",
+			Path:        "/api/tweets",
+			QueryParams: []ParamDef{
+				{Name: "rule_id", Type: "integer", Description: "Filter by rule ID"},
+				{Name: "from", Type: "string", Description: "Start time (RFC3339)"},
+				{Name: "to", Type: "string", Description: "End time (RFC3339)"},
+				{Name: "page", Type: "integer", Description: "Page number (default 1)"},
+				{Name: "per_page", Type: "integer", Description: "Results per page (default 20)"},
+			},
+		},
+		{
+			Name:        "tweets_get",
+			Description: "Get a single tweet by ID including its action execution history and metadata.",
+			Method:      "GET",
+			Path:        "/api/tweets/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "string", Description: "Tweet ID (X tweet ID string)", Required: true}},
+		},
+		{
+			Name:        "tweets_delete",
+			Description: "Delete tweets by their IDs.",
+			Method:      "DELETE",
+			Path:        "/api/tweets",
+			Body: &BodyDef{
+				Description: "Object with field: ids (array of tweet ID strings, required).",
+			},
+		},
+		{
+			Name:        "tweets_reprocess",
+			Description: "Re-queue tweets through the pipeline. Optionally targets specific action IDs.",
+			Method:      "POST",
+			Path:        "/api/tweets/reprocess",
+			Body: &BodyDef{
+				Description: "Object with fields: tweet_ids (array of strings, required), action_ids (array of integers, optional — targets specific actions).",
+			},
+		},
+		{
+			Name:        "tweets_noise_delete",
+			Description: "Delete all tweets classified as noise.",
+			Method:      "DELETE",
+			Path:        "/api/tweets/noise",
+		},
+
+		// ── Map ──────────────────────────────────────────────────────────────
+		{
+			Name:        "map_pins_list",
+			Description: "List geo-event map pins sourced from action_execution_metadata, with tweet_created_at for date-heat coloring.",
+			Method:      "GET",
+			Path:        "/api/map",
+		},
+
+		// ── Tracked Entities ─────────────────────────────────────────────────
+		{
+			Name:        "tracked_entities_list",
+			Description: "List tracked entities. Optionally filter by type or active status.",
+			Method:      "GET",
+			Path:        "/api/tracked-entities",
+			QueryParams: []ParamDef{
+				{Name: "type", Type: "string", Description: "Filter by entity type (e.g. person, organization, location)"},
+				{Name: "active", Type: "boolean", Description: "Filter by active status"},
+			},
+		},
+		{
+			Name:        "tracked_entities_get",
+			Description: "Get a tracked entity by ID.",
+			Method:      "GET",
+			Path:        "/api/tracked-entities/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+		},
+		{
+			Name:        "tracked_entities_create",
+			Description: "Create a new tracked entity.",
+			Method:      "POST",
+			Path:        "/api/tracked-entities",
+			Body: &BodyDef{
+				Description: "Object with fields: name (string, required), type (string), aliases (array of strings), notes (string).",
+			},
+		},
+		{
+			Name:        "tracked_entities_update",
+			Description: "Update a tracked entity.",
+			Method:      "PUT",
+			Path:        "/api/tracked-entities/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), type (string), aliases (array of strings), notes (string).",
+			},
+		},
+		{
+			Name:        "tracked_entities_delete",
+			Description: "Delete a tracked entity by ID.",
+			Method:      "DELETE",
+			Path:        "/api/tracked-entities/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+		},
+		{
+			Name:        "tracked_entities_bulk_delete",
+			Description: "Bulk-delete tracked entities. All filters optional — omit all to delete every tracked entity. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/tracked-entities",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string, optional). All optional.",
+			},
+		},
+		{
+			Name:        "tracked_entities_activate",
+			Description: "Activate a tracked entity.",
+			Method:      "POST",
+			Path:        "/api/tracked-entities/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+		},
+		{
+			Name:        "tracked_entities_deactivate",
+			Description: "Deactivate a tracked entity.",
+			Method:      "POST",
+			Path:        "/api/tracked-entities/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+		},
+		{
+			Name:        "tracked_entities_tracks_list",
+			Description: "List NER track occurrences for a tracked entity (paginated).",
+			Method:      "GET",
+			Path:        "/api/tracked-entities/{id}/tracks",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+			QueryParams: []ParamDef{
+				{Name: "from", Type: "string", Description: "Start time (RFC3339)"},
+				{Name: "to", Type: "string", Description: "End time (RFC3339)"},
+				{Name: "page", Type: "integer", Description: "Page number"},
+				{Name: "per_page", Type: "integer", Description: "Results per page"},
+			},
+		},
+		{
+			Name:        "tracked_entities_alias_suggestions",
+			Description: "List NER-derived alias suggestions for an existing tracked entity.",
+			Method:      "GET",
+			Path:        "/api/tracked-entities/{id}/alias-suggestions",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Entity ID", Required: true}},
+		},
+		{
+			Name:        "alias_suggestions_search",
+			Description: "Search NER alias suggestions by name and optional entity type (for new entity creation).",
+			Method:      "GET",
+			Path:        "/api/alias-suggestions",
+			QueryParams: []ParamDef{
+				{Name: "name", Type: "string", Description: "Name to search for"},
+				{Name: "type", Type: "string", Description: "Entity type filter"},
+			},
+		},
+
+		// ── Entity Candidates ────────────────────────────────────────────────
+		{
+			Name:        "entity_candidates_list",
+			Description: "List auto-discovered entity candidates pending review.",
+			Method:      "GET",
+			Path:        "/api/entity-candidates",
+		},
+		{
+			Name:        "entity_candidates_get",
+			Description: "Get an entity candidate by ID.",
+			Method:      "GET",
+			Path:        "/api/entity-candidates/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Candidate ID", Required: true}},
+		},
+		{
+			Name:        "entity_candidates_promote",
+			Description: "Promote an entity candidate to a full tracked entity.",
+			Method:      "POST",
+			Path:        "/api/entity-candidates/{id}/promote",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Candidate ID", Required: true}},
+		},
+		{
+			Name:        "entity_candidates_reject",
+			Description: "Reject an entity candidate.",
+			Method:      "POST",
+			Path:        "/api/entity-candidates/{id}/reject",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Candidate ID", Required: true}},
+		},
+		{
+			Name:        "entity_candidates_merge",
+			Description: "Merge an entity candidate as an alias of an existing tracked entity.",
+			Method:      "POST",
+			Path:        "/api/entity-candidates/{id}/merge",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Candidate ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with field: entity_id (integer, the tracked entity to merge into).",
+			},
+		},
+		{
+			Name:        "entity_candidates_delete",
+			Description: "Delete an entity candidate.",
+			Method:      "DELETE",
+			Path:        "/api/entity-candidates/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Candidate ID", Required: true}},
+		},
+
+		{
+			Name:        "entity_candidates_bulk_delete",
+			Description: "Bulk-delete entity candidates. All filters optional — omit all to delete every candidate. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/entity-candidates",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), status (string: pending/promoted/rejected, optional), type (string: I-PER/I-LOC/I-ORG/I-MISC, optional), auto_promoted (bool, optional), min_confidence (float, optional), max_confidence (float, optional), min_occurrences (int, optional), max_occurrences (int, optional). All optional.",
+			},
+		},
+
+		// ── Entity Connections ───────────────────────────────────────────────
+		{
+			Name:        "entity_connections_list",
+			Description: "List all entity co-occurrence connections with joined entity names.",
+			Method:      "GET",
+			Path:        "/api/entity-connections",
+		},
+		{
+			Name:        "entity_connections_delete",
+			Description: "Truncate all entity connections (admin only).",
+			Method:      "DELETE",
+			Path:        "/api/entity-connections",
+		},
+		{
+			Name:        "entity_connections_subgraph",
+			Description: "Get the BFS subgraph of entity connections centered on an entity.",
+			Method:      "GET",
+			Path:        "/api/entity-connections/subgraph",
+			QueryParams: []ParamDef{
+				{Name: "entity_id", Type: "integer", Description: "Center entity ID", Required: true},
+				{Name: "depth", Type: "integer", Description: "BFS depth (default 2, max 5)"},
+				{Name: "min_weight", Type: "integer", Description: "Minimum co-occurrence weight filter"},
+			},
+		},
+
+		// ── Pipelines (DAG workflows) ────────────────────────────────────────
+		{
+			Name:        "pipelines_list",
+			Description: "List all DAG pipeline workflows.",
+			Method:      "GET",
+			Path:        "/api/pipelines",
+		},
+		{
+			Name:        "pipelines_get",
+			Description: "Get a pipeline by ID.",
+			Method:      "GET",
+			Path:        "/api/pipelines/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+		},
+		{
+			Name:        "pipelines_create",
+			Description: "Create a new DAG pipeline workflow.",
+			Method:      "POST",
+			Path:        "/api/pipelines",
+			Body: &BodyDef{
+				Description: "Object with fields: name (string, required), description (string).",
+			},
+		},
+		{
+			Name:        "pipelines_update",
+			Description: "Update a pipeline's name or description.",
+			Method:      "PUT",
+			Path:        "/api/pipelines/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), description (string).",
+			},
+		},
+		{
+			Name:        "pipelines_delete",
+			Description: "Delete a pipeline.",
+			Method:      "DELETE",
+			Path:        "/api/pipelines/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+		},
+		{
+			Name:        "pipelines_bulk_delete",
+			Description: "Bulk-delete pipelines. All filters optional — omit all to delete every pipeline. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/pipelines",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional). All optional.",
+			},
+		},
+		{
+			Name:        "pipelines_activate",
+			Description: "Activate a pipeline so it participates in tweet processing.",
+			Method:      "POST",
+			Path:        "/api/pipelines/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+		},
+		{
+			Name:        "pipelines_deactivate",
+			Description: "Deactivate a pipeline.",
+			Method:      "POST",
+			Path:        "/api/pipelines/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+		},
+		{
+			Name:        "pipelines_graph_get",
+			Description: "Get the DAG graph (nodes + edges) for a pipeline.",
+			Method:      "GET",
+			Path:        "/api/pipelines/{id}/graph",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+		},
+		{
+			Name:        "pipelines_graph_save",
+			Description: "Replace the full DAG graph for a pipeline. Detects and rejects cycles.",
+			Method:      "PUT",
+			Path:        "/api/pipelines/{id}/graph",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: nodes (array of PipelineNodeRequest), edges (array of PipelineEdgeRequest).",
+			},
+		},
+		{
+			Name:        "pipelines_run",
+			Description: "Dispatch historical tweets through the pipeline's start node. Returns queued count.",
+			Method:      "POST",
+			Path:        "/api/pipelines/{id}/run",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with field: new_only (bool, skip tweets already processed by this pipeline).",
+			},
+		},
+
+		// ── Triggers ─────────────────────────────────────────────────────────
+		{
+			Name:        "triggers_list",
+			Description: "List all available trigger types (new_tweet, new_categorization, entity_matched, etc.).",
+			Method:      "GET",
+			Path:        "/api/triggers",
+		},
+		{
+			Name:        "triggers_links_list",
+			Description: "List all trigger-to-pipeline links.",
+			Method:      "GET",
+			Path:        "/api/triggers/links",
+		},
+		{
+			Name:        "triggers_links_create",
+			Description: "Create a trigger-to-pipeline link (connects a trigger type to a pipeline entry node).",
+			Method:      "POST",
+			Path:        "/api/triggers/links",
+			Body: &BodyDef{
+				Description: "Object with fields: trigger_type (string, required), pipeline_id (integer, required).",
+			},
+		},
+		{
+			Name:        "triggers_links_delete",
+			Description: "Delete a trigger-to-pipeline link.",
+			Method:      "DELETE",
+			Path:        "/api/triggers/links/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Link ID", Required: true}},
+		},
+		{
+			Name:        "triggers_links_bulk_delete",
+			Description: "Bulk-delete trigger-to-pipeline links. All filters optional — omit all to delete every link. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/triggers/links",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), pipeline_id (int, optional), trigger_type (string, optional). All optional.",
+			},
+		},
+		{
+			Name:        "triggers_links_activate",
+			Description: "Activate a trigger-to-pipeline link.",
+			Method:      "POST",
+			Path:        "/api/triggers/links/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Link ID", Required: true}},
+		},
+		{
+			Name:        "triggers_links_deactivate",
+			Description: "Deactivate a trigger-to-pipeline link.",
+			Method:      "POST",
+			Path:        "/api/triggers/links/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Link ID", Required: true}},
+		},
+
+		// ── Actions ──────────────────────────────────────────────────────────
+		{
+			Name:        "actions_list",
+			Description: "List actions (execution units). Optionally filter by active status or type.",
+			Method:      "GET",
+			Path:        "/api/actions",
+			QueryParams: []ParamDef{
+				{Name: "active", Type: "boolean", Description: "Filter by active status"},
+				{Name: "type", Type: "string", Description: "Filter by type: onnx, ollama, internal, notification"},
+			},
+		},
+		{
+			Name:        "actions_get",
+			Description: "Get an action by ID.",
+			Method:      "GET",
+			Path:        "/api/actions/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+		},
+		{
+			Name:        "actions_create",
+			Description: "Create a new action. type must be: onnx, ollama, internal, or notification.",
+			Method:      "POST",
+			Path:        "/api/actions",
+			Body: &BodyDef{
+				Description: "Object with fields: name (string, required), type (string, required: onnx|ollama|internal|notification), trigger_type (string), config (object, pipeline-specific JSON).",
+			},
+		},
+		{
+			Name:        "actions_update",
+			Description: "Update an action's name, type, or config.",
+			Method:      "PUT",
+			Path:        "/api/actions/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), type (string), config (object).",
+			},
+		},
+		{
+			Name:        "actions_delete",
+			Description: "Delete an action.",
+			Method:      "DELETE",
+			Path:        "/api/actions/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+		},
+		{
+			Name:        "actions_bulk_delete",
+			Description: "Bulk-delete actions. All filters optional — omit all to delete every action. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/actions",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string: onnx/ollama/internal, optional). All optional.",
+			},
+		},
+		{
+			Name:        "actions_activate",
+			Description: "Activate an action so it processes incoming triggers.",
+			Method:      "POST",
+			Path:        "/api/actions/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+		},
+		{
+			Name:        "actions_deactivate",
+			Description: "Deactivate an action.",
+			Method:      "POST",
+			Path:        "/api/actions/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+		},
+		{
+			Name:        "actions_handlers_list",
+			Description: "List registered internal action handler names (entity_matcher, twitter_retweet, etc.).",
+			Method:      "GET",
+			Path:        "/api/actions/handlers",
+		},
+		{
+			Name:        "models_list",
+			Description: "List available ONNX model files in the models directory.",
+			Method:      "GET",
+			Path:        "/api/models",
+		},
+
+		// ── Action Executions ────────────────────────────────────────────────
+		{
+			Name:        "action_executions_list",
+			Description: "List execution history for a specific action (paginated).",
+			Method:      "GET",
+			Path:        "/api/actions/{id}/executions",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+			QueryParams: []ParamDef{
+				{Name: "page", Type: "integer", Description: "Page number"},
+				{Name: "per_page", Type: "integer", Description: "Results per page"},
+				{Name: "from", Type: "string", Description: "Start time (RFC3339)"},
+				{Name: "to", Type: "string", Description: "End time (RFC3339)"},
+			},
+		},
+		{
+			Name:        "executions_list",
+			Description: "List all action executions across all actions (paginated).",
+			Method:      "GET",
+			Path:        "/api/executions",
+			QueryParams: []ParamDef{
+				{Name: "tweet_id", Type: "string", Description: "Filter by tweet ID"},
+				{Name: "status", Type: "string", Description: "Filter by status (success, error)"},
+				{Name: "page", Type: "integer", Description: "Page number"},
+				{Name: "per_page", Type: "integer", Description: "Results per page"},
+				{Name: "from", Type: "string", Description: "Start time (RFC3339)"},
+				{Name: "to", Type: "string", Description: "End time (RFC3339)"},
+			},
+		},
+		{
+			Name:        "execution_metadata_get",
+			Description: "Get the key-value metadata map for a single action execution.",
+			Method:      "GET",
+			Path:        "/api/executions/{id}/metadata",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Execution ID", Required: true}},
+		},
+		{
+			Name:        "executions_delete",
+			Description: "Bulk-delete execution records and their metadata. All filters are optional: omit all to delete every execution. Supply action_ids to scope to specific actions, pipeline_id to scope to all actions in a pipeline, tweet_ids to scope to specific tweets, or any combination.",
+			Method:      "DELETE",
+			Path:        "/api/executions",
+			Body: &BodyDef{
+				Description: "Object with optional fields: tweet_ids (array of strings), action_ids (array of integers), pipeline_id (integer). If all are omitted, all executions are deleted.",
+			},
+		},
+
+		// ── Action Backends ──────────────────────────────────────────────────
+		{
+			Name:        "action_backends_list",
+			Description: "List Ollama backend priority assignments for an action.",
+			Method:      "GET",
+			Path:        "/api/actions/{id}/backends",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+		},
+		{
+			Name:        "action_backends_set",
+			Description: "Set (replace) Ollama backend priority assignments for an action.",
+			Method:      "PUT",
+			Path:        "/api/actions/{id}/backends",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Array of objects: [{backend_id: integer, priority: integer}]. Replaces all existing assignments.",
+			},
+		},
+		{
+			Name:        "action_backends_remove",
+			Description: "Remove a specific Ollama backend assignment from an action.",
+			Method:      "DELETE",
+			Path:        "/api/actions/{id}/backends/{backend_id}",
+			PathParams: []ParamDef{
+				{Name: "id", Type: "integer", Description: "Action ID", Required: true},
+				{Name: "backend_id", Type: "integer", Description: "Backend ID", Required: true},
+			},
+		},
+
+		// ── Ollama Backends ──────────────────────────────────────────────────
+		{
+			Name:        "ollama_backends_list",
+			Description: "List Ollama backends merged with live health and scoring stats.",
+			Method:      "GET",
+			Path:        "/api/ollama/backends",
+		},
+		{
+			Name:        "ollama_backends_create",
+			Description: "Register a new Ollama backend.",
+			Method:      "POST",
+			Path:        "/api/ollama/backends",
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), url (string, required, e.g. http://localhost:11434).",
+			},
+		},
+		{
+			Name:        "ollama_backends_update",
+			Description: "Update an Ollama backend's name or URL.",
+			Method:      "PUT",
+			Path:        "/api/ollama/backends/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Backend ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), url (string).",
+			},
+		},
+		{
+			Name:        "ollama_backends_delete",
+			Description: "Delete an Ollama backend.",
+			Method:      "DELETE",
+			Path:        "/api/ollama/backends/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Backend ID", Required: true}},
+		},
+		{
+			Name:        "ollama_backends_bulk_delete",
+			Description: "Bulk-delete Ollama backends. All filters optional — omit all to delete every backend. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/ollama/backends",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), enabled (bool, optional). All optional.",
+			},
+		},
+		{
+			Name:        "ollama_backends_enable",
+			Description: "Enable an Ollama backend (makes it eligible for task assignment).",
+			Method:      "POST",
+			Path:        "/api/ollama/backends/{id}/enable",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Backend ID", Required: true}},
+		},
+		{
+			Name:        "ollama_backends_disable",
+			Description: "Disable an Ollama backend.",
+			Method:      "POST",
+			Path:        "/api/ollama/backends/{id}/disable",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Backend ID", Required: true}},
+		},
+
+		// ── Queue ────────────────────────────────────────────────────────────
+		{
+			Name:        "queue_get",
+			Description: "Get per-action queue depths.",
+			Method:      "GET",
+			Path:        "/api/queue",
+		},
+		{
+			Name:        "queue_flush",
+			Description: "Flush all pending task queues, removing all queued tasks.",
+			Method:      "DELETE",
+			Path:        "/api/queue",
+		},
+		{
+			Name:        "workers_buffer_flush",
+			Description: "Flush the in-memory worker buffer for all pipelines.",
+			Method:      "DELETE",
+			Path:        "/api/workers/buffer",
+		},
+		{
+			Name:        "workers_buffer_flush_pipeline",
+			Description: "Flush the in-memory worker buffer for a specific pipeline name.",
+			Method:      "DELETE",
+			Path:        "/api/workers/buffer/{pipeline}",
+			PathParams:  []ParamDef{{Name: "pipeline", Type: "string", Description: "Pipeline name", Required: true}},
+		},
+
+		// ── Search Jobs ──────────────────────────────────────────────────────
+		{
+			Name:        "search_jobs_list",
+			Description: "List X search backfill jobs.",
+			Method:      "GET",
+			Path:        "/api/search",
+		},
+		{
+			Name:        "search_run",
+			Description: "Trigger an X search backfill job. Returns 202 with job ID immediately; poll search_job_get until done or error.",
+			Method:      "POST",
+			Path:        "/api/search/run",
+			Body: &BodyDef{
+				Description: "Optional object with fields: rule_ids (array of integers), query (string), start_time (RFC3339), end_time (RFC3339).",
+			},
+		},
+		{
+			Name:        "search_job_get",
+			Description: "Get a search job by ID. Poll until status is done or error.",
+			Method:      "GET",
+			Path:        "/api/search/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Search job ID", Required: true}},
+		},
+		{
+			Name:        "search_job_delete",
+			Description: "Delete a search job.",
+			Method:      "DELETE",
+			Path:        "/api/search/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Search job ID", Required: true}},
+		},
+
+		{
+			Name:        "search_jobs_bulk_delete",
+			Description: "Bulk-delete search jobs. All filters optional — omit all to delete every search job. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/search",
+			Body: &BodyDef{
+				Description: "ids ([]string, optional), status (string: pending/done/error, optional). All optional.",
+			},
+		},
+
+		// ── Summaries ────────────────────────────────────────────────────────
+		{
+			Name:        "summaries_list",
+			Description: "List generated summaries.",
+			Method:      "GET",
+			Path:        "/api/summaries",
+		},
+		{
+			Name:        "summaries_run",
+			Description: "Trigger summary generation.",
+			Method:      "POST",
+			Path:        "/api/summaries/run",
+		},
+
+		// ── Digest Jobs ──────────────────────────────────────────────────────
+		{
+			Name:        "digest_list",
+			Description: "List LLM digest jobs.",
+			Method:      "GET",
+			Path:        "/api/digest",
+		},
+		{
+			Name:        "digest_create",
+			Description: "Create and dispatch a new LLM digest job over a tweet window. Returns 202.",
+			Method:      "POST",
+			Path:        "/api/digest",
+			Body: &BodyDef{
+				Description: "Optional object with fields: from (RFC3339), to (RFC3339), pipeline_id (integer).",
+			},
+		},
+		{
+			Name:        "digest_get",
+			Description: "Get a digest job by ID. Poll until status is done or error.",
+			Method:      "GET",
+			Path:        "/api/digest/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Digest job ID", Required: true}},
+		},
+		{
+			Name:        "digest_delete",
+			Description: "Delete a digest job.",
+			Method:      "DELETE",
+			Path:        "/api/digest/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Digest job ID", Required: true}},
+		},
+
+		{
+			Name:        "digest_bulk_delete",
+			Description: "Bulk-delete digest jobs. All filters optional — omit all to delete every digest job. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/digest",
+			Body: &BodyDef{
+				Description: "ids ([]string, optional), status (string: pending/done/error, optional). All optional.",
+			},
+		},
+
+		// ── Chat ─────────────────────────────────────────────────────────────
+		{
+			Name:        "chat_estimate",
+			Description: "Estimate token count for a set of tweet IDs against the chat model's context window.",
+			Method:      "POST",
+			Path:        "/api/chat/estimate",
+			Body: &BodyDef{
+				Description: "Object with field: tweet_ids (array of tweet ID strings).",
+			},
+		},
+		{
+			Name:        "chat_stream",
+			Description: "Stream an LLM chat response grounded in a set of tweets. Returns raw SSE chunks.",
+			Method:      "POST",
+			Path:        "/api/chat/stream",
+			Body: &BodyDef{
+				Description: "Object with fields: tweet_ids (array of strings), messages (array of {role: string, content: string}).",
+			},
+		},
+
+		// ── Failures (dead-letter queue) ─────────────────────────────────────
+		{
+			Name:        "failures_list",
+			Description: "List tasks in the dead-letter queue.",
+			Method:      "GET",
+			Path:        "/api/failures",
+		},
+		{
+			Name:        "failures_clear",
+			Description: "Clear all tasks from the dead-letter queue.",
+			Method:      "DELETE",
+			Path:        "/api/failures",
+		},
+
+		// ── Notification Providers ───────────────────────────────────────────
+		{
+			Name:        "notification_providers_list",
+			Description: "List notification providers (Pushover, Telegram).",
+			Method:      "GET",
+			Path:        "/api/notification-providers",
+		},
+		{
+			Name:        "notification_providers_create",
+			Description: "Create a notification provider.",
+			Method:      "POST",
+			Path:        "/api/notification-providers",
+			Body: &BodyDef{
+				Description: "Object with fields: name (string, required), type (string: pushover|telegram), config (object: pushover needs {app_token, user_key}; telegram needs {bot_token}).",
+			},
+		},
+		{
+			Name:        "notification_providers_get",
+			Description: "Get a notification provider by ID.",
+			Method:      "GET",
+			Path:        "/api/notification-providers/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Provider ID", Required: true}},
+		},
+		{
+			Name:        "notification_providers_update",
+			Description: "Update a notification provider.",
+			Method:      "PUT",
+			Path:        "/api/notification-providers/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Provider ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), config (object).",
+			},
+		},
+		{
+			Name:        "notification_providers_delete",
+			Description: "Delete a notification provider.",
+			Method:      "DELETE",
+			Path:        "/api/notification-providers/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Provider ID", Required: true}},
+		},
+		{
+			Name:        "notification_providers_bulk_delete",
+			Description: "Bulk-delete notification providers. All filters optional — omit all to delete every provider. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/notification-providers",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), type (string: pushover/telegram, optional). All optional.",
+			},
+		},
+		{
+			Name:        "notification_providers_activate",
+			Description: "Activate a notification provider.",
+			Method:      "POST",
+			Path:        "/api/notification-providers/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Provider ID", Required: true}},
+		},
+		{
+			Name:        "notification_providers_deactivate",
+			Description: "Deactivate a notification provider.",
+			Method:      "POST",
+			Path:        "/api/notification-providers/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Provider ID", Required: true}},
+		},
+
+		// ── Notification Channels ────────────────────────────────────────────
+		{
+			Name:        "notification_channels_list",
+			Description: "List notification channels.",
+			Method:      "GET",
+			Path:        "/api/notification-channels",
+		},
+		{
+			Name:        "notification_channels_create",
+			Description: "Create a notification channel.",
+			Method:      "POST",
+			Path:        "/api/notification-channels",
+			Body: &BodyDef{
+				Description: "Object with fields: name (string, required), provider_id (integer, required), message_template (string, supports ${key} substitution), config (object, e.g. {chat_id: string} for Telegram).",
+			},
+		},
+		{
+			Name:        "notification_channels_get",
+			Description: "Get a notification channel by ID.",
+			Method:      "GET",
+			Path:        "/api/notification-channels/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Channel ID", Required: true}},
+		},
+		{
+			Name:        "notification_channels_update",
+			Description: "Update a notification channel.",
+			Method:      "PUT",
+			Path:        "/api/notification-channels/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Channel ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: name (string), provider_id (integer), message_template (string), config (object).",
+			},
+		},
+		{
+			Name:        "notification_channels_delete",
+			Description: "Delete a notification channel.",
+			Method:      "DELETE",
+			Path:        "/api/notification-channels/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Channel ID", Required: true}},
+		},
+		{
+			Name:        "notification_channels_bulk_delete",
+			Description: "Bulk-delete notification channels. All filters optional — omit all to delete every channel. Filters combine with AND.",
+			Method:      "DELETE",
+			Path:        "/api/notification-channels",
+			Body: &BodyDef{
+				Description: "ids ([]int, optional), active (bool, optional), provider_id (int, optional). All optional.",
+			},
+		},
+		{
+			Name:        "notification_channels_activate",
+			Description: "Activate a notification channel.",
+			Method:      "POST",
+			Path:        "/api/notification-channels/{id}/activate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Channel ID", Required: true}},
+		},
+		{
+			Name:        "notification_channels_deactivate",
+			Description: "Deactivate a notification channel.",
+			Method:      "POST",
+			Path:        "/api/notification-channels/{id}/deactivate",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Channel ID", Required: true}},
+		},
+
+		// ── Users ────────────────────────────────────────────────────────────
+		{
+			Name:        "users_list",
+			Description: "List all users (admin only).",
+			Method:      "GET",
+			Path:        "/api/users",
+		},
+		{
+			Name:        "users_create",
+			Description: "Create a new user (admin only).",
+			Method:      "POST",
+			Path:        "/api/users",
+			Body: &BodyDef{
+				Description: "Object with fields: username (string, required), password (string, required), role (string: admin|viewer).",
+			},
+		},
+		{
+			Name:        "users_update",
+			Description: "Update a user's username, password, or role (admin only).",
+			Method:      "PUT",
+			Path:        "/api/users/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "User ID", Required: true}},
+			Body: &BodyDef{
+				Description: "Object with fields: username (string), password (string), role (string).",
+			},
+		},
+		{
+			Name:        "users_delete",
+			Description: "Delete a user (admin only).",
+			Method:      "DELETE",
+			Path:        "/api/users/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "User ID", Required: true}},
+		},
+
+		// ── Twitter Auth ─────────────────────────────────────────────────────
+		{
+			Name:        "twitter_auth_start",
+			Description: "Get the OAuth 2.0 PKCE authorization URL to connect a Twitter account.",
+			Method:      "GET",
+			Path:        "/api/twitter/auth/start",
+		},
+		{
+			Name:        "twitter_auth_status",
+			Description: "Get the current Twitter OAuth connection status.",
+			Method:      "GET",
+			Path:        "/api/twitter/auth/status",
+		},
+		{
+			Name:        "twitter_auth_delete",
+			Description: "Disconnect the linked Twitter account.",
+			Method:      "DELETE",
+			Path:        "/api/twitter/auth",
+		},
+	}
+}

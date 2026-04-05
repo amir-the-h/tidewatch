@@ -101,6 +101,39 @@ func (s *sqliteStore) DeleteAction(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (s *sqliteStore) BulkDeleteActions(ctx context.Context, f BulkDeleteActionsFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Active != nil {
+		clauses = append(clauses, "active = ?")
+		args = append(args, boolToInt(*f.Active))
+	}
+	if f.Type != "" {
+		clauses = append(clauses, "type = ?")
+		args = append(args, f.Type)
+	}
+
+	query := "DELETE FROM actions"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete actions: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 func (s *sqliteStore) SetActionActive(ctx context.Context, id int64, active bool) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
@@ -276,27 +309,27 @@ func (s *sqliteStore) SaveActionExecutionMetadata(ctx context.Context, execID in
 }
 
 func (s *sqliteStore) DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error) {
-	if len(tweetIDs) == 0 {
-		return 0, nil
-	}
-
-	// Build tweet_id IN (?) placeholders
-	tweetPlaceholders := strings.Repeat("?,", len(tweetIDs))
-	tweetPlaceholders = tweetPlaceholders[:len(tweetPlaceholders)-1]
-
 	args := make([]any, 0, len(tweetIDs)+len(actionIDs))
-	for _, id := range tweetIDs {
-		args = append(args, id)
-	}
+	var clauses []string
 
-	filter := fmt.Sprintf("tweet_id IN (%s)", tweetPlaceholders)
+	if len(tweetIDs) > 0 {
+		ph := strings.Repeat("?,", len(tweetIDs))
+		clauses = append(clauses, fmt.Sprintf("tweet_id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range tweetIDs {
+			args = append(args, id)
+		}
+	}
 	if len(actionIDs) > 0 {
-		actionPlaceholders := strings.Repeat("?,", len(actionIDs))
-		actionPlaceholders = actionPlaceholders[:len(actionPlaceholders)-1]
-		filter += fmt.Sprintf(" AND action_id IN (%s)", actionPlaceholders)
+		ph := strings.Repeat("?,", len(actionIDs))
+		clauses = append(clauses, fmt.Sprintf("action_id IN (%s)", ph[:len(ph)-1]))
 		for _, id := range actionIDs {
 			args = append(args, id)
 		}
+	}
+
+	filter := ""
+	if len(clauses) > 0 {
+		filter = strings.Join(clauses, " AND ")
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -305,16 +338,21 @@ func (s *sqliteStore) DeleteActionExecutions(ctx context.Context, tweetIDs []str
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	whereClause := ""
+	if filter != "" {
+		whereClause = "WHERE " + filter
+	}
+
 	// Delete metadata first (FK constraint: metadata → executions)
 	if _, err := tx.ExecContext(ctx,
 		fmt.Sprintf(`DELETE FROM action_execution_metadata
-		             WHERE execution_id IN (SELECT id FROM action_executions WHERE %s)`, filter),
+		             WHERE execution_id IN (SELECT id FROM action_executions %s)`, whereClause),
 		args...); err != nil {
 		return 0, fmt.Errorf("store: delete action executions: delete metadata: %w", err)
 	}
 
 	res, err := tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM action_executions WHERE %s`, filter),
+		fmt.Sprintf(`DELETE FROM action_executions %s`, whereClause),
 		args...)
 	if err != nil {
 		return 0, fmt.Errorf("store: delete action executions: %w", err)

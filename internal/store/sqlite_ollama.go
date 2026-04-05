@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
@@ -73,6 +74,35 @@ func (s *sqliteStore) DeleteOllamaBackend(ctx context.Context, id int64) error {
 		return fmt.Errorf("store: delete ollama backend: %w", err)
 	}
 	return nil
+}
+
+func (s *sqliteStore) BulkDeleteOllamaBackends(ctx context.Context, f BulkDeleteOllamaBackendsFilter) (int64, error) {
+	var clauses []string
+	var args []any
+
+	if len(f.IDs) > 0 {
+		ph := strings.Repeat("?,", len(f.IDs))
+		clauses = append(clauses, fmt.Sprintf("id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+	if f.Enabled != nil {
+		clauses = append(clauses, "enabled = ?")
+		args = append(args, boolToInt(*f.Enabled))
+	}
+
+	query := "DELETE FROM ollama_backends"
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: bulk delete ollama backends: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (s *sqliteStore) SetOllamaBackendEnabled(ctx context.Context, id int64, enabled bool) error {

@@ -266,18 +266,31 @@ func (s *Server) handleDeleteNoiseTweets(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteExecutions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TweetIDs  []string `json:"tweet_ids"`
-		ActionIDs []int64  `json:"action_ids"`
+		TweetIDs   []string `json:"tweet_ids"`
+		ActionIDs  []int64  `json:"action_ids"`
+		PipelineID *int64   `json:"pipeline_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len(req.TweetIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "tweet_ids is required")
-		return
+
+	actionIDs := req.ActionIDs
+	if req.PipelineID != nil {
+		graph, err := s.store.GetPipelineGraph(r.Context(), *req.PipelineID)
+		if err != nil {
+			s.logger.Error("api: delete executions: resolve pipeline graph", "pipeline_id", *req.PipelineID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to resolve pipeline actions")
+			return
+		}
+		for _, n := range graph.Nodes {
+			if n.ActionID != nil {
+				actionIDs = append(actionIDs, *n.ActionID)
+			}
+		}
 	}
-	n, err := s.store.DeleteActionExecutions(r.Context(), req.TweetIDs, req.ActionIDs)
+
+	n, err := s.store.DeleteActionExecutions(r.Context(), req.TweetIDs, actionIDs)
 	if err != nil {
 		s.logger.Error("api: delete executions", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete executions")

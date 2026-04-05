@@ -435,3 +435,19 @@ func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
 func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 }
+
+// handleBulkDeleteRules DELETE /api/rules
+func (s *Server) handleBulkDeleteRules(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteRulesFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteRules(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete rules", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete rules")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}

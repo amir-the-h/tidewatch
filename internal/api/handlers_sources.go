@@ -214,3 +214,19 @@ func (s *Server) handleDeactivateSource(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleBulkDeleteSources DELETE /api/sources
+func (s *Server) handleBulkDeleteSources(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteSourcesFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteSources(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete sources", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete sources")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}

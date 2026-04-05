@@ -382,8 +382,9 @@ func (p *ONNXPipeline) load(modelPath string) error {
 
 // runRaw tokenizes text, runs inference on GPU (falling back to CPU), and returns
 // a JSON result. Concurrent calls on pipelines sharing the same model file are
-// serialized through the shared session mutex.
-func (p *ONNXPipeline) runRaw(text []byte) (json.RawMessage, error) {
+// serialized through the shared session mutex. stripBIO enables BIO-prefix handling
+// for NER models that output "B-LOC"/"I-LOC" style labels.
+func (p *ONNXPipeline) runRaw(text []byte, stripBIO bool) (json.RawMessage, error) {
 	if p.shared == nil {
 		return nil, fmt.Errorf("inference: onnx: model not loaded")
 	}
@@ -418,7 +419,7 @@ func (p *ONNXPipeline) runRaw(text []byte) (json.RawMessage, error) {
 
 	logits := s.logitsTensor.GetData()
 	if s.isNER {
-		return postProcessNER(logits, s.id2label, s.numLabels, seqLen, tokens)
+		return postProcessNER(logits, s.id2label, s.numLabels, seqLen, tokens, stripBIO)
 	}
 	return postProcessClassification(logits, s.id2label)
 }
@@ -428,7 +429,8 @@ func (p *ONNXPipeline) Run(_ context.Context, input PipelineInput) (map[string]a
 	if labels := labelsFromConfig(input.Config); len(labels) > 0 {
 		p.SetLabels(labels)
 	}
-	raw, err := p.runRaw([]byte(input.Text))
+	stripBIO, _ := input.Config["strip_bio_prefix"].(bool)
+	raw, err := p.runRaw([]byte(input.Text), stripBIO)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +568,9 @@ func postProcessClassification(logits []float32, id2label []string) (json.RawMes
 
 // postProcessNER extracts non-"O" token labels, merges consecutive same-label
 // tokens into word spans, skipping [CLS] (position 0) and [SEP] (last position).
-func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, tokens []string) (json.RawMessage, error) {
+// When stripBIO is true, "B-"/"I-" prefixes are stripped and BIO sequences are
+// merged: "B-LOC" starts a new LOC span, "I-LOC" continues it.
+func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, tokens []string, stripBIO bool) (json.RawMessage, error) {
 	type span struct {
 		label  string
 		tokens []string
@@ -604,9 +608,17 @@ func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, 
 			flush()
 			continue
 		}
-		if cur == nil || cur.label != label {
-			flush()
-			cur = &span{label: label}
+		if stripBIO {
+			base, isBegin := bioParts(label)
+			if cur == nil || isBegin || cur.label != base {
+				flush()
+				cur = &span{label: base}
+			}
+		} else {
+			if cur == nil || cur.label != label {
+				flush()
+				cur = &span{label: label}
+			}
 		}
 		cur.tokens = append(cur.tokens, tok)
 		cur.scores = append(cur.scores, probs[best])
@@ -629,6 +641,19 @@ func postProcessNER(logits []float32, id2label []string, numLabels, seqLen int, 
 	return json.Marshal(nerResult{Entities: entities})
 }
 
+// bioParts strips a BIO prefix from a NER label, returning the base entity type
+// and whether this token begins a new entity (B-) or continues one (I-).
+// Labels without a BIO prefix are treated as beginning tokens.
+func bioParts(label string) (base string, isBegin bool) {
+	if strings.HasPrefix(label, "B-") {
+		return label[2:], true
+	}
+	if strings.HasPrefix(label, "I-") {
+		return label[2:], false
+	}
+	return label, true
+}
+
 // joinTokens reconstructs a word from subword tokens.
 func joinTokens(toks []string) string {
 	var sb strings.Builder
@@ -644,7 +669,7 @@ func joinTokens(toks []string) string {
 			}
 			sb.WriteString(t[len("▁"):])
 		} else {
-			sb.WriteString(t)
+			sb.WriteString(strings.TrimPrefix(t, "##"))
 		}
 	}
 	return strings.TrimSpace(sb.String())

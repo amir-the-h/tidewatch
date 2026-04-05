@@ -190,12 +190,14 @@ func NewServer(
 				// Sources
 				r.Post("/sources", srv.handleCreateSource)
 				r.Put("/sources/{id}", srv.handleUpdateSource)
+				r.Delete("/sources", srv.handleBulkDeleteSources)
 				r.Delete("/sources/{id}", srv.handleDeleteSource)
 				r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
 
 				// Rules
 				r.Post("/rules", srv.handleCreateRule)
 				r.Put("/rules/{id}", srv.handleUpdateRule)
+				r.Delete("/rules", srv.handleBulkDeleteRules)
 				r.Delete("/rules/{id}", srv.handleDeleteRule)
 				r.Post("/rules/{id}/activate", srv.handleActivateRule)
 				r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
@@ -208,6 +210,7 @@ func NewServer(
 				// Pipelines (DAG workflows — mutations)
 				r.Post("/pipelines", srv.handleCreatePipeline)
 				r.Put("/pipelines/{id}", srv.handleUpdatePipeline)
+				r.Delete("/pipelines", srv.handleBulkDeletePipelines)
 				r.Delete("/pipelines/{id}", srv.handleDeletePipeline)
 				r.Post("/pipelines/{id}/activate", srv.handleActivatePipeline)
 				r.Post("/pipelines/{id}/deactivate", srv.handleDeactivatePipeline)
@@ -216,6 +219,7 @@ func NewServer(
 
 				// Trigger pipeline links
 				r.Post("/triggers/links", srv.handleCreateTriggerPipelineLink)
+				r.Delete("/triggers/links", srv.handleBulkDeleteTriggerPipelineLinks)
 				r.Delete("/triggers/links/{id}", srv.handleDeleteTriggerPipelineLink)
 				r.Post("/triggers/links/{id}/activate", srv.handleActivateTriggerPipelineLink)
 				r.Post("/triggers/links/{id}/deactivate", srv.handleDeactivateTriggerPipelineLink)
@@ -227,6 +231,7 @@ func NewServer(
 				// Tracked Entities mutations
 				r.Post("/tracked-entities", srv.handleCreateTrackedEntity)
 				r.Put("/tracked-entities/{id}", srv.handleUpdateTrackedEntity)
+				r.Delete("/tracked-entities", srv.handleBulkDeleteTrackedEntities)
 				r.Delete("/tracked-entities/{id}", srv.handleDeleteTrackedEntity)
 				r.Post("/tracked-entities/{id}/activate", srv.handleActivateTrackedEntity)
 				r.Post("/tracked-entities/{id}/deactivate", srv.handleDeactivateTrackedEntity)
@@ -237,6 +242,7 @@ func NewServer(
 				r.Post("/entity-candidates/{id}/promote", srv.handlePromoteEntityCandidate)
 				r.Post("/entity-candidates/{id}/reject", srv.handleRejectEntityCandidate)
 				r.Post("/entity-candidates/{id}/merge", srv.handleMergeEntityCandidate)
+				r.Delete("/entity-candidates", srv.handleBulkDeleteEntityCandidates)
 				r.Delete("/entity-candidates/{id}", srv.handleDeleteEntityCandidate)
 
 				// Entity Connections
@@ -251,6 +257,7 @@ func NewServer(
 				r.Get("/digest", srv.handleListDigests)
 				r.Post("/digest", srv.handleDigest)
 				r.Get("/digest/{id}", srv.handleGetDigest)
+				r.Delete("/digest", srv.handleBulkDeleteDigestJobs)
 				r.Delete("/digest/{id}", srv.handleDeleteDigest)
 
 				// Chat
@@ -265,6 +272,7 @@ func NewServer(
 				r.Get("/ollama/backends", srv.handleListOllamaBackends)
 				r.Post("/ollama/backends", srv.handleCreateOllamaBackend)
 				r.Put("/ollama/backends/{id}", srv.handleUpdateOllamaBackend)
+				r.Delete("/ollama/backends", srv.handleBulkDeleteOllamaBackends)
 				r.Delete("/ollama/backends/{id}", srv.handleDeleteOllamaBackend)
 				r.Post("/ollama/backends/{id}/enable", srv.handleEnableOllamaBackend)
 				r.Post("/ollama/backends/{id}/disable", srv.handleDisableOllamaBackend)
@@ -283,6 +291,7 @@ func NewServer(
 				r.Get("/search", srv.handleListSearchJobs)
 				r.Post("/search/run", srv.handleSearchRun)
 				r.Get("/search/{id}", srv.handleGetSearchJob)
+				r.Delete("/search", srv.handleBulkDeleteSearchJobs)
 				r.Delete("/search/{id}", srv.handleDeleteSearchJob)
 
 				// Notification providers
@@ -290,6 +299,7 @@ func NewServer(
 				r.Post("/notification-providers", srv.handleCreateNotificationProvider)
 				r.Get("/notification-providers/{id}", srv.handleGetNotificationProvider)
 				r.Put("/notification-providers/{id}", srv.handleUpdateNotificationProvider)
+				r.Delete("/notification-providers", srv.handleBulkDeleteNotificationProviders)
 				r.Delete("/notification-providers/{id}", srv.handleDeleteNotificationProvider)
 				r.Post("/notification-providers/{id}/activate", srv.handleActivateNotificationProvider)
 				r.Post("/notification-providers/{id}/deactivate", srv.handleDeactivateNotificationProvider)
@@ -299,6 +309,7 @@ func NewServer(
 				r.Post("/notification-channels", srv.handleCreateNotificationChannel)
 				r.Get("/notification-channels/{id}", srv.handleGetNotificationChannel)
 				r.Put("/notification-channels/{id}", srv.handleUpdateNotificationChannel)
+				r.Delete("/notification-channels", srv.handleBulkDeleteNotificationChannels)
 				r.Delete("/notification-channels/{id}", srv.handleDeleteNotificationChannel)
 				r.Post("/notification-channels/{id}/activate", srv.handleActivateNotificationChannel)
 				r.Post("/notification-channels/{id}/deactivate", srv.handleDeactivateNotificationChannel)
@@ -316,6 +327,7 @@ func NewServer(
 				r.Get("/models", srv.handleListModels)
 				r.Get("/actions/{id}", srv.handleGetAction)
 				r.Put("/actions/{id}", srv.handleUpdateAction)
+				r.Delete("/actions", srv.handleBulkDeleteActions)
 				r.Delete("/actions/{id}", srv.handleDeleteAction)
 				r.Post("/actions/{id}/activate", srv.handleActivateAction)
 				r.Post("/actions/{id}/deactivate", srv.handleDeactivateAction)
