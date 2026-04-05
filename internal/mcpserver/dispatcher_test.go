@@ -148,6 +148,56 @@ func TestDispatcher_POST_Body(t *testing.T) {
 	}
 }
 
+func TestDispatcher_Execute_CallsCorrectEndpoint(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tweets":[]}`))
+	}))
+	defer srv.Close()
+
+	d := mcpserver.NewDispatcher(srv.URL)
+	result, err := d.Execute(context.Background(), "tweets_list", map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/tweets" {
+		t.Errorf("expected /api/tweets, got %q", gotPath)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+}
+
+func TestDispatcher_Execute_UnknownTool(t *testing.T) {
+	d := mcpserver.NewDispatcher("http://localhost:9999")
+	_, err := d.Execute(context.Background(), "no_such_tool", map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for unknown tool")
+	}
+}
+
+func TestDispatcher_Execute_WithPathParam(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":42}`))
+	}))
+	defer srv.Close()
+
+	d := mcpserver.NewDispatcher(srv.URL)
+	_, err := d.Execute(context.Background(), "tweets_get", map[string]any{"id": "abc123"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/tweets/abc123" {
+		t.Errorf("expected /api/tweets/abc123, got %q", gotPath)
+	}
+}
+
 func TestDispatcher_Non2xx_ReturnsErrorResult(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

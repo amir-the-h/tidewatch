@@ -112,6 +112,30 @@ func (d *Dispatcher) Handle(ctx context.Context, td ToolDef, req mcp.CallToolReq
 	return result, nil
 }
 
+// Execute looks up the ToolDef by name, builds a CallToolRequest from args,
+// and calls Handle. Satisfies inference.ToolExecutor.
+func (d *Dispatcher) Execute(ctx context.Context, name string, args map[string]any) (string, error) {
+	td, ok := toolIndex[name]
+	if !ok {
+		return "", fmt.Errorf("dispatcher: unknown tool: %s", name)
+	}
+	var req mcp.CallToolRequest
+	req.Params.Arguments = args
+	result, err := d.Handle(ctx, td, req)
+	if err != nil {
+		return "", err
+	}
+	for _, c := range result.Content {
+		if tc, ok := c.(mcp.TextContent); ok {
+			return tc.Text, nil
+		}
+	}
+	if result.IsError {
+		return "error from tool", nil
+	}
+	return "", nil
+}
+
 // do performs the HTTP request. Returns (result, needsRetry, error).
 // needsRetry is true when a 401 was received and credentials were refreshed.
 func (d *Dispatcher) do(ctx context.Context, td ToolDef, req mcp.CallToolRequest) (*mcp.CallToolResult, bool, error) {
