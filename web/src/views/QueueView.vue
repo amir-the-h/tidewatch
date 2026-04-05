@@ -6,11 +6,11 @@ import { useQueuesStore } from '../stores/queues'
 import { useMessage, NButton, NSpace, NTag, NIcon, NTooltip } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
-import { getQueue, flushQueue } from '../api/queue'
+import { getQueue, flushQueue, flushWorkerBuffer } from '../api/queue'
 import { apiFetch } from '../api/client'
 import type { QueueEntry } from '../stores/queues'
 import { formatDateTime } from '../utils/format'
-import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline } from '@vicons/ionicons5'
+import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline, StopCircleOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
 
 function fmtEta(secs: number): string {
@@ -60,6 +60,7 @@ const showDetail  = ref(false)
 const selected    = ref<FailedTweet | null>(null)
 const clearing    = ref(false)
 const flushing    = ref(false)
+const stopping    = ref(false)
 const drawerWidth = computed(() => Math.min(540, window.innerWidth - 16))
 
 function openDetail(row: FailedTweet) {
@@ -85,6 +86,17 @@ async function onFlush() {
     await Promise.all([store.fetch(), fetchStats(), fetchQueues()])
   } catch (e: any) { msg.error(e.message) }
   finally { flushing.value = false }
+}
+
+async function onStopWorkers() {
+  stopping.value = true
+  try {
+    await flushWorkerBuffer()
+    await flushQueue()
+    msg.success('Workers stopped and queue flushed')
+    await Promise.all([store.fetch(), fetchStats(), fetchQueues()])
+  } catch (e: any) { msg.error(e.message) }
+  finally { stopping.value = false }
 }
 
 // ── Queue table ───────────────────────────────────────────────────────────────
@@ -268,6 +280,19 @@ onMounted(() => {
           </template>
           Refresh
         </n-tooltip>
+        <n-popconfirm @positive-click="onStopWorkers">
+          <template #trigger>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <n-button type="error" :loading="stopping">
+                  <template #icon><n-icon><StopCircleOutline /></n-icon></template>
+                </n-button>
+              </template>
+              Stop Workers &amp; Flush Queue
+            </n-tooltip>
+          </template>
+          Cancel all active worker tasks and drop all pending queue items?
+        </n-popconfirm>
         <n-popconfirm @positive-click="onFlush">
           <template #trigger>
             <n-tooltip trigger="hover">
