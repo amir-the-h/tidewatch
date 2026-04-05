@@ -1,9 +1,10 @@
 <!-- web/src/views/ChatView.vue -->
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { SendOutline, StopCircleOutline } from '@vicons/ionicons5'
 import { useChatStore } from '../stores/chat'
+import { listActions, type Action } from '../api/actions'
 
 const msg   = useMessage()
 const store = useChatStore()
@@ -11,6 +12,36 @@ const store = useChatStore()
 const input      = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const inputEl    = ref<HTMLTextAreaElement | null>(null)
+
+// ── Chat actions ─────────────────────────────────────────────────────────────
+
+const chatActions     = ref<Action[]>([])
+const actionsLoading  = ref(false)
+
+const actionOptions = computed(() =>
+  chatActions.value.map(a => ({ label: a.name, value: String(a.id) }))
+)
+
+async function fetchChatActions() {
+  actionsLoading.value = true
+  try {
+    const all = await listActions({ active: true })
+    chatActions.value = all.filter(
+      a => a.type === 'ollama' && a.config?.usecase === 'chat'
+    )
+    // If nothing is selected yet (or the stored ID is no longer valid), pick first.
+    const ids = chatActions.value.map(a => String(a.id))
+    if (!ids.includes(store.selectedActionId) && chatActions.value.length > 0) {
+      store.selectAction(String(chatActions.value[0].id))
+    }
+  } catch (e: any) {
+    msg.error('Failed to load chat actions: ' + e.message)
+  } finally {
+    actionsLoading.value = false
+  }
+}
+
+onMounted(fetchChatActions)
 
 // ── Scroll to bottom on new messages or streaming content ──────────────────
 
@@ -71,6 +102,19 @@ function truncateResult(result: string): string {
       flex-shrink: 0;
     ">
       <n-text style="font-size: 16px; font-weight: 600; color: #cdd6f4;">Chat</n-text>
+
+      <!-- Action selector -->
+      <n-select
+        :value="store.selectedActionId"
+        :options="actionOptions"
+        :loading="actionsLoading"
+        placeholder="Select a chat action…"
+        size="small"
+        style="width: 220px;"
+        :disabled="store.isStreaming"
+        @update:value="(v: string) => store.selectAction(v)"
+      />
+
       <n-button
         v-if="store.messages.length > 0"
         size="small"
@@ -81,6 +125,15 @@ function truncateResult(result: string): string {
         Clear chat
       </n-button>
     </div>
+
+    <!-- No actions warning -->
+    <n-alert
+      v-if="!actionsLoading && chatActions.length === 0"
+      type="warning"
+      style="margin-bottom: 12px; flex-shrink: 0;"
+    >
+      No active chat actions found. Create an Ollama action with usecase "Chat" in the Pipelines page.
+    </n-alert>
 
     <!-- Messages area -->
     <div
@@ -213,13 +266,14 @@ function truncateResult(result: string): string {
         :autosize="{ minRows: 1, maxRows: 5 }"
         placeholder="Ask anything… (Enter to send, Shift+Enter for newline)"
         style="flex: 1;"
+        :disabled="!store.selectedActionId || store.isStreaming"
         @keydown="onKeydown"
       />
       <n-tooltip v-if="!store.isStreaming" trigger="hover">
         <template #trigger>
           <n-button
             type="primary"
-            :disabled="!input.trim()"
+            :disabled="!input.trim() || !store.selectedActionId"
             @click="send"
           >
             <template #icon><n-icon><SendOutline /></n-icon></template>
