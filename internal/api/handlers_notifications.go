@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
 // ── NotificationProviders ─────────────────────────────────────────────────────
@@ -325,4 +326,36 @@ func parseNotificationChannelID(w http.ResponseWriter, r *http.Request) (int64, 
 		return 0, false
 	}
 	return id, true
+}
+
+// handleBulkDeleteNotificationProviders DELETE /api/notification-providers
+func (s *Server) handleBulkDeleteNotificationProviders(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteNotificationProvidersFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteNotificationProviders(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete notification providers", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete notification providers")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}
+
+// handleBulkDeleteNotificationChannels DELETE /api/notification-channels
+func (s *Server) handleBulkDeleteNotificationChannels(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteNotificationChannelsFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteNotificationChannels(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete notification channels", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete notification channels")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }

@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/go-chi/chi/v5"
+	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
 // handleListOllamaBackends returns all backends merged with live pool stats.
@@ -249,4 +251,20 @@ func (s *Server) reloadBackendPool(ctx context.Context) {
 	}
 	s.backendPool.Load(records)
 	s.reloadCache(ctx)
+}
+
+// handleBulkDeleteOllamaBackends DELETE /api/ollama/backends
+func (s *Server) handleBulkDeleteOllamaBackends(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteOllamaBackendsFilter
+	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	n, err := s.store.BulkDeleteOllamaBackends(r.Context(), f)
+	if err != nil {
+		s.logger.Error("api: bulk delete ollama backends", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete ollama backends")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }
