@@ -314,3 +314,156 @@ func TestNotificationChannel_DeleteProvider_CascadesChannel(t *testing.T) {
 		t.Errorf("expected channel to be cascade-deleted, got: %v", err)
 	}
 }
+
+// ── BulkDeleteNotificationProviders ─────────────────────────────────────────
+
+func TestBulkDeleteNotificationProviders_All(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p1 := sampleProvider()
+	p1.Name = "prov-1"
+	if err := s.SaveNotificationProvider(ctx, p1); err != nil {
+		t.Fatalf("SaveNotificationProvider p1: %v", err)
+	}
+	p2 := sampleProvider()
+	p2.Name = "prov-2"
+	if err := s.SaveNotificationProvider(ctx, p2); err != nil {
+		t.Fatalf("SaveNotificationProvider p2: %v", err)
+	}
+
+	n, err := s.BulkDeleteNotificationProviders(ctx, BulkDeleteNotificationProvidersFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteNotificationProviders: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	provs, _ := s.ListNotificationProviders(ctx)
+	if len(provs) != 0 {
+		t.Errorf("expected 0 providers remaining, got %d", len(provs))
+	}
+}
+
+func TestBulkDeleteNotificationProviders_ByType(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p1 := sampleProvider() // type = "pushover"
+	p1.Name = "pushover-prov"
+	if err := s.SaveNotificationProvider(ctx, p1); err != nil {
+		t.Fatalf("SaveNotificationProvider p1: %v", err)
+	}
+	p2 := sampleProvider()
+	p2.Name = "telegram-prov"
+	p2.Type = "telegram"
+	if err := s.SaveNotificationProvider(ctx, p2); err != nil {
+		t.Fatalf("SaveNotificationProvider p2: %v", err)
+	}
+
+	n, err := s.BulkDeleteNotificationProviders(ctx, BulkDeleteNotificationProvidersFilter{Type: "pushover"})
+	if err != nil {
+		t.Fatalf("BulkDeleteNotificationProviders: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	provs, _ := s.ListNotificationProviders(ctx)
+	if len(provs) != 1 || provs[0].ID != p2.ID {
+		t.Errorf("expected only telegram provider remaining")
+	}
+}
+
+func TestBulkDeleteNotificationProviders_ByIDs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p1 := sampleProvider()
+	p1.Name = "prov-1"
+	if err := s.SaveNotificationProvider(ctx, p1); err != nil {
+		t.Fatalf("SaveNotificationProvider p1: %v", err)
+	}
+	p2 := sampleProvider()
+	p2.Name = "prov-2"
+	if err := s.SaveNotificationProvider(ctx, p2); err != nil {
+		t.Fatalf("SaveNotificationProvider p2: %v", err)
+	}
+
+	n, err := s.BulkDeleteNotificationProviders(ctx, BulkDeleteNotificationProvidersFilter{IDs: []int64{p1.ID}})
+	if err != nil {
+		t.Fatalf("BulkDeleteNotificationProviders: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	provs, _ := s.ListNotificationProviders(ctx)
+	if len(provs) != 1 || provs[0].ID != p2.ID {
+		t.Errorf("expected only p2 remaining")
+	}
+}
+
+// ── BulkDeleteNotificationChannels ──────────────────────────────────────────
+
+func TestBulkDeleteNotificationChannels_All(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p := sampleProvider()
+	if err := s.SaveNotificationProvider(ctx, p); err != nil {
+		t.Fatalf("SaveNotificationProvider: %v", err)
+	}
+	ch1 := sampleChannel(p.ID)
+	ch1.Name = "chan-1"
+	if err := s.SaveNotificationChannel(ctx, ch1); err != nil {
+		t.Fatalf("SaveNotificationChannel ch1: %v", err)
+	}
+	ch2 := sampleChannel(p.ID)
+	ch2.Name = "chan-2"
+	if err := s.SaveNotificationChannel(ctx, ch2); err != nil {
+		t.Fatalf("SaveNotificationChannel ch2: %v", err)
+	}
+
+	n, err := s.BulkDeleteNotificationChannels(ctx, BulkDeleteNotificationChannelsFilter{})
+	if err != nil {
+		t.Fatalf("BulkDeleteNotificationChannels: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 deleted, got %d", n)
+	}
+	chans, _ := s.ListNotificationChannels(ctx, nil)
+	if len(chans) != 0 {
+		t.Errorf("expected 0 channels remaining, got %d", len(chans))
+	}
+}
+
+func TestBulkDeleteNotificationChannels_ByProviderID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p1 := sampleProvider()
+	p1.Name = "prov-1"
+	if err := s.SaveNotificationProvider(ctx, p1); err != nil {
+		t.Fatalf("SaveNotificationProvider p1: %v", err)
+	}
+	p2 := sampleProvider()
+	p2.Name = "prov-2"
+	if err := s.SaveNotificationProvider(ctx, p2); err != nil {
+		t.Fatalf("SaveNotificationProvider p2: %v", err)
+	}
+	ch1 := sampleChannel(p1.ID)
+	if err := s.SaveNotificationChannel(ctx, ch1); err != nil {
+		t.Fatalf("SaveNotificationChannel ch1: %v", err)
+	}
+	ch2 := sampleChannel(p2.ID)
+	ch2.Name = "chan-p2"
+	if err := s.SaveNotificationChannel(ctx, ch2); err != nil {
+		t.Fatalf("SaveNotificationChannel ch2: %v", err)
+	}
+
+	n, err := s.BulkDeleteNotificationChannels(ctx, BulkDeleteNotificationChannelsFilter{ProviderID: &p1.ID})
+	if err != nil {
+		t.Fatalf("BulkDeleteNotificationChannels: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 deleted, got %d", n)
+	}
+	chans, _ := s.ListNotificationChannels(ctx, nil)
+	if len(chans) != 1 || chans[0].ID != ch2.ID {
+		t.Errorf("expected only ch2 remaining")
+	}
+}
