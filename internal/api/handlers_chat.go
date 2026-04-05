@@ -6,11 +6,33 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
 )
+
+// lockedWriter wraps an http.ResponseWriter with a mutex so that the
+// keep-alive goroutine and AgentStream can safely write concurrently.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  http.ResponseWriter
+}
+
+func (lw *lockedWriter) Write(b []byte) (int, error) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	return lw.w.Write(b)
+}
+
+func (lw *lockedWriter) Flush() {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	if f, ok := lw.w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
 
 // handleChatStream runs the agentic chat loop and streams events as SSE.
 //
@@ -39,6 +61,7 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Decode and validate request before committing to SSE response.
 	var req struct {
 		Messages []inference.ChatMessage `json:"messages"`
 	}
@@ -53,16 +76,16 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 
 	tools := mcpserver.BuildOllamaTools()
 
+	// Commit to SSE — no more early returns after this point.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
-	flusher, canFlush := w.(http.Flusher)
-	fmt.Fprint(w, ": keep-alive\n\n")
-	if canFlush {
-		flusher.Flush()
-	}
+	// Wrap w so keep-alive goroutine and AgentStream can write concurrently.
+	lw := &lockedWriter{w: w}
+	fmt.Fprint(lw, ": keep-alive\n\n")
+	lw.Flush()
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
@@ -75,15 +98,13 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				fmt.Fprint(w, ": keep-alive\n\n")
-				if canFlush {
-					flusher.Flush()
-				}
+				fmt.Fprint(lw, ": keep-alive\n\n")
+				lw.Flush()
 			}
 		}
 	}()
 
-	if err := cp.AgentStream(ctx, req.Messages, tools, s.toolExec, w); err != nil {
+	if err := cp.AgentStream(ctx, req.Messages, tools, s.toolExec, lw); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			s.logger.Error("api: chat stream", "error", err)
 		}
