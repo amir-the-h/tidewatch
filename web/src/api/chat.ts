@@ -1,5 +1,3 @@
-import { apiFetch } from './client'
-
 const apiBase: string =
   (window as Window & { __ENV__?: { API_BASE_URL?: string } }).__ENV__?.API_BASE_URL ||
   (import.meta.env.VITE_API_BASE_URL as string) ||
@@ -10,31 +8,23 @@ export interface ChatMessage {
   content: string
 }
 
-export interface TokenEstimate {
-  tokens: number
-  limit: number
-  ok: boolean
-  tweet_count: number
-}
-
-export const estimateTokens = (tweetIds: string[]) =>
-  apiFetch<TokenEstimate>('/api/chat/estimate', {
-    method: 'POST',
-    body: JSON.stringify({ tweet_ids: tweetIds }),
-  })
+export type ChatEvent =
+  | { type: 'tool_call'; name: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; name: string; result: string }
+  | { type: 'text_chunk'; content: string }
+  | { type: 'error'; message: string }
 
 /**
- * Streams a chat response via SSE (POST /api/chat/stream).
+ * Streams an agentic chat response via SSE (POST /api/chat/stream).
  * Returns an AbortController; call .abort() to cancel mid-stream.
  *
- * onChunk is called for each text fragment as it arrives.
- * onDone is called once the stream ends cleanly.
+ * onEvent is called for each parsed ChatEvent.
+ * onDone is called once the [DONE] sentinel is received.
  * onError is called on network or server errors (not on abort).
  */
 export function streamChat(
-  tweetIds: string[],
   messages: ChatMessage[],
-  onChunk: (content: string) => void,
+  onEvent: (event: ChatEvent) => void,
   onDone: () => void,
   onError: (err: Error) => void,
 ): AbortController {
@@ -49,7 +39,7 @@ export function streamChat(
       const res = await fetch(`${apiBase}/api/chat/stream`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ tweet_ids: tweetIds, messages }),
+        body: JSON.stringify({ messages }),
         signal: controller.signal,
       })
 
@@ -82,11 +72,12 @@ export function streamChat(
             onDone()
             return
           }
+          if (data.startsWith(':')) continue // SSE comment / keep-alive
           try {
-            const content = JSON.parse(data) as string
-            onChunk(content)
+            const event = JSON.parse(data) as ChatEvent
+            onEvent(event)
           } catch {
-            // skip malformed chunk
+            // skip malformed event
           }
         }
       }
