@@ -87,13 +87,15 @@ type ollamaEval struct {
 
 // ollamaAgentMsg is the message format for AgentStream requests/responses.
 type ollamaAgentMsg struct {
-	Role      string             `json:"role"`
-	Content   string             `json:"content,omitempty"`
-	ToolCalls []ollamaAgentTCall `json:"tool_calls,omitempty"`
+	Role       string             `json:"role"`
+	Content    string             `json:"content,omitempty"`
+	ToolCalls  []ollamaAgentTCall `json:"tool_calls,omitempty"`
+	ToolCallID string             `json:"tool_call_id,omitempty"`
 }
 
 // ollamaAgentTCall is a single tool call returned by Ollama.
 type ollamaAgentTCall struct {
+	ID       string               `json:"id,omitempty"`
 	Function ollamaAgentTCallFunc `json:"function"`
 }
 
@@ -757,14 +759,17 @@ func (p *OllamaPipeline) AgentStream(
 				break
 			}
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(reqBody))
+			reqCtx, cancel := context.WithTimeout(ctx, ollamaRequestTimeout)
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, b.baseURL+"/api/chat", bytes.NewReader(reqBody))
 			if err != nil {
+				cancel()
 				loopErr = fmt.Errorf("inference: ollama: agent: build request: %w", err)
 				break
 			}
 			req.Header.Set("Content-Type", "application/json")
 
 			resp, err := b.client.Do(req)
+			cancel()
 			if err != nil {
 				loopErr = err
 				break
@@ -822,20 +827,18 @@ func (p *OllamaPipeline) AgentStream(
 					"result": result,
 				})
 
-				msgs = append(msgs, ollamaAgentMsg{Role: "tool", Content: result})
+				msgs = append(msgs, ollamaAgentMsg{Role: "tool", Content: result, ToolCallID: tc.ID})
 			}
 			// Loop back: send updated conversation to Ollama.
 		}
 
-		// loopErr is set — decide whether to retry with a new backend.
-		if loopErr != nil {
-			if isBackendError(loopErr) {
-				p.pool.MarkUnhealthy(b)
-				continue
-			}
-			p.pool.Release(b)
-			return loopErr
+		// loopErr is always set when we exit the inner loop via break.
+		if isBackendError(loopErr) {
+			p.pool.MarkUnhealthy(b)
+			continue
 		}
+		p.pool.Release(b)
+		return loopErr
 	}
 }
 

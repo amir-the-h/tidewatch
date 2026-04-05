@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,12 +17,15 @@ import (
 
 // mockToolExecutor records Execute calls and returns a fixed result.
 type mockToolExecutor struct {
+	mu     sync.Mutex
 	calls  []string
 	result string
 }
 
 func (m *mockToolExecutor) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+	m.mu.Lock()
 	m.calls = append(m.calls, name)
+	m.mu.Unlock()
 	if m.result == "" {
 		return `{"ok":true}`, nil
 	}
