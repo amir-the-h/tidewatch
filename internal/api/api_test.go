@@ -451,6 +451,43 @@ func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _
 
 func (m *mockStore) Close() error { return nil }
 
+func (m *mockStore) BulkDeleteRules(_ context.Context, _ store.BulkDeleteRulesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteSources(_ context.Context, _ store.BulkDeleteSourcesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeletePipelines(_ context.Context, _ store.BulkDeletePipelinesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteTriggerPipelineLinks(_ context.Context, _ store.BulkDeleteTriggerPipelineLinksFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteTrackedEntities(_ context.Context, _ store.BulkDeleteTrackedEntitiesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteEntityCandidates(_ context.Context, _ store.BulkDeleteEntityCandidatesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteActions(_ context.Context, _ store.BulkDeleteActionsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteOllamaBackends(_ context.Context, _ store.BulkDeleteOllamaBackendsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteNotificationProviders(_ context.Context, _ store.BulkDeleteNotificationProvidersFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteNotificationChannels(_ context.Context, _ store.BulkDeleteNotificationChannelsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSearchJobsFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error) {
+	return 0, nil
+}
+
 // ---------------------------------------------------------------------------
 // mockProducer
 // ---------------------------------------------------------------------------
