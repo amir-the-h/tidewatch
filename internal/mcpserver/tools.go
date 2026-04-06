@@ -694,7 +694,7 @@ func AllTools() []ToolDef {
 			Path:        "/api/actions/{id}/backends",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Action ID", Required: true}},
 			Body: &BodyDef{
-				Description: "Array of objects: [{backend_id: integer, priority: integer}]. Replaces all existing assignments.",
+				Description: `Object with key "backends" containing an array: {"backends": [{"backend_id": integer, "priority": integer}, ...]}.  Replaces all existing assignments.`,
 			},
 		},
 		{

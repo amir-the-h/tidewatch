@@ -631,6 +631,16 @@ func (p *OllamaPipeline) AgentStream(
 			}
 			resp.Body.Close()
 
+			// Ollama < 0.3 (e.g. 0.20.x) does not parse Qwen2.5's <tool_call>
+			// special tokens into the tool_calls field; they appear as garbled
+			// Unicode + raw JSON + "</tool_call>" in the content.  Extract them.
+			if len(chatResp.Message.ToolCalls) == 0 && strings.Contains(chatResp.Message.Content, "</tool_call>") {
+				if parsed := extractEmbeddedToolCalls(chatResp.Message.Content); len(parsed) > 0 {
+					chatResp.Message.ToolCalls = parsed
+					chatResp.Message.Content = ""
+				}
+			}
+
 			if len(chatResp.Message.ToolCalls) == 0 {
 				// No tool calls: emit the final text and finish.
 				emit(map[string]any{"type": "text_chunk", "content": chatResp.Message.Content})
@@ -683,8 +693,74 @@ func (p *OllamaPipeline) AgentStream(
 	}
 }
 
+// extractEmbeddedToolCalls parses tool calls that Ollama left as raw text in
+// the content field instead of the tool_calls field (Ollama < 0.3 / qwen2.5).
+// The model emits: [garbled open-token] {"name":"...","arguments":{...}} \n </tool_call>
+// possibly multiple times. We extract all valid JSON blocks before each </tool_call>.
+func extractEmbeddedToolCalls(content string) []ollamaAgentTCall {
+	const closeTag = "</tool_call>"
+	var out []ollamaAgentTCall
+	rest := content
+	for {
+		idx := strings.Index(rest, closeTag)
+		if idx < 0 {
+			break
+		}
+		chunk := rest[:idx]
+		rest = rest[idx+len(closeTag):]
+
+		// Find the outermost JSON object in chunk.
+		start := strings.Index(chunk, "{")
+		if start < 0 {
+			continue
+		}
+		// Walk forward to find the matching closing brace.
+		depth := 0
+		end := -1
+		for i := start; i < len(chunk); i++ {
+			switch chunk[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					end = i
+				}
+			}
+			if depth == 0 && end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			continue
+		}
+		jsonStr := chunk[start : end+1]
+
+		var call struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(jsonStr), &call); err != nil || call.Name == "" {
+			continue
+		}
+		out = append(out, ollamaAgentTCall{
+			Function: ollamaAgentTCallFunc{
+				Name:      call.Name,
+				Arguments: call.Arguments,
+			},
+		})
+	}
+	return out
+}
+
 // OllamaChatSystem is the default system prompt for the agentic chat assistant.
-const OllamaChatSystem = `You are an intelligent assistant for the iran-watcher monitoring application. You have tools to query and manage all aspects of the system — tweets, rules, pipelines, actions, tracked entities, and more. Use your tools to look up information before answering. Be concise and accurate.`
+const OllamaChatSystem = `You are an intelligent assistant for the iran-watcher OSINT monitoring application.
+
+RULES:
+- ALWAYS call a tool to fetch live data before answering. Never answer from memory.
+- NEVER say a tool is missing or unavailable — always try.
+- NEVER invent data. If a tool returns nothing, say so.
+- When asked to "summarize tweets": call tweets_list (per_page = requested count), then write your own summary of the returned texts. Do not call summaries_run for this.`
 
 // Summarize calls Ollama with a summarization prompt over the given text.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries.

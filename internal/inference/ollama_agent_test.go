@@ -189,3 +189,134 @@ func TestAgentStream_DirectTextNoTools(t *testing.T) {
 		t.Errorf("expected no executor calls, got %v", executor.calls)
 	}
 }
+
+// TestAgentStream_EmbeddedToolCallInContent simulates Ollama < 0.3 behaviour
+// where Qwen2.5 tool calls appear as raw text in the content field instead of
+// in the tool_calls array. The embedded extractor should parse them and drive
+// the normal tool-calling loop.
+func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
+	const model = "test-model"
+	// Simulate what Ollama < 0.3 emits: garbled prefix + JSON + </tool_call>.
+	embeddedContent := "\xef\xbf\xbd" + `{"name":"tweets_list","arguments":{"limit":3}}` + "</tool_call>"
+
+	var callCount int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/ps" {
+			json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{{"model": model}}})
+			return
+		}
+		n := atomic.AddInt32(&callCount, 1)
+		if n == 1 {
+			// First call: tool call embedded in content, no tool_calls field.
+			json.NewEncoder(w).Encode(map[string]any{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": embeddedContent,
+				},
+				"done": true,
+			})
+		} else {
+			// Second call: plain text answer.
+			json.NewEncoder(w).Encode(map[string]any{
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "Here are 3 tweets.",
+				},
+				"done": true,
+			})
+		}
+	}))
+	defer srv.Close()
+
+	pool := NewBackendPool()
+	defer pool.Close()
+	pool.Load([]BackendRecord{{ID: 1, Name: "test", URL: srv.URL, Enabled: true}})
+
+	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second)
+	executor := &mockToolExecutor{result: `[{"id":1},{"id":2},{"id":3}]`}
+
+	var buf bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := p.AgentStream(ctx, []ChatMessage{{Role: "user", Content: "list 3 tweets"}}, nil, executor, &buf)
+	if err != nil {
+		t.Fatalf("AgentStream returned error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"type":"tool_call"`) {
+		t.Errorf("expected tool_call event, got:\n%s", output)
+	}
+	if !strings.Contains(output, `"tweets_list"`) {
+		t.Errorf("expected tweets_list tool call, got:\n%s", output)
+	}
+	if !strings.Contains(output, `"type":"tool_result"`) {
+		t.Errorf("expected tool_result event, got:\n%s", output)
+	}
+	if !strings.Contains(output, `"type":"text_chunk"`) {
+		t.Errorf("expected text_chunk event, got:\n%s", output)
+	}
+	if !strings.Contains(output, "data: [DONE]") {
+		t.Errorf("expected [DONE], got:\n%s", output)
+	}
+	if len(executor.calls) != 1 || executor.calls[0] != "tweets_list" {
+		t.Errorf("expected executor called once with tweets_list, got %v", executor.calls)
+	}
+}
+
+// TestExtractEmbeddedToolCalls covers the pure parsing function.
+func TestExtractEmbeddedToolCalls(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string // expected tool names in order
+	}{
+		{
+			name:    "no tool calls",
+			content: "Just plain text.",
+			want:    nil,
+		},
+		{
+			name:    "single tool call",
+			content: `{"name":"tweets_list","arguments":{"limit":5}}` + "</tool_call>",
+			want:    []string{"tweets_list"},
+		},
+		{
+			name: "two tool calls",
+			content: `{"name":"rules_list","arguments":{}}` + "</tool_call>" +
+				`{"name":"sources_list","arguments":{}}` + "</tool_call>",
+			want: []string{"rules_list", "sources_list"},
+		},
+		{
+			name:    "garbled prefix before JSON",
+			content: "\xef\xbf\xbd" + `{"name":"health_get","arguments":{}}` + "</tool_call>",
+			want:    []string{"health_get"},
+		},
+		{
+			name:    "invalid JSON skipped",
+			content: `not-json</tool_call>{"name":"tweets_list","arguments":{}}` + "</tool_call>",
+			want:    []string{"tweets_list"},
+		},
+		{
+			name:    "missing name skipped",
+			content: `{"arguments":{}}` + "</tool_call>",
+			want:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractEmbeddedToolCalls(tc.content)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d tool calls, want %d: %+v", len(got), len(tc.want), got)
+			}
+			for i, name := range tc.want {
+				if got[i].Function.Name != name {
+					t.Errorf("call[%d]: got name %q, want %q", i, got[i].Function.Name, name)
+				}
+			}
+		})
+	}
+}

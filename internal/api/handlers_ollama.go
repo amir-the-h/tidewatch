@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -193,13 +194,31 @@ func (s *Server) handleSetActionBackends(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	var req []struct {
+	type backendItem struct {
 		BackendID int64 `json:"backend_id"`
 		Priority  int   `json:"priority"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+	var req []backendItem
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read body")
 		return
+	}
+	// Accept either a raw array [...] or a wrapped object {"backends": [...]}.
+	if len(bodyBytes) > 0 && bodyBytes[0] == '{' {
+		var wrapped struct {
+			Backends []backendItem `json:"backends"`
+		}
+		if err := json.Unmarshal(bodyBytes, &wrapped); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		req = wrapped.Backends
+	} else {
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
 	}
 	assignments := make([]model.ActionBackend, len(req))
 	for i, item := range req {
