@@ -14,7 +14,6 @@ const (
 
 	// QueueFailed is the dead-letter queue key.
 	QueueFailed = "iran-watcher:failed"
-
 )
 
 // QueueTasksKey returns the Redis key for the task queue of the given action.
@@ -24,22 +23,22 @@ func QueueTasksKey(actionID int64) string {
 
 // Task is a single unit of work pushed to iran-watcher:tasks:{action_id}.
 type Task struct {
-	TriggerType          string          `json:"trigger_type"`
-	Event                json.RawMessage `json:"event"`
-	ActionID             int64           `json:"action_id"`
-	PipelineNodeID       int64           `json:"pipeline_node_id,omitempty"`
-	PipelineID           int64           `json:"pipeline_id,omitempty"`
+	TriggerType    string          `json:"trigger_type"`
+	Event          json.RawMessage `json:"event"`
+	ActionID       int64           `json:"action_id"`
+	PipelineNodeID int64           `json:"pipeline_node_id,omitempty"`
+	PipelineID     int64           `json:"pipeline_id,omitempty"`
 	// RootPipelineID is the top-level pipeline that originally dispatched this
 	// task (set at PushInitialTasksForGraph time, propagated through all sub-tasks).
 	// Non-zero tasks contribute to pipeline_run_tracking for pipeline_finished detection.
-	RootPipelineID       int64            `json:"root_pipeline_id,omitempty"`
-	ParentPipelineNodeID   *int64         `json:"parent_pipeline_node_id,omitempty"`
+	RootPipelineID       int64  `json:"root_pipeline_id,omitempty"`
+	ParentPipelineNodeID *int64 `json:"parent_pipeline_node_id,omitempty"`
 	// SubPipelineEntryNodeID is the node ID of the INITIAL action dispatched
 	// into a sub-pipeline. It is used as the leaf-tracking key in
 	// pipeline_node_executions so that any termination of that branch
 	// (structural or via condition-fail) can signal the parent pipeline.
 	SubPipelineEntryNodeID *int64         `json:"sub_pipeline_entry_node_id,omitempty"`
-	Context              map[string]any  `json:"context"`
+	Context                map[string]any `json:"context"`
 }
 
 // TweetEvent is the Event payload for trigger_type=new_tweet.

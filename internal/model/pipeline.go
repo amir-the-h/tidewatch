@@ -87,9 +87,9 @@ type PipelineGraphRequest struct {
 
 // TriggerPipelineLink connects a system trigger type to a pipeline.
 type TriggerPipelineLink struct {
-	ID               int64     `json:"id"`
-	TriggerType      string    `json:"trigger_type"`
-	PipelineID       int64     `json:"pipeline_id"`
+	ID          int64  `json:"id"`
+	TriggerType string `json:"trigger_type"`
+	PipelineID  int64  `json:"pipeline_id"`
 	// SourcePipelineID scopes pipeline_finished links to a specific source pipeline.
 	// Nil for all other trigger types.
 	SourcePipelineID *int64    `json:"source_pipeline_id,omitempty"`
