@@ -838,6 +838,12 @@ func renderContextValue(v any) string {
 			return "true"
 		}
 		return "false"
+	case int:
+		return strconv.Itoa(val)
+	case int64:
+		return strconv.FormatInt(val, 10)
+	case int32:
+		return strconv.FormatInt(int64(val), 10)
 	default:
 		b, err := json.Marshal(val)
 		if err != nil {

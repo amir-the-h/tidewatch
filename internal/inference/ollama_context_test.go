@@ -95,3 +95,15 @@ func TestBuildContextBlock_OrderPreserved(t *testing.T) {
 		t.Errorf("expected First before Second, got:\n%s", got)
 	}
 }
+
+func TestBuildContextBlock_NativeIntValue(t *testing.T) {
+	summaries := []ContextSummary{
+		{ActionID: 1, ActionName: "Test", Metadata: map[string]any{
+			"count": int(42),
+		}},
+	}
+	got := buildContextBlock(map[string]any{}, summaries)
+	if !strings.Contains(got, "  count: 42") {
+		t.Errorf("expected native int rendered as plain text, got:\n%s", got)
+	}
+}
