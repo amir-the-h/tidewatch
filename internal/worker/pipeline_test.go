@@ -1,10 +1,62 @@
 package worker
 
 import (
+	"context"
 	"testing"
 
+	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 )
+
+// mockPipeline satisfies inference.Pipeline for tests that only need dispatch
+// (never actually run the pipeline).
+type mockPipeline struct{ name string }
+
+func (m *mockPipeline) Name() string                                                      { return m.name }
+func (m *mockPipeline) Type() inference.PipelineType                                      { return inference.PipelineTypeInternal }
+func (m *mockPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[string]any, error) {
+	return nil, nil
+}
+func (m *mockPipeline) Close() error { return nil }
+
+func TestPushTasksFromNode_ActionNode(t *testing.T) {
+	actionID := int64(7)
+	graph := &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 1, PipelineID: 10, Type: model.PipelineNodeTypeStart},
+			{ID: 2, PipelineID: 10, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
+			{ID: 3, PipelineID: 10, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
+		},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 10, SourceNodeID: 1, TargetNodeID: 2},
+			{ID: 2, PipelineID: 10, SourceNodeID: 2, TargetNodeID: 3},
+		},
+	}
+
+	mp := &mockProducer{}
+	cache := &ActionCache{entries: make(map[int64]*CacheEntry)}
+	cache.entries[actionID] = &CacheEntry{
+		Action:   &model.Action{ID: actionID, Name: "test", Active: true},
+		Pipeline: &mockPipeline{name: "mock"},
+	}
+
+	startNode := graph.Nodes[2] // node ID 3 — second action, not the start
+	pushed := PushTasksFromNode(
+		context.Background(), nil, mp, cache,
+		graph, 10, "new_tweet",
+		[]byte(`{"tweet_id":"t1","text":"hello","author_handle":"u1"}`),
+		"t1", startNode, nil,
+	)
+	if pushed != 1 {
+		t.Fatalf("expected 1 pushed, got %d", pushed)
+	}
+	if mp.pushed[0].PipelineNodeID != 3 {
+		t.Errorf("expected PipelineNodeID=3, got %d", mp.pushed[0].PipelineNodeID)
+	}
+	if mp.pushed[0].ActionID != 7 {
+		t.Errorf("expected ActionID=7, got %d", mp.pushed[0].ActionID)
+	}
+}
 
 func TestEvalRuleMatch(t *testing.T) {
 	ctx := map[string]any{
