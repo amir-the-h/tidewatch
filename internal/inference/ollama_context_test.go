@@ -159,8 +159,11 @@ func TestOllamaPipelineRun_ContextOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if strings.Contains(sentText, "raw tweet\n") {
-		t.Errorf("context_only should not include raw tweet text, got:\n%s", sentText)
+	if !strings.HasPrefix(sentText, "<context>") {
+		t.Errorf("context_only should start with <context>, got:\n%s", sentText)
+	}
+	if !strings.Contains(sentText, "tweet_id: t1") {
+		t.Errorf("context_only should include tweet_id in context block, got:\n%s", sentText)
 	}
 	if !strings.Contains(sentText, "<context>") {
 		t.Errorf("expected <context> block, got:\n%s", sentText)

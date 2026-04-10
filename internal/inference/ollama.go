@@ -283,18 +283,18 @@ func (p *OllamaPipeline) Run(ctx context.Context, input PipelineInput) (map[stri
 	if p.inputMode != "text_only" && p.loadSummaries != nil && len(p.contextActionIDs) > 0 {
 		summaries, err := p.loadSummaries(ctx, input.TweetID, p.contextActionIDs)
 		if err == nil {
+			tweetVars := map[string]any{
+				"tweet_id":     input.Context["tweet_id"],
+				"tweet_url":    input.Context["tweet_url"],
+				"tweet_author": input.Context["tweet_author"],
+				"tweet_short":  input.Context["tweet_short"],
+			}
+			contextBlock := buildContextBlock(tweetVars, summaries)
 			switch p.inputMode {
 			case "context_only":
-				// Only action summaries — no raw tweet text or tweet vars.
-				userText = buildContextBlock(map[string]any{}, summaries)
+				userText = contextBlock
 			case "text_and_context":
-				tweetVars := map[string]any{
-					"tweet_id":     input.Context["tweet_id"],
-					"tweet_url":    input.Context["tweet_url"],
-					"tweet_author": input.Context["tweet_author"],
-					"tweet_short":  input.Context["tweet_short"],
-				}
-				userText = input.Text + "\n\n" + buildContextBlock(tweetVars, summaries)
+				userText = input.Text + "\n\n" + contextBlock
 			}
 		}
 		// On loader error: fall through with userText = input.Text (text_only fallback)
