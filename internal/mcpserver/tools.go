@@ -497,7 +497,7 @@ func AllTools() []ToolDef {
 			Path:        "/api/pipelines/{id}/run",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
 			Body: &BodyDef{
-				Description: "Object with optional fields: new_only (bool, skip tweets already processed by the start node's action), start_node_id (int, dispatch from this action or pipeline node instead of the pipeline's Start node — full context from prior runs is available automatically).",
+				Description: "Object with optional fields: new_only (bool, skip tweets already processed by the start node's action), start_node_id (int, dispatch from this action or pipeline node instead of the pipeline's Start node — full context from prior runs is available automatically), order (string, \"asc\" for oldest-first dispatch or \"desc\" for newest-first; default \"desc\").",
 			},
 		},
 
