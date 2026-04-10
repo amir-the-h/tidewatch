@@ -58,6 +58,7 @@ const showRunFromNodeModal = ref(false)
 const runFromNodeId        = ref<string | null>(null)
 const runFromNodeLabel     = ref('')
 const runFromNodeNewOnly   = ref(false)
+const runFromNodeOrder     = ref<'asc' | 'desc'>('desc')
 const runningFromNode      = ref(false)
 
 function withRunCallback(data: Record<string, any>): Record<string, any> {
@@ -69,6 +70,7 @@ function handleRunFromNode(nodeId: string) {
   runFromNodeId.value    = nodeId
   runFromNodeLabel.value = node?.data?.label ?? `Node #${nodeId}`
   runFromNodeNewOnly.value = false
+  runFromNodeOrder.value   = 'desc'
   showRunFromNodeModal.value = true
 }
 
@@ -78,7 +80,7 @@ async function onConfirmRunFromNode(): Promise<false | void> {
   if (isNaN(numId)) { msg.error('Invalid node id'); return false }
   runningFromNode.value = true
   try {
-    const res = await runPipeline(pipelineId, runFromNodeNewOnly.value, numId)
+    const res = await runPipeline(pipelineId, runFromNodeNewOnly.value, numId, runFromNodeOrder.value === 'asc' ? 'asc' : undefined)
     msg.success(res.async
       ? `Running from "${runFromNodeLabel.value}" in the background`
       : `Queued ${res.queued} tweets from "${runFromNodeLabel.value}"`)
@@ -595,6 +597,12 @@ const pipelineOptions = computed(() =>
         <n-space vertical :size="8">
           <n-radio :value="false">All eligible tweets</n-radio>
           <n-radio :value="true">Only tweets not yet processed by this node's action</n-radio>
+        </n-space>
+      </n-radio-group>
+      <n-radio-group v-model:value="runFromNodeOrder">
+        <n-space vertical :size="8">
+          <n-radio value="desc">Newest first (default)</n-radio>
+          <n-radio value="asc">Oldest first</n-radio>
         </n-space>
       </n-radio-group>
     </n-space>
