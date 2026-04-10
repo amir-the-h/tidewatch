@@ -342,7 +342,7 @@ type Store interface {
 	// TriggerPipelineLinks (replaces TriggerChainLinks)
 	SaveTriggerPipelineLink(ctx context.Context, l *model.TriggerPipelineLink) error
 	ListTriggerPipelineLinks(ctx context.Context) ([]*model.TriggerPipelineLink, error)
-	ListActiveTriggerPipelineLinks(ctx context.Context, triggerType string) ([]*model.TriggerPipelineLink, error)
+	ListActiveTriggerPipelineLinks(ctx context.Context, triggerType string, sourcePipelineID int64) ([]*model.TriggerPipelineLink, error)
 	DeleteTriggerPipelineLink(ctx context.Context, id int64) error
 	BulkDeleteTriggerPipelineLinks(ctx context.Context, f BulkDeleteTriggerPipelineLinksFilter) (int64, error)
 	SetTriggerPipelineLinkActive(ctx context.Context, id int64, active bool) error
@@ -350,6 +350,20 @@ type Store interface {
 	// Pipeline node execution tracking (for sub-pipeline fan-in)
 	InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) error
 	MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) (allDone bool, err error)
+
+	// Pipeline run tracking (for pipeline_finished trigger)
+	// InitPipelineRunTracking seeds a tracking row for (pipelineID, tweetID) with initialCount
+	// active tasks. Upserts — resets an existing row if the pipeline is re-run.
+	InitPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string, initialCount int, eventPayload []byte) error
+	// IncrementPipelineRunTracking atomically adds 1 to active_tasks for (pipelineID, tweetID).
+	// No-op if no tracking row exists (untracked pipelines, e.g. backfill start-from-node runs).
+	IncrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) error
+	// DecrementPipelineRunTracking atomically subtracts 1 from active_tasks.
+	// Returns done=true when active_tasks reaches 0. Returns done=false with no error
+	// if no tracking row exists (untracked pipelines). Sets completed_at when done.
+	DecrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) (done bool, err error)
+	// GetPipelineRunEventPayload returns the original TweetEvent JSON stored at tracking time.
+	GetPipelineRunEventPayload(ctx context.Context, pipelineID int64, tweetID string) ([]byte, error)
 
 	// ActionExecutions
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
