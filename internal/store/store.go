@@ -17,6 +17,7 @@ type TweetFilter struct {
 	To             *time.Time
 	Page           int
 	PerPage        int
+	OrderAsc       bool
 }
 
 // SummaryFilter defines optional filters for listing tweet+summary pairs.

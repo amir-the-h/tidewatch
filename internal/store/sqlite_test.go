@@ -436,6 +436,44 @@ func TestListTweets_HasEntityTrack(t *testing.T) {
 	}
 }
 
+func TestListTweets_OrderAsc(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	old := &model.Tweet{
+		ID: "t_old", AuthorID: "a1", AuthorHandle: "h1", Text: "old",
+		RawJSON: []byte(`{}`), CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	new_ := &model.Tweet{
+		ID: "t_new", AuthorID: "a2", AuthorHandle: "h2", Text: "new",
+		RawJSON: []byte(`{}`), CreatedAt: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := s.SaveTweet(ctx, old); err != nil {
+		t.Fatalf("SaveTweet old: %v", err)
+	}
+	if err := s.SaveTweet(ctx, new_); err != nil {
+		t.Fatalf("SaveTweet new: %v", err)
+	}
+
+	// Default (no OrderAsc): newest first.
+	desc, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100})
+	if err != nil {
+		t.Fatalf("list desc: %v", err)
+	}
+	if len(desc) != 2 || desc[0].ID != "t_new" || desc[1].ID != "t_old" {
+		t.Errorf("expected newest-first [t_new,t_old], got [%s,%s]", desc[0].ID, desc[1].ID)
+	}
+
+	// OrderAsc: oldest first.
+	asc, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100, OrderAsc: true})
+	if err != nil {
+		t.Fatalf("list asc: %v", err)
+	}
+	if len(asc) != 2 || asc[0].ID != "t_old" || asc[1].ID != "t_new" {
+		t.Errorf("expected oldest-first [t_old,t_new], got [%s,%s]", asc[0].ID, asc[1].ID)
+	}
+}
+
 func openTestDB(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")

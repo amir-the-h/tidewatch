@@ -165,7 +165,11 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	query += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
+	if filter.OrderAsc {
+		query += " ORDER BY t.created_at ASC LIMIT ? OFFSET ?"
+	} else {
+		query += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
+	}
 	args = append(args, perPage, offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
