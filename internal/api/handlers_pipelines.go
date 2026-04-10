@@ -356,7 +356,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		for _, link := range links {
 			filter := store.TweetFilter{Page: 1, PerPage: 5000, OrderAsc: newOrder == "asc"}
 			switch link.TriggerType {
-			case "new_tweet", "new_categorization":
+			case "new_tweet", "new_categorization", "pipeline_finished":
 				// all tweets
 			case "entity_matched":
 				filter.HasEntityTrack = true
