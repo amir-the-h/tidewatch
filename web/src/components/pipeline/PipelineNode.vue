@@ -23,9 +23,10 @@ const props = defineProps<{
     <NText class="pipeline-node__name">{{ data.subPipelineName || `Pipeline #${data.subPipelineId}` }}</NText>
     <div v-if="data.label" class="pipeline-node__label">{{ data.label }}</div>
     <button
-      v-if="data.onRunFromNode"
+      v-if="typeof data.onRunFromNode === 'function'"
       class="run-from-btn"
       title="Run from here"
+      @mousedown.stop
       @click.stop="data.onRunFromNode(id)"
     >▶</button>
     <Handle type="source" :position="Position.Bottom" />

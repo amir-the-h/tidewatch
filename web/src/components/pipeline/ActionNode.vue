@@ -31,9 +31,10 @@ function disconnectTarget() {
     <div style="font-weight: 600; margin-bottom: 2px">{{ data.label }}</div>
     <div v-if="data.pipelineType" style="font-size: 10px; color: #6c7086">{{ data.pipelineType }}</div>
     <button
-      v-if="data.onRunFromNode"
+      v-if="typeof data.onRunFromNode === 'function'"
       class="run-from-btn"
       title="Run from here"
+      @mousedown.stop
       @click.stop="data.onRunFromNode(id)"
     >▶</button>
     <Handle type="source" :position="Position.Right" id="default" style="background: #a6e3a1"
