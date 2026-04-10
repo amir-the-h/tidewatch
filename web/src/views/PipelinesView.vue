@@ -65,6 +65,8 @@ const formUsecase       = ref<string>('custom')
 const formModel         = ref('')
 const formSystemPrompt  = ref('')
 const formAllowedTools  = ref<string[]>([])
+const formInputMode         = ref<string>('text_only')
+const formContextActionIds  = ref<number[]>([])
 const chatTools         = ref<{ name: string; description: string }[]>([])
 const chatToolsLoading  = ref(false)
 const formConfigText    = ref('{}')
@@ -134,6 +136,11 @@ const handlers = ref<string[]>([])
 const handlerOptions = computed(() => handlers.value.map(h => ({ label: h, value: h })))
 const chatToolOptions = computed(() =>
   chatTools.value.map(t => ({ label: t.name, value: t.name, description: t.description }))
+)
+const contextActionOptions = computed(() =>
+  actionsData.value
+    .filter(a => a.id !== editingActionId.value)
+    .map(a => ({ label: `${a.name} (${a.type})`, value: a.id }))
 )
 
 // Models (for onnx type)
@@ -238,6 +245,8 @@ function resetActionForm() {
   formModel.value = ''
   formSystemPrompt.value = ''
   formAllowedTools.value = []
+  formInputMode.value = 'text_only'
+  formContextActionIds.value = []
   formConfigText.value = '{}'
   formHandler.value = null
   formPath.value = ''
@@ -279,6 +288,10 @@ function openEditAction(row: Action) {
   formUsecase.value = row.config?.usecase ?? 'custom'
   formSystemPrompt.value = row.config?.system_prompt ?? ''
   formAllowedTools.value = Array.isArray(row.config?.allowed_tools) ? [...row.config.allowed_tools] : []
+  formInputMode.value = row.config?.input_mode ?? 'text_only'
+  formContextActionIds.value = Array.isArray(row.config?.context_action_ids)
+    ? [...row.config.context_action_ids]
+    : []
   if (row.type === 'ollama' && row.config?.usecase === 'chat') {
     fetchChatTools()
   }
@@ -346,6 +359,12 @@ async function onSaveAction() {
     }
     if (formUsecase.value === 'chat' && formAllowedTools.value.length > 0) {
       config.allowed_tools = formAllowedTools.value
+    }
+    if (formUsecase.value !== 'chat' && formInputMode.value && formInputMode.value !== 'text_only') {
+      config.input_mode = formInputMode.value
+      if (formContextActionIds.value.length > 0) {
+        config.context_action_ids = formContextActionIds.value
+      }
     }
     // Only enforce uniqueness for digest (allow multiple chat actions)
     if (editingActionId.value === null && formUsecase.value === 'digest') {
@@ -1065,6 +1084,33 @@ watch(formUsecase, (val) => {
           style="font-family: monospace; font-size: 12px"
         />
       </n-form-item>
+      <!-- Context injection (custom/digest usecase only) -->
+      <template v-if="formUsecase !== 'chat'">
+        <n-form-item label="Input Mode">
+          <n-select
+            v-model:value="formInputMode"
+            :options="[
+              { label: 'Text only (default)',  value: 'text_only'        },
+              { label: 'Context only',         value: 'context_only'     },
+              { label: 'Text + Context',       value: 'text_and_context' },
+            ]"
+          />
+        </n-form-item>
+        <n-form-item v-if="formInputMode !== 'text_only'" label="Context Actions">
+          <n-select
+            v-model:value="formContextActionIds"
+            multiple
+            filterable
+            clearable
+            :options="contextActionOptions"
+            placeholder="Select upstream actions whose outputs to include"
+          />
+        </n-form-item>
+        <n-text v-if="formInputMode !== 'text_only'" depth="3" style="font-size: 12px; margin-top: -8px; display: block">
+          The selected actions' latest outputs for each tweet will be passed to the LLM in a &lt;context&gt; block.
+          Built-in tweet variables (tweet_id, tweet_url, tweet_author, tweet_short) are always included.
+        </n-text>
+      </template>
       <!-- Chat tools selector (chat usecase only) -->
       <template v-if="formUsecase === 'chat'">
         <n-divider>Chat Tools</n-divider>
