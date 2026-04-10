@@ -690,6 +690,7 @@ const triggersLoading = ref(false)
 const showLinkForm    = ref(false)
 const linkFormTrigger = ref('')
 const linkFormPipelineId = ref<number | null>(null)
+const linkFormSourcePipelineId = ref<number | null>(null)
 const savingLink      = ref(false)
 
 const linksByTrigger = computed(() => {
@@ -708,14 +709,25 @@ const pipelineSelectOptions = computed(() =>
 function openAddLink(triggerType: string) {
   linkFormTrigger.value = triggerType
   linkFormPipelineId.value = null
+  linkFormSourcePipelineId.value = null
   showLinkForm.value = true
 }
 
 async function onSaveLink() {
   if (!linkFormPipelineId.value) { msg.error('Pipeline is required'); return }
+  if (linkFormTrigger.value === 'pipeline_finished' && !linkFormSourcePipelineId.value) {
+    msg.error('Source Pipeline is required for pipeline_finished trigger'); return
+  }
   savingLink.value = true
   try {
-    const l = await createTriggerPipelineLink({ trigger_type: linkFormTrigger.value, pipeline_id: linkFormPipelineId.value })
+    const body: { trigger_type: string; pipeline_id: number; source_pipeline_id?: number } = {
+      trigger_type: linkFormTrigger.value,
+      pipeline_id: linkFormPipelineId.value,
+    }
+    if (linkFormTrigger.value === 'pipeline_finished' && linkFormSourcePipelineId.value) {
+      body.source_pipeline_id = linkFormSourcePipelineId.value
+    }
+    const l = await createTriggerPipelineLink(body)
     links.value.push(l)
     msg.success('Link created')
     showLinkForm.value = false
@@ -936,7 +948,7 @@ watch(formUsecase, (val) => {
               "
             >
               <n-switch :value="link.active" size="small" @update:value="toggleLink(link)" />
-              <span :style="{ color: link.active ? '#cdd6f4' : '#6c7086' }">{{ pipelineName(link.pipeline_id) }}</span>
+              <span :style="{ color: link.active ? '#cdd6f4' : '#6c7086' }">{{ link.source_pipeline_id ? `[${pipelineName(link.source_pipeline_id)}] → ` : '' }}{{ pipelineName(link.pipeline_id) }}</span>
               <n-button text size="tiny" style="color: #f38ba8;" @click="removeLink(link.id)">×</n-button>
             </n-flex>
           </n-flex>
@@ -1316,6 +1328,17 @@ watch(formUsecase, (val) => {
     :loading="savingLink"
     @save="onSaveLink"
   >
+    <n-form-item
+      v-if="linkFormTrigger === 'pipeline_finished'"
+      label="Source Pipeline"
+    >
+      <n-select
+        v-model:value="linkFormSourcePipelineId"
+        :options="pipelineSelectOptions"
+        placeholder="Pipeline that must finish first"
+        clearable
+      />
+    </n-form-item>
     <n-form-item label="Pipeline">
       <n-select
         v-model:value="linkFormPipelineId"
