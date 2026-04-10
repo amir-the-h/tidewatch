@@ -29,6 +29,10 @@ type Task struct {
 	ActionID             int64           `json:"action_id"`
 	PipelineNodeID       int64           `json:"pipeline_node_id,omitempty"`
 	PipelineID           int64           `json:"pipeline_id,omitempty"`
+	// RootPipelineID is the top-level pipeline that originally dispatched this
+	// task (set at PushInitialTasksForGraph time, propagated through all sub-tasks).
+	// Non-zero tasks contribute to pipeline_run_tracking for pipeline_finished detection.
+	RootPipelineID       int64            `json:"root_pipeline_id,omitempty"`
 	ParentPipelineNodeID   *int64         `json:"parent_pipeline_node_id,omitempty"`
 	// SubPipelineEntryNodeID is the node ID of the INITIAL action dispatched
 	// into a sub-pipeline. It is used as the leaf-tracking key in
