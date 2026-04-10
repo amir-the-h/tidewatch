@@ -114,7 +114,7 @@ func (m *mockStore) SavePipelineGraph(_ context.Context, _ int64, _ []*model.Pip
 func (m *mockStore) GetPipelineIDForNode(_ context.Context, _ int64) (int64, error) { return 0, nil }
 func (m *mockStore) SaveTriggerPipelineLink(_ context.Context, _ *model.TriggerPipelineLink) error { return nil }
 func (m *mockStore) ListTriggerPipelineLinks(_ context.Context) ([]*model.TriggerPipelineLink, error) { return nil, nil }
-func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string) ([]*model.TriggerPipelineLink, error) { return nil, nil }
+func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string, _ int64) ([]*model.TriggerPipelineLink, error) { return nil, nil }
 func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error             { return nil }
 func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error  { return nil }
 func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error { return nil }
@@ -194,6 +194,22 @@ func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return
 func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
 	return []*model.EntityConnection{}, nil
 }
+func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ string, _ int, _ []byte) error { return nil }
+func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ string) error          { return nil }
+func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ string) (bool, error)  { return false, nil }
+func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ string) ([]byte, error)  { return nil, nil }
+func (m *mockStore) BulkDeleteSources(_ context.Context, _ store.BulkDeleteSourcesFilter) (int64, error)                             { return 0, nil }
+func (m *mockStore) BulkDeleteRules(_ context.Context, _ store.BulkDeleteRulesFilter) (int64, error)                                 { return 0, nil }
+func (m *mockStore) BulkDeleteActions(_ context.Context, _ store.BulkDeleteActionsFilter) (int64, error)                             { return 0, nil }
+func (m *mockStore) BulkDeletePipelines(_ context.Context, _ store.BulkDeletePipelinesFilter) (int64, error)                         { return 0, nil }
+func (m *mockStore) BulkDeleteTriggerPipelineLinks(_ context.Context, _ store.BulkDeleteTriggerPipelineLinksFilter) (int64, error)    { return 0, nil }
+func (m *mockStore) BulkDeleteOllamaBackends(_ context.Context, _ store.BulkDeleteOllamaBackendsFilter) (int64, error)               { return 0, nil }
+func (m *mockStore) BulkDeleteNotificationProviders(_ context.Context, _ store.BulkDeleteNotificationProvidersFilter) (int64, error) { return 0, nil }
+func (m *mockStore) BulkDeleteNotificationChannels(_ context.Context, _ store.BulkDeleteNotificationChannelsFilter) (int64, error)   { return 0, nil }
+func (m *mockStore) BulkDeleteTrackedEntities(_ context.Context, _ store.BulkDeleteTrackedEntitiesFilter) (int64, error)             { return 0, nil }
+func (m *mockStore) BulkDeleteEntityCandidates(_ context.Context, _ store.BulkDeleteEntityCandidatesFilter) (int64, error)           { return 0, nil }
+func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error)                       { return 0, nil }
+func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSearchJobsFilter) (int64, error)                       { return 0, nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {

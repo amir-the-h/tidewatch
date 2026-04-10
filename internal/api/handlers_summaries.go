@@ -177,7 +177,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	// graphs linked to the "digest_requested" trigger — the same mechanism the
 	// stream listener uses for new_tweet. This prevents dispatching to every
 	// Ollama-backed action in the cache (all implement DigestPipeline).
-	links, err := s.store.ListActiveTriggerPipelineLinks(r.Context(), "digest_requested")
+	links, err := s.store.ListActiveTriggerPipelineLinks(r.Context(), "digest_requested", 0)
 	if err != nil {
 		s.logger.Error("api: digest: list trigger links", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to query digest trigger links")

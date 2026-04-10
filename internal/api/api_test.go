@@ -210,7 +210,7 @@ func (m *mockStore) SaveTriggerPipelineLink(_ context.Context, _ *model.TriggerP
 func (m *mockStore) ListTriggerPipelineLinks(_ context.Context) ([]*model.TriggerPipelineLink, error) {
 	return m.triggerLinks, nil
 }
-func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, triggerType string) ([]*model.TriggerPipelineLink, error) {
+func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, triggerType string, _ int64) ([]*model.TriggerPipelineLink, error) {
 	var out []*model.TriggerPipelineLink
 	for _, l := range m.triggerLinks {
 		if l.Active && l.TriggerType == triggerType {
@@ -493,6 +493,18 @@ func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSe
 }
 func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error) {
 	return 0, nil
+}
+func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ string, _ int, _ []byte) error {
+	return nil
+}
+func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ string) ([]byte, error) {
+	return nil, nil
 }
 
 // ---------------------------------------------------------------------------

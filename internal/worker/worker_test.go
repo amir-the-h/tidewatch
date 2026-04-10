@@ -138,7 +138,7 @@ func (m *mockStore) SaveTriggerPipelineLink(_ context.Context, _ *model.TriggerP
 func (m *mockStore) ListTriggerPipelineLinks(_ context.Context) ([]*model.TriggerPipelineLink, error) {
 	return nil, nil
 }
-func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string) ([]*model.TriggerPipelineLink, error) {
+func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string, _ int64) ([]*model.TriggerPipelineLink, error) {
 	return nil, nil
 }
 func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error            { return nil }
@@ -150,6 +150,18 @@ func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ st
 }
 func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ string, _ int64) (bool, error) {
 	return false, nil
+}
+func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ string, _ int, _ []byte) error {
+	return nil
+}
+func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ string) error {
+	return nil
+}
+func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ string) (bool, error) {
+	return false, nil
+}
+func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ string) ([]byte, error) {
+	return nil, nil
 }
 
 // NotificationProviders

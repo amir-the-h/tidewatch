@@ -260,7 +260,7 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 				AuthorHandle: st.Tweet.AuthorHandle,
 				RuleIDs:      []int64{rule.ID},
 			}
-			if pushErr := worker.PushInitialPipelineTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger); pushErr != nil && c.logger != nil {
+			if pushErr := worker.PushInitialPipelineTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger, 0); pushErr != nil && c.logger != nil {
 				c.logger.Warn("search: chain dispatch failed", "tweet_id", st.Tweet.ID, "error", pushErr)
 			}
 		}

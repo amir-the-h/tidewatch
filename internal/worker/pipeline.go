@@ -25,8 +25,9 @@ func PushInitialPipelineTasks(
 	triggerType string,
 	ev queue.TweetEvent,
 	logger *slog.Logger,
+	sourcePipelineID int64,
 ) error {
-	links, err := st.ListActiveTriggerPipelineLinks(ctx, triggerType)
+	links, err := st.ListActiveTriggerPipelineLinks(ctx, triggerType, sourcePipelineID)
 	if err != nil {
 		return fmt.Errorf("pipeline: list active trigger links for %q: %w", triggerType, err)
 	}
@@ -133,8 +134,17 @@ func PushInitialTasksForGraph(
 			continue
 		}
 		pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-			triggerType, eventPayload, tweetID, node, initCtx, logger)
+			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, logger)
 	}
+
+	// Seed pipeline run tracking so pipeline_finished fires when all tasks complete.
+	if pushed > 0 && tweetID != "" {
+		if err := st.InitPipelineRunTracking(ctx, pipelineID, tweetID, pushed, eventPayload); err != nil && logger != nil {
+			logger.Warn("pipeline: init run tracking failed",
+				"pipeline_id", pipelineID, "tweet_id", tweetID, "error", err)
+		}
+	}
+
 	return pushed
 }
 
@@ -170,7 +180,7 @@ func PushTasksFromNode(
 		}
 	}
 	return dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-		triggerType, eventPayload, tweetID, startNode, initCtx, logger)
+		pipelineID, triggerType, eventPayload, tweetID, startNode, initCtx, logger)
 }
 
 // FindNodeInGraph returns the node with the given ID, or nil if not found.
@@ -189,6 +199,7 @@ func dispatchInitialNode(
 	cache *ActionCache,
 	graph *model.PipelineGraph,
 	pipelineID int64,
+	rootPipelineID int64,
 	triggerType string,
 	eventPayload []byte,
 	tweetID string,
@@ -220,15 +231,10 @@ func dispatchInitialNode(
 			ActionID:       *node.ActionID,
 			PipelineNodeID: node.ID,
 			PipelineID:     pipelineID,
+			RootPipelineID: rootPipelineID,
 			Context:        map[string]any{},
 		}
-		if pushErr := producer.PushTask(ctx, task); pushErr != nil {
-			if logger != nil {
-				logger.Warn("pipeline: push initial task failed",
-					"pipeline_id", pipelineID, "action_id", *node.ActionID,
-					"node_id", node.ID, "error", pushErr)
-			}
-		} else {
+		if pushTrackedTask(ctx, st, producer, task, logger) {
 			pushed++
 			if logger != nil {
 				logger.Info("pipeline: queued initial task",
@@ -279,14 +285,12 @@ func dispatchInitialNode(
 				ActionID:               *subActionNode.ActionID,
 				PipelineNodeID:         subActionNode.ID,
 				PipelineID:             *node.SubPipelineID,
+				RootPipelineID:         rootPipelineID,
 				ParentPipelineNodeID:   &parentNodeID,
 				SubPipelineEntryNodeID: &entryNodeID,
 				Context:                map[string]any{},
 			}
-			if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
-				logger.Warn("pipeline: push sub-pipeline initial task failed",
-					"action_id", *subActionNode.ActionID, "error", pushErr)
-			} else {
+			if pushTrackedTask(ctx, st, producer, subTask, logger) {
 				pushed++
 				if logger != nil {
 					logger.Info("pipeline: queued sub-pipeline initial task",
@@ -325,7 +329,7 @@ func dispatchInitialNode(
 			}
 			// Recurse: handles Action, Pipeline, and nested Condition nodes.
 			pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-				triggerType, eventPayload, tweetID, nextNode, initCtx, logger)
+				rootPipelineID, triggerType, eventPayload, tweetID, nextNode, initCtx, logger)
 		}
 	}
 	return pushed
@@ -416,6 +420,7 @@ func PushContinuationTasks(
 					Event:          task.Event,
 					PipelineNodeID: *task.ParentPipelineNodeID,
 					PipelineID:     parentPipelineID,
+					RootPipelineID: task.RootPipelineID,
 				}
 				PushContinuationTasks(ctx, st, producer, cache, parentTask, freshCtx, logger)
 			}
@@ -478,7 +483,7 @@ func PushContinuationTasks(
 					"node_id", targetNode.ID,
 				)
 			}
-			if pushContinuationTask(ctx, producer, task, targetNode, mergedCtx, logger) {
+			if pushContinuationTask(ctx, st, producer, task, targetNode, mergedCtx, logger) {
 				pushed++
 			}
 
@@ -541,7 +546,7 @@ func PushContinuationTasks(
 							"node_id", nextNode.ID,
 						)
 					}
-					if pushContinuationTask(ctx, producer, task, nextNode, mergedCtx, logger) {
+					if pushContinuationTask(ctx, st, producer, task, nextNode, mergedCtx, logger) {
 						pushed++
 					}
 				case model.PipelineNodeTypePipeline:
@@ -584,14 +589,12 @@ func PushContinuationTasks(
 							ActionID:               *subActionNode.ActionID,
 							PipelineNodeID:         subActionNode.ID,
 							PipelineID:             *nextNode.SubPipelineID,
+							RootPipelineID:         task.RootPipelineID,
 							ParentPipelineNodeID:   &parentNodeID,
 							SubPipelineEntryNodeID: &entryNodeID,
 							Context:                copyContext(mergedCtx),
 						}
-						if pushErr := producer.PushTask(ctx, subTask); pushErr != nil && logger != nil {
-							logger.Warn("pipeline: push sub-pipeline initial task failed (post-condition)",
-								"action_id", *subActionNode.ActionID, "error", pushErr)
-						} else {
+						if pushTrackedTask(ctx, st, producer, subTask, logger) {
 							pushed++
 						}
 					}
@@ -646,14 +649,12 @@ func PushContinuationTasks(
 					ActionID:               *subActionNode.ActionID,
 					PipelineNodeID:         subActionNode.ID,
 					PipelineID:             *targetNode.SubPipelineID,
+					RootPipelineID:         task.RootPipelineID,
 					ParentPipelineNodeID:   &parentNodeID,
 					SubPipelineEntryNodeID: &entryNodeID,
 					Context:                copyContext(mergedCtx),
 				}
-				if err := producer.PushTask(ctx, subTask); err != nil && logger != nil {
-					logger.Warn("pipeline: push sub-pipeline initial task failed",
-						"action_id", *subActionNode.ActionID, "error", err)
-				} else {
+				if pushTrackedTask(ctx, st, producer, subTask, logger) {
 					pushed++
 				}
 			}
@@ -668,10 +669,37 @@ func PushContinuationTasks(
 	}
 }
 
+// pushTrackedTask pushes a task to the queue and, if the task has a RootPipelineID,
+// increments the pipeline run tracking counter. Returns true on success.
+func pushTrackedTask(
+	ctx context.Context,
+	st store.Store,
+	producer queue.Producer,
+	task *queue.Task,
+	logger *slog.Logger,
+) bool {
+	if err := producer.PushTask(ctx, task); err != nil {
+		if logger != nil {
+			logger.Warn("pipeline: push task failed",
+				"action_id", task.ActionID, "node_id", task.PipelineNodeID, "error", err)
+		}
+		return false
+	}
+	if task.RootPipelineID != 0 {
+		tweetID := extractTweetID(task)
+		if err := st.IncrementPipelineRunTracking(ctx, task.RootPipelineID, tweetID); err != nil && logger != nil {
+			logger.Warn("pipeline: increment run tracking failed",
+				"root_pipeline_id", task.RootPipelineID, "tweet_id", tweetID, "error", err)
+		}
+	}
+	return true
+}
+
 // pushContinuationTask serialises and pushes a single downstream task.
 // Returns true if the task was successfully enqueued.
 func pushContinuationTask(
 	ctx context.Context,
+	st store.Store,
 	producer queue.Producer,
 	parent *queue.Task,
 	node *model.PipelineNode,
@@ -684,18 +712,12 @@ func pushContinuationTask(
 		ActionID:               *node.ActionID,
 		PipelineNodeID:         node.ID,
 		PipelineID:             parent.PipelineID,
+		RootPipelineID:         parent.RootPipelineID,
 		ParentPipelineNodeID:   parent.ParentPipelineNodeID,
 		SubPipelineEntryNodeID: parent.SubPipelineEntryNodeID,
 		Context:                copyContext(mergedCtx),
 	}
-	if err := producer.PushTask(ctx, task); err != nil {
-		if logger != nil {
-			logger.Warn("pipeline: push continuation task failed",
-				"action_id", *node.ActionID, "node_id", node.ID, "error", err)
-		}
-		return false
-	}
-	return true
+	return pushTrackedTask(ctx, st, producer, task, logger)
 }
 
 // evaluateConditionsVerbose logs each condition result individually, then returns

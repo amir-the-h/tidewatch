@@ -222,7 +222,7 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 
 		if len(req.ActionIDs) == 0 {
 			// Chain-based dispatch — mirrors what the stream listener does.
-			if err := worker.PushInitialPipelineTasks(r.Context(), s.store, s.producer, s.actionCache, "new_tweet", ev, s.logger); err != nil {
+			if err := worker.PushInitialPipelineTasks(r.Context(), s.store, s.producer, s.actionCache, "new_tweet", ev, s.logger, 0); err != nil {
 				s.logger.Error("api: reprocess chain dispatch", "tweet_id", tweet.ID, "error", err)
 				continue
 			}
