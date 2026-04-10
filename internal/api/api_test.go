@@ -906,6 +906,135 @@ func TestRunPipeline_EntityMatched(t *testing.T) {
 	}
 }
 
+func TestRunPipeline_InvalidStartNodeType(t *testing.T) {
+	srv, ms, _, _ := newTestServer(t)
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+	}
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 9, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+		},
+		Edges: []*model.PipelineEdge{},
+	}
+
+	body := `{"start_node_id": 9}` // start-type node — should be rejected
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRunPipeline_StartNodeIdDispatchesFromNode(t *testing.T) {
+	srv, ms, mp, _ := newTestServer(t)
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+	}
+	actionID1 := int64(5)
+	actionID2 := int64(6)
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 9, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+			{ID: 10, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID1},
+			{ID: 11, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID2},
+		},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
+			{ID: 2, PipelineID: 1, SourceNodeID: 10, TargetNodeID: 11},
+		},
+	}
+	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
+
+	body := `{"start_node_id": 11}` // start from node 11 (action 6), skipping node 10
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Handler dispatches in a background goroutine; wait for it.
+	time.Sleep(100 * time.Millisecond)
+
+	if len(mp.pushed) != 1 {
+		t.Fatalf("expected 1 pushed task (only node 11), got %d", len(mp.pushed))
+	}
+	if mp.pushed[0].PipelineNodeID != 11 {
+		t.Errorf("expected PipelineNodeID=11, got %d", mp.pushed[0].PipelineNodeID)
+	}
+	if mp.pushed[0].ActionID != 6 {
+		t.Errorf("expected ActionID=6, got %d", mp.pushed[0].ActionID)
+	}
+}
+
+func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
+	srv, ms, mp, _ := newTestServer(t)
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+	}
+	actionID1 := int64(5)
+	actionID2 := int64(6)
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 9, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+			{ID: 10, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID1},
+			{ID: 11, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID2},
+		},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
+			{ID: 2, PipelineID: 1, SourceNodeID: 10, TargetNodeID: 11},
+		},
+	}
+	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
+	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+
+	// t1 already ran action 6 (node 11's action) — should be excluded.
+	// t1 also ran action 5 (node 10) — irrelevant when start_node_id=11.
+	ms.executions = []*model.ActionExecution{
+		{ID: 1, ActionID: 6, TweetID: "t1", Status: "success"},
+		{ID: 2, ActionID: 5, TweetID: "t2", Status: "success"}, // only ran upstream action, NOT action 6
+	}
+
+	body := `{"new_only": true, "start_node_id": 11}`
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Handler dispatches in a background goroutine; wait for it.
+	time.Sleep(100 * time.Millisecond)
+
+	// Only t2 should be queued: t1 already ran action 6, t2 only ran action 5.
+	if len(mp.pushed) != 1 {
+		t.Fatalf("expected 1 pushed task, got %d", len(mp.pushed))
+	}
+	tweetIDs := make(map[string]bool)
+	for _, task := range mp.pushed {
+		var ev struct{ TweetID string `json:"tweet_id"` }
+		_ = json.Unmarshal(task.Event, &ev)
+		tweetIDs[ev.TweetID] = true
+	}
+	if !tweetIDs["t2"] {
+		t.Errorf("expected t2 to be queued, got tasks for: %v", tweetIDs)
+	}
+}
+
 // Ensure mockStore and mockProducer satisfy their interfaces at compile time.
 var _ store.Store = (*mockStore)(nil)
 var _ queue.Producer = (*mockProducer)(nil)

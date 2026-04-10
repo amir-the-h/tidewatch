@@ -210,8 +210,10 @@ func (s *Server) handleSavePipelineGraph(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, graph)
 }
 
-// handleRunPipeline dispatches historical tweets through the pipeline's first-level
-// action nodes. Body: { "new_only": bool }.
+// handleRunPipeline dispatches historical tweets through the pipeline's action nodes.
+// Body: { "new_only": bool, "start_node_id": int64 (optional) }.
+// When start_node_id is provided, dispatch begins from that specific node instead
+// of the pipeline's Start node; the new_only exclusion set is also scoped to that node.
 // POST /api/pipelines/{id}/run
 func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -221,7 +223,8 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		NewOnly bool `json:"new_only"`
+		NewOnly     bool   `json:"new_only"`
+		StartNodeID *int64 `json:"start_node_id"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -248,6 +251,40 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			links = append(links, l)
 		}
 	}
+
+	// If no direct trigger links exist, this pipeline may be a sub-pipeline
+	// invoked from a parent. Walk all pipeline graphs to find parents that
+	// reference this pipeline and inherit their trigger links (deduplicated by
+	// trigger type, since only the type is used for tweet filtering).
+	if len(links) == 0 {
+		allPipelines, err := s.store.ListPipelines(r.Context())
+		if err == nil {
+			seenTriggers := make(map[string]struct{})
+			for _, p := range allPipelines {
+				if p.ID == id || !p.Active {
+					continue
+				}
+				g, err := s.store.GetPipelineGraph(r.Context(), p.ID)
+				if err != nil {
+					continue
+				}
+				for _, node := range g.Nodes {
+					if node.Type == model.PipelineNodeTypePipeline && node.SubPipelineID != nil && *node.SubPipelineID == id {
+						for _, l := range allLinks {
+							if l.PipelineID == p.ID && l.Active {
+								if _, seen := seenTriggers[l.TriggerType]; !seen {
+									seenTriggers[l.TriggerType] = struct{}{}
+									links = append(links, l)
+								}
+							}
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
 	if len(links) == 0 {
 		writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0})
 		return
@@ -261,21 +298,42 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate start_node_id if provided.
+	var startNode *model.PipelineNode
+	if req.StartNodeID != nil {
+		startNode = worker.FindNodeInGraph(graph, *req.StartNodeID)
+		if startNode == nil {
+			writeError(w, http.StatusBadRequest, "start_node_id not found in pipeline graph")
+			return
+		}
+		if startNode.Type == model.PipelineNodeTypeStart || startNode.Type == model.PipelineNodeTypeCondition {
+			writeError(w, http.StatusBadRequest, "start_node_id must be an action or pipeline node")
+			return
+		}
+	}
+
 	// Return 202 immediately — tweet iteration and task pushing happen in the
 	// background so large backlogs don't time out the HTTP connection.
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0, "async": true})
 
+	capturedStartNode := startNode
 	go func() {
 		ctx := s.ctx
 		newOnly := req.NewOnly
 
 		// Build exclusion set once if new_only is requested.
-		// Collect action IDs from the graph and all referenced sub-pipeline graphs,
-		// since action nodes may live inside sub-pipelines rather than the parent graph.
+		// When start_node_id is provided, scope the exclusion set to only the
+		// action IDs reachable from that specific node; otherwise collect all
+		// action IDs from the full graph and any referenced sub-pipeline graphs.
 		var executedIDs map[string]struct{}
 		if newOnly {
 			executedIDs = make(map[string]struct{})
-			actionIDs := s.collectGraphActionIDs(ctx, graph)
+			var actionIDs []int64
+			if capturedStartNode != nil {
+				actionIDs = s.collectNodeActionIDs(ctx, capturedStartNode)
+			} else {
+				actionIDs = s.collectGraphActionIDs(ctx, graph)
+			}
 			for _, actionID := range actionIDs {
 				aid := actionID
 				execs, err := s.store.ListActionExecutions(ctx, store.ExecutionFilter{ActionID: &aid})
@@ -328,10 +386,17 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 					AuthorHandle: tweet.AuthorHandle,
 					RuleIDs:      ruleIDs,
 				})
-				count += worker.PushInitialTasksForGraph(
-					ctx, s.store, s.producer, s.actionCache,
-					graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
-				)
+				if capturedStartNode != nil {
+					count += worker.PushTasksFromNode(
+						ctx, s.store, s.producer, s.actionCache,
+						graph, id, link.TriggerType, evPayload, tweet.ID, capturedStartNode, s.logger,
+					)
+				} else {
+					count += worker.PushInitialTasksForGraph(
+						ctx, s.store, s.producer, s.actionCache,
+						graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
+					)
+				}
 			}
 		}
 
@@ -380,6 +445,39 @@ func (s *Server) collectGraphActionIDs(ctx context.Context, graph *model.Pipelin
 			for _, subNode := range subGraph.Nodes {
 				if subNode.Type == model.PipelineNodeTypeAction && subNode.ActionID != nil {
 					add(*subNode.ActionID)
+				}
+			}
+		}
+	}
+	return ids
+}
+
+// collectNodeActionIDs returns the action IDs directly reachable from the given
+// node. For action nodes: the node's own action_id. For pipeline nodes: all
+// action IDs found inside the referenced sub-pipeline graph.
+// Used to scope the new_only exclusion set when start_node_id is provided.
+func (s *Server) collectNodeActionIDs(ctx context.Context, node *model.PipelineNode) []int64 {
+	seen := make(map[int64]struct{})
+	var ids []int64
+	add := func(id int64) {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	switch node.Type {
+	case model.PipelineNodeTypeAction:
+		if node.ActionID != nil {
+			add(*node.ActionID)
+		}
+	case model.PipelineNodeTypePipeline:
+		if node.SubPipelineID != nil {
+			subGraph, err := s.store.GetPipelineGraph(ctx, *node.SubPipelineID)
+			if err == nil {
+				for _, subNode := range subGraph.Nodes {
+					if subNode.Type == model.PipelineNodeTypeAction && subNode.ActionID != nil {
+						add(*subNode.ActionID)
+					}
 				}
 			}
 		}
