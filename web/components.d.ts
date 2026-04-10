@@ -11,8 +11,9 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    ActionNode: typeof import('./src/components/chain/ActionNode.vue')['default']
-    ConditionNode: typeof import('./src/components/chain/ConditionNode.vue')['default']
+    ActionBackendsModal: typeof import('./src/components/ActionBackendsModal.vue')['default']
+    ActionNode: typeof import('./src/components/pipeline/ActionNode.vue')['default']
+    ConditionNode: typeof import('./src/components/pipeline/ConditionNode.vue')['default']
     FormDrawer: typeof import('./src/components/FormDrawer.vue')['default']
     IconButton: typeof import('./src/components/IconButton.vue')['default']
     NAlert: typeof import('naive-ui')['NAlert']
@@ -64,10 +65,10 @@ declare module 'vue' {
     NTimelineItem: typeof import('naive-ui')['NTimelineItem']
     NTooltip: typeof import('naive-ui')['NTooltip']
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
-    PipelineBackendsModal: typeof import('./src/components/PipelineBackendsModal.vue')['default']
+    PipelineNode: typeof import('./src/components/pipeline/PipelineNode.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     RuleExprBuilder: typeof import('./src/components/RuleExprBuilder.vue')['default']
-    StartNode: typeof import('./src/components/chain/StartNode.vue')['default']
+    StartNode: typeof import('./src/components/pipeline/StartNode.vue')['default']
   }
 }

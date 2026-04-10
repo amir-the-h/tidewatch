@@ -4,7 +4,7 @@ import { apiFetch } from './client'
 export interface NotificationProvider {
   id: number
   name: string
-  type: 'pushover' | 'telegram'
+  type: 'pushover' | 'telegram' | 'discord'
   config: Record<string, any>
   active: boolean
   created_at: string

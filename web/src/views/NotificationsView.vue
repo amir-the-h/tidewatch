@@ -26,22 +26,27 @@ const savingProvider     = ref(false)
 
 interface ProviderForm {
   name: string
-  type: 'pushover' | 'telegram'
+  type: 'pushover' | 'telegram' | 'discord'
   // pushover
   pushover_app_token: string
   pushover_user_key:  string
   // telegram
   telegram_bot_token: string
+  // discord
+  discord_webhook_url: string
 }
 
 const defaultProviderForm = (): ProviderForm => ({
   name: '', type: 'pushover',
   pushover_app_token: '', pushover_user_key: '',
   telegram_bot_token: '',
+  discord_webhook_url: '',
 })
 const providerForm = ref<ProviderForm>(defaultProviderForm())
 
 const isPushoverProvider = computed(() => providerForm.value.type === 'pushover')
+const isTelegramProvider = computed(() => providerForm.value.type === 'telegram')
+const isDiscordProvider  = computed(() => providerForm.value.type === 'discord')
 
 function openCreateProvider() {
   editingProvider.value = null
@@ -54,15 +59,17 @@ function openEditProvider(p: NotificationProvider) {
   providerForm.value    = {
     name: p.name,
     type: p.type,
-    pushover_app_token: p.type === 'pushover' ? (p.config.app_token ?? '') : '',
-    pushover_user_key:  p.type === 'pushover' ? (p.config.user_key  ?? '') : '',
-    telegram_bot_token: p.type === 'telegram' ? (p.config.bot_token ?? '') : '',
+    pushover_app_token:  p.type === 'pushover' ? (p.config.app_token   ?? '') : '',
+    pushover_user_key:   p.type === 'pushover' ? (p.config.user_key    ?? '') : '',
+    telegram_bot_token:  p.type === 'telegram' ? (p.config.bot_token   ?? '') : '',
+    discord_webhook_url: p.type === 'discord'  ? (p.config.webhook_url ?? '') : '',
   }
   showProviderDrawer.value = true
 }
 
 function buildProviderConfig(f: ProviderForm): Record<string, any> {
   if (f.type === 'pushover') return { app_token: f.pushover_app_token, user_key: f.pushover_user_key }
+  if (f.type === 'discord')  return { webhook_url: f.discord_webhook_url }
   return { bot_token: f.telegram_bot_token }
 }
 
@@ -74,6 +81,9 @@ async function onSaveProvider() {
   }
   if (f.type === 'telegram' && !f.telegram_bot_token) {
     msg.error('Bot token is required'); return
+  }
+  if (f.type === 'discord' && !f.discord_webhook_url) {
+    msg.error('Webhook URL is required'); return
   }
   savingProvider.value = true
   try {
@@ -92,6 +102,7 @@ async function onSaveProvider() {
 const providerTypeOptions = [
   { label: 'Pushover', value: 'pushover' },
   { label: 'Telegram', value: 'telegram' },
+  { label: 'Discord',  value: 'discord'  },
 ]
 
 const providerColumns: DataTableColumns<NotificationProvider> = [
@@ -249,10 +260,17 @@ const channelColumns: DataTableColumns<NotificationChannel> = [
             </n-form-item>
           </template>
 
-          <template v-else>
+          <template v-else-if="isTelegramProvider">
             <n-divider>Telegram credentials</n-divider>
             <n-form-item label="Bot Token">
               <n-input v-model:value="providerForm.telegram_bot_token" />
+            </n-form-item>
+          </template>
+
+          <template v-else-if="isDiscordProvider">
+            <n-divider>Discord credentials</n-divider>
+            <n-form-item label="Webhook URL">
+              <n-input v-model:value="providerForm.discord_webhook_url" placeholder="https://discord.com/api/webhooks/…" />
             </n-form-item>
           </template>
         </FormDrawer>

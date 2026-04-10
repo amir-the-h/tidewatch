@@ -34,8 +34,8 @@ func (s *Server) handleCreateNotificationProvider(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if p.Type != "pushover" && p.Type != "telegram" {
-		writeError(w, http.StatusBadRequest, "type must be \"pushover\" or \"telegram\"")
+	if p.Type != "pushover" && p.Type != "telegram" && p.Type != "discord" {
+		writeError(w, http.StatusBadRequest, "type must be \"pushover\", \"telegram\", or \"discord\"")
 		return
 	}
 	if len(p.Config) == 0 {
@@ -90,8 +90,8 @@ func (s *Server) handleUpdateNotificationProvider(w http.ResponseWriter, r *http
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if p.Type != "pushover" && p.Type != "telegram" {
-		writeError(w, http.StatusBadRequest, "type must be \"pushover\" or \"telegram\"")
+	if p.Type != "pushover" && p.Type != "telegram" && p.Type != "discord" {
+		writeError(w, http.StatusBadRequest, "type must be \"pushover\", \"telegram\", or \"discord\"")
 		return
 	}
 	p.UpdatedAt = time.Now()

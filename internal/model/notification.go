@@ -9,7 +9,7 @@ import (
 type NotificationProvider struct {
 	ID        int64           `json:"id"`
 	Name      string          `json:"name"`
-	Type      string          `json:"type"` // "pushover" | "telegram"
+	Type      string          `json:"type"` // "pushover" | "telegram" | "discord"
 	Config    json.RawMessage `json:"config"`
 	Active    bool            `json:"active"`
 	CreatedAt time.Time       `json:"created_at"`
