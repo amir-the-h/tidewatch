@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -103,6 +105,18 @@ type ollamaAgentTCallFunc struct {
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
 }
+
+// ContextSummary holds the metadata output of one upstream action for use
+// in the LLM <context> block.
+type ContextSummary struct {
+	ActionID   int64
+	ActionName string
+	Metadata   map[string]any
+}
+
+// ContextSummaryLoader fetches ContextSummary records for a tweet, filtered
+// to the provided action IDs. Injected at construction time; nil = disabled.
+type ContextSummaryLoader func(ctx context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error)
 
 // OllamaPipeline implements Pipeline by calling one or more locally-running
 // Ollama servers via a shared BackendPool. The model Path stored in the
@@ -771,4 +785,64 @@ func (p *OllamaPipeline) Summarize(ctx context.Context, text string) (string, er
 		return "", err
 	}
 	return content, nil
+}
+
+// buildContextBlock formats a <context>...</context> string from built-in
+// tweet vars and a list of upstream action summaries. Tweet vars are rendered
+// first in a fixed order; action sections follow in the order supplied.
+// Actions with empty Metadata are omitted. Complex values (arrays, objects)
+// are JSON-serialised on a single line; scalars are rendered as plain text.
+func buildContextBlock(tweetVars map[string]any, summaries []ContextSummary) string {
+	var sb strings.Builder
+	sb.WriteString("<context>\n")
+
+	for _, key := range []string{"tweet_id", "tweet_url", "tweet_author", "tweet_short"} {
+		if v, ok := tweetVars[key]; ok {
+			sb.WriteString(key + ": " + renderContextValue(v) + "\n")
+		}
+	}
+
+	for _, s := range summaries {
+		if len(s.Metadata) == 0 {
+			continue
+		}
+		sb.WriteString("\n" + s.ActionName + ":\n")
+		keys := make([]string, 0, len(s.Metadata))
+		for k := range s.Metadata {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			sb.WriteString("  " + k + ": " + renderContextValue(s.Metadata[k]) + "\n")
+		}
+	}
+
+	sb.WriteString("</context>")
+	return sb.String()
+}
+
+// renderContextValue converts a metadata value to a display string.
+// Strings, numbers, and bools are rendered as plain text.
+// Arrays and objects (including nested) are JSON-serialised as compact JSON.
+func renderContextValue(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		return val
+	case float64:
+		return strconv.FormatFloat(val, 'f', -1, 64)
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		b, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Sprintf("%v", val)
+		}
+		return string(b)
+	}
 }
