@@ -48,7 +48,16 @@ func decodeMetadata(raw string) map[string]string {
 
 // parseCoordinates normalises a raw JSON coordinate value to [][2]float64{lat, lon}.
 // An empty or unknown CoordinateType falls back to array_of_pairs behaviour.
+// If the stored value is a JSON string (e.g. "[[lat,lon]]" instead of [[lat,lon]]),
+// it is unwrapped before parsing — this handles LLM outputs that embed the array
+// as a string rather than a native JSON array.
 func parseCoordinates(raw string, t model.CoordinateType) ([][2]float64, error) {
+	if len(raw) > 0 && raw[0] == '"' {
+		var inner string
+		if err := json.Unmarshal([]byte(raw), &inner); err == nil {
+			raw = inner
+		}
+	}
 	switch t {
 	case model.CoordinateTypeSinglePair:
 		var pair [2]float64

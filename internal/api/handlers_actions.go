@@ -82,7 +82,7 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 			cfg = map[string]any{}
 		}
 		uc, _ := cfg["usecase"].(string)
-		if uc != "" && uc != "custom" {
+		if uc != "" && uc != "custom" && uc != "chat" {
 			existing, _ := s.store.ListActions(r.Context(), store.ActionFilter{})
 			for _, ex := range existing {
 				var exCfg map[string]any
@@ -96,6 +96,8 @@ func (s *Server) handleCreateAction(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+		}
+		if _, hasPrompt := cfg["system_prompt"]; !hasPrompt {
 			switch uc {
 			case "digest":
 				cfg["system_prompt"] = inference.OllamaDigestSystem

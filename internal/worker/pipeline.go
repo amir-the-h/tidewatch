@@ -112,6 +112,9 @@ func PushInitialTasksForGraph(
 
 	// Build an initial context from the event so that conditions placed
 	// directly after Start can be evaluated (e.g. rule_matches).
+	// Also merge all stored execution metadata for this tweet so that
+	// pipeline_finished-triggered pipelines can check detector/extractor
+	// outputs in condition nodes during initial dispatch.
 	var initCtx map[string]any
 	{
 		var ev queue.TweetEvent
@@ -121,6 +124,15 @@ func PushInitialTasksForGraph(
 				"tweet_id":     ev.TweetID,
 				"tweet":        ev.Text,
 				"tweet_author": ev.AuthorHandle,
+			}
+			if ev.TweetID != "" {
+				if allMeta, err := st.MergeAllTweetExecutionMetadata(ctx, ev.TweetID); err == nil {
+					for k, v := range allMeta {
+						if _, exists := initCtx[k]; !exists {
+							initCtx[k] = decodeMetaValue(v)
+						}
+					}
+				}
 			}
 		} else {
 			initCtx = map[string]any{}
