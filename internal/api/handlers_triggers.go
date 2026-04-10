@@ -20,6 +20,7 @@ func (s *Server) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 		{"type": "server_started",     "description": "Fires once when the server process starts"},
 		{"type": "stream_connected",   "description": "Fires when the X stream connects"},
 		{"type": "digest_completed",   "description": "Fires when a digest job finishes"},
+		{"type": "pipeline_finished",  "description": "Fires when all branches of a pipeline complete for a tweet"},
 	}
 	writeJSON(w, http.StatusOK, triggers)
 }
@@ -38,8 +39,9 @@ func (s *Server) handleListTriggerPipelineLinks(w http.ResponseWriter, r *http.R
 
 func (s *Server) handleCreateTriggerPipelineLink(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TriggerType string `json:"trigger_type"`
-		PipelineID  int64  `json:"pipeline_id"`
+		TriggerType      string `json:"trigger_type"`
+		PipelineID       int64  `json:"pipeline_id"`
+		SourcePipelineID *int64 `json:"source_pipeline_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -49,7 +51,16 @@ func (s *Server) handleCreateTriggerPipelineLink(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "trigger_type and pipeline_id are required")
 		return
 	}
-	l := &model.TriggerPipelineLink{TriggerType: req.TriggerType, PipelineID: req.PipelineID, Active: true}
+	if req.TriggerType == "pipeline_finished" && (req.SourcePipelineID == nil || *req.SourcePipelineID == 0) {
+		writeError(w, http.StatusBadRequest, "source_pipeline_id is required for pipeline_finished trigger")
+		return
+	}
+	l := &model.TriggerPipelineLink{
+		TriggerType:      req.TriggerType,
+		PipelineID:       req.PipelineID,
+		SourcePipelineID: req.SourcePipelineID,
+		Active:           true,
+	}
 	if err := s.store.SaveTriggerPipelineLink(r.Context(), l); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
