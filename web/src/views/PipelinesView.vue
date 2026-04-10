@@ -23,8 +23,8 @@ import {
 } from '../api/actions'
 import {
   listPipelines, createPipeline, deletePipeline, activatePipeline, deactivatePipeline,
-  runPipeline, listModels,
-  type Pipeline, type ModelFile,
+  runPipeline, listModels, getPipelineGraph,
+  type Pipeline, type ModelFile, type PipelineNode,
 } from '../api/pipelines'
 import {
   listTriggers, listTriggerPipelineLinks, createTriggerPipelineLink,
@@ -555,6 +555,9 @@ const showRunModal      = ref(false)
 const runPipelineRow    = ref<Pipeline | null>(null)
 const runNewOnly        = ref(false)
 const runningPipeline   = ref(false)
+const runStartNodeId    = ref<number | null>(null)
+const runGraphNodes     = ref<PipelineNode[]>([])
+const runGraphLoading   = ref(false)
 
 async function fetchPipelinesData() {
   pipelinesLoading.value = true
@@ -581,17 +584,31 @@ async function onSavePipeline() {
   finally { savingPipeline.value = false }
 }
 
-function openRunPipeline(row: Pipeline) {
+async function openRunPipeline(row: Pipeline) {
   runPipelineRow.value = row
   runNewOnly.value = false
+  runStartNodeId.value = null
+  runGraphNodes.value = []
   showRunModal.value = true
+  runGraphLoading.value = true
+  try {
+    const graph = await getPipelineGraph(row.id)
+    runGraphNodes.value = graph.nodes
+      .filter(n => n.type === 'action' || n.type === 'pipeline')
+      .sort((a, b) => a.pos_y !== b.pos_y ? a.pos_y - b.pos_y : a.pos_x - b.pos_x)
+  } catch { /* non-fatal — picker stays empty */ }
+  finally { runGraphLoading.value = false }
 }
 
 async function onConfirmRunPipeline(): Promise<false | void> {
   if (!runPipelineRow.value) return false
   runningPipeline.value = true
   try {
-    const res = await runPipeline(runPipelineRow.value.id, runNewOnly.value)
+    const res = await runPipeline(
+      runPipelineRow.value.id,
+      runNewOnly.value,
+      runStartNodeId.value ?? undefined,
+    )
     msg.success(res.async
       ? `Pipeline "${runPipelineRow.value.name}" is running in the background`
       : `Queued ${res.queued} tweets for "${runPipelineRow.value.name}"`)
@@ -1251,12 +1268,33 @@ watch(formUsecase, (val) => {
     :loading="runningPipeline"
     @positive-click="onConfirmRunPipeline"
   >
-    <n-radio-group v-model:value="runNewOnly" style="margin-top: 8px;">
-      <n-space vertical :size="8">
-        <n-radio :value="false">All eligible tweets</n-radio>
-        <n-radio :value="true">Only tweets without existing executions for this pipeline's actions</n-radio>
-      </n-space>
-    </n-radio-group>
+    <n-space vertical :size="12" style="margin-top: 8px;">
+      <n-form-item label="Start from node" :show-feedback="false">
+        <n-select
+          v-model:value="runStartNodeId"
+          :loading="runGraphLoading"
+          :options="([
+            { label: 'Start of pipeline (default)', value: null },
+            ...runGraphNodes.map(n => ({ label: n.label || `Node #${n.id}`, value: n.id }))
+          ] as any)"
+          placeholder="Start of pipeline (default)"
+          clearable
+        />
+      </n-form-item>
+      <n-text v-if="runStartNodeId" depth="3" style="font-size: 12px;">
+        Prior detection results for each tweet will be available as context.
+      </n-text>
+      <n-radio-group v-model:value="runNewOnly">
+        <n-space vertical :size="8">
+          <n-radio :value="false">All eligible tweets</n-radio>
+          <n-radio :value="true">
+            {{ runStartNodeId
+              ? "Only tweets not yet processed by the selected node's action"
+              : "Only tweets without existing executions for this pipeline's actions" }}
+          </n-radio>
+        </n-space>
+      </n-radio-group>
+    </n-space>
   </n-modal>
 
   <!-- Connect Pipeline to Trigger Drawer -->
