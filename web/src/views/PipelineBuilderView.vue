@@ -9,6 +9,7 @@ import '@vue-flow/core/dist/theme-default.css'
 import {
   NButton, NText, NInput, NSelect, NDivider, NInputNumber,
   NSpin, NScrollbar, NIcon, useMessage,
+  NModal, NSpace, NRadioGroup, NRadio,
 } from 'naive-ui'
 import { ArrowBackOutline } from '@vicons/ionicons5'
 import StartNode from '../components/pipeline/StartNode.vue'
@@ -16,7 +17,7 @@ import ActionNode from '../components/pipeline/ActionNode.vue'
 import ConditionNode from '../components/pipeline/ConditionNode.vue'
 import PipelineNodeComponent from '../components/pipeline/PipelineNode.vue'
 import {
-  getPipeline, getPipelineGraph, savePipelineGraph, listPipelines,
+  getPipeline, getPipelineGraph, savePipelineGraph, listPipelines, runPipeline,
   type Pipeline, type PipelineCondition,
 } from '../api/pipelines'
 import { listActions } from '../api/actions'
@@ -51,6 +52,42 @@ const pipelines     = ref<Pipeline[]>([])
 const loading       = ref(true)
 const saving        = ref(false)
 const isDirty       = ref(false)
+
+// Run-from-node state (Option B — invoked from graph editor node buttons)
+const showRunFromNodeModal = ref(false)
+const runFromNodeId        = ref<string | null>(null)
+const runFromNodeLabel     = ref('')
+const runFromNodeNewOnly   = ref(false)
+const runningFromNode      = ref(false)
+
+function withRunCallback(data: Record<string, any>): Record<string, any> {
+  return { ...data, onRunFromNode: handleRunFromNode }
+}
+
+function handleRunFromNode(nodeId: string) {
+  const node = findNode(nodeId)
+  runFromNodeId.value    = nodeId
+  runFromNodeLabel.value = node?.data?.label ?? `Node #${nodeId}`
+  runFromNodeNewOnly.value = false
+  showRunFromNodeModal.value = true
+}
+
+async function onConfirmRunFromNode(): Promise<false | void> {
+  if (!runFromNodeId.value) return false
+  const numId = parseInt(runFromNodeId.value, 10)
+  if (isNaN(numId)) { msg.error('Invalid node id'); return false }
+  runningFromNode.value = true
+  try {
+    const res = await runPipeline(pipelineId, runFromNodeNewOnly.value, numId)
+    msg.success(res.async
+      ? `Running from "${runFromNodeLabel.value}" in the background`
+      : `Queued ${res.queued} tweets from "${runFromNodeLabel.value}"`)
+    showRunFromNodeModal.value = false
+  } catch (e: any) { msg.error(e.message) }
+  finally { runningFromNode.value = false }
+  return false
+}
+
 const searchText    = ref('')
 const selectedNodeId = ref<string | null>(null)
 
@@ -103,11 +140,8 @@ onMounted(async () => {
     actions.value   = acts
     pipelines.value = pipes
 
-    const vfNodes: Node[] = graph.nodes.map(n => ({
-      id:       String(n.id),
-      type:     n.type,
-      position: { x: n.pos_x, y: n.pos_y },
-      data: {
+    const vfNodes: Node[] = graph.nodes.map(n => {
+      const baseData = {
         label:           n.label || (n.type === 'start' ? 'Start' : ''),
         actionId:        n.action_id,
         subPipelineId:   n.sub_pipeline_id,
@@ -118,8 +152,14 @@ onMounted(async () => {
         pipelineType:    n.action_id
           ? acts.find(a => a.id === n.action_id)?.name
           : undefined,
-      },
-    }))
+      }
+      return {
+        id:       String(n.id),
+        type:     n.type,
+        position: { x: n.pos_x, y: n.pos_y },
+        data: (n.type === 'action' || n.type === 'pipeline') ? withRunCallback(baseData) : baseData,
+      }
+    })
 
     const vfEdges: Edge[] = graph.edges.map(e => ({
       id:           String(e.id),
@@ -176,7 +216,7 @@ function addActionNode(action: Action) {
     id,
     type: 'action',
     position: { x: 300, y: 200 },
-    data: { label: action.name, actionId: action.id, pipelineType: `#${action.id}` },
+    data: withRunCallback({ label: action.name, actionId: action.id, pipelineType: `#${action.id}` }),
   }])
   isDirty.value = true
 }
@@ -198,7 +238,7 @@ function addPipelineNode(pipe: Pipeline) {
     id,
     type: 'pipeline',
     position: { x: 200, y: 200 },
-    data: { label: pipe.name, subPipelineId: pipe.id, subPipelineName: pipe.name },
+    data: withRunCallback({ label: pipe.name, subPipelineId: pipe.id, subPipelineName: pipe.name }),
   }])
   isDirty.value = true
 }
@@ -285,11 +325,8 @@ async function onSave() {
       target_client_id: e.target,
     }))
     const saved = await savePipelineGraph(pipelineId, nodeRequests, edgeRequests)
-    setNodes(saved.nodes.map(n => ({
-      id:       String(n.id),
-      type:     n.type,
-      position: { x: n.pos_x, y: n.pos_y },
-      data: {
+    setNodes(saved.nodes.map(n => {
+      const baseData = {
         label:           n.label,
         actionId:        n.action_id,
         subPipelineId:   n.sub_pipeline_id,
@@ -300,8 +337,14 @@ async function onSave() {
         pipelineType:    n.action_id
           ? actions.value.find(a => a.id === n.action_id)?.name
           : undefined,
-      },
-    })))
+      }
+      return {
+        id:       String(n.id),
+        type:     n.type,
+        position: { x: n.pos_x, y: n.pos_y },
+        data: (n.type === 'action' || n.type === 'pipeline') ? withRunCallback(baseData) : baseData,
+      }
+    }))
     setEdges(saved.edges.map(e => ({
       id:           String(e.id),
       source:       String(e.source_node_id),
@@ -323,9 +366,8 @@ async function onDiscard() {
   loading.value = true
   try {
     const graph = await getPipelineGraph(pipelineId)
-    setNodes(graph.nodes.map(n => ({
-      id: String(n.id), type: n.type, position: { x: n.pos_x, y: n.pos_y },
-      data: {
+    setNodes(graph.nodes.map(n => {
+      const baseData = {
         label:           n.label,
         actionId:        n.action_id,
         subPipelineId:   n.sub_pipeline_id,
@@ -336,8 +378,12 @@ async function onDiscard() {
         pipelineType:    n.action_id
           ? actions.value.find(a => a.id === n.action_id)?.name
           : undefined,
-      },
-    })))
+      }
+      return {
+        id: String(n.id), type: n.type, position: { x: n.pos_x, y: n.pos_y },
+        data: (n.type === 'action' || n.type === 'pipeline') ? withRunCallback(baseData) : baseData,
+      }
+    }))
     setEdges(graph.edges.map(e => ({
       id: String(e.id), source: String(e.source_node_id),
       sourceHandle: e.source_handle, target: String(e.target_node_id),
@@ -530,4 +576,27 @@ const pipelineOptions = computed(() =>
       </div>
     </div>
   </div>
+
+  <!-- Run from Node Modal (Option B) -->
+  <n-modal
+    v-model:show="showRunFromNodeModal"
+    preset="dialog"
+    :title="`Run from: ${runFromNodeLabel}`"
+    positive-text="Run"
+    negative-text="Cancel"
+    :loading="runningFromNode"
+    @positive-click="onConfirmRunFromNode"
+  >
+    <n-space vertical :size="12" style="margin-top: 8px;">
+      <n-text depth="3" style="font-size: 12px;">
+        Prior detection results for each tweet will be available as context.
+      </n-text>
+      <n-radio-group v-model:value="runFromNodeNewOnly">
+        <n-space vertical :size="8">
+          <n-radio :value="false">All eligible tweets</n-radio>
+          <n-radio :value="true">Only tweets not yet processed by this node's action</n-radio>
+        </n-space>
+      </n-radio-group>
+    </n-space>
+  </n-modal>
 </template>
