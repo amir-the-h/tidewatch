@@ -422,32 +422,20 @@ type modelFileInfo struct {
 	Path string `json:"path"`
 }
 
-// collectGraphActionIDs walks a pipeline graph and all referenced sub-pipeline
-// graphs (one level deep per pipeline node) and returns the unique set of
-// action IDs found. Used to build the new_only exclusion set correctly even
-// when action nodes live inside sub-pipelines rather than the parent graph.
-func (s *Server) collectGraphActionIDs(ctx context.Context, graph *model.PipelineGraph) []int64 {
+// collectGraphActionIDs returns the action IDs of direct action nodes in a
+// pipeline graph. Sub-pipeline nodes are intentionally NOT walked — their
+// action IDs belong to those sub-pipelines, not to this pipeline.
+// A pipeline with no direct action nodes (e.g. a pure fan-out into
+// sub-pipelines) returns an empty slice, meaning new_only has no exclusion
+// set and all tweets are eligible.
+func (s *Server) collectGraphActionIDs(_ context.Context, graph *model.PipelineGraph) []int64 {
 	seen := make(map[int64]struct{})
 	var ids []int64
-	add := func(id int64) {
-		if _, ok := seen[id]; !ok {
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-		}
-	}
 	for _, node := range graph.Nodes {
 		if node.Type == model.PipelineNodeTypeAction && node.ActionID != nil {
-			add(*node.ActionID)
-		}
-		if node.Type == model.PipelineNodeTypePipeline && node.SubPipelineID != nil {
-			subGraph, err := s.store.GetPipelineGraph(ctx, *node.SubPipelineID)
-			if err != nil {
-				continue
-			}
-			for _, subNode := range subGraph.Nodes {
-				if subNode.Type == model.PipelineNodeTypeAction && subNode.ActionID != nil {
-					add(*subNode.ActionID)
-				}
+			if _, ok := seen[*node.ActionID]; !ok {
+				seen[*node.ActionID] = struct{}{}
+				ids = append(ids, *node.ActionID)
 			}
 		}
 	}
