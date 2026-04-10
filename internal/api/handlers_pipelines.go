@@ -452,9 +452,12 @@ func (s *Server) collectGraphActionIDs(ctx context.Context, graph *model.Pipelin
 	return ids
 }
 
-// collectNodeActionIDs returns the action IDs directly reachable from the given
-// node. For action nodes: the node's own action_id. For pipeline nodes: all
-// action IDs found inside the referenced sub-pipeline graph.
+// collectNodeActionIDs returns the action IDs directly at the given node —
+// not the full downstream sub-tree. For action nodes: the node's own action_id.
+// For pipeline nodes: all action IDs found inside the referenced sub-pipeline
+// graph (one level deep). Downstream successors of the named node are excluded
+// by design: the exclusion set only covers what would be redundant for the
+// selected start node.
 // Used to scope the new_only exclusion set when start_node_id is provided.
 func (s *Server) collectNodeActionIDs(ctx context.Context, node *model.PipelineNode) []int64 {
 	seen := make(map[int64]struct{})
