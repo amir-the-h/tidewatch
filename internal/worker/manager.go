@@ -244,6 +244,22 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	var ev queue.TweetEvent
 	_ = json.Unmarshal(task.Event, &ev)
 
+	// Decrement the pipeline run tracking counter when this task is done.
+	// The defer fires AFTER PushContinuationTasks (at end of function or early return),
+	// so all downstream task increments happen before this -1.
+	if task.RootPipelineID != 0 {
+		defer func() {
+			done, err := m.store.DecrementPipelineRunTracking(ctx, task.RootPipelineID, ev.TweetID)
+			if err != nil && m.logger != nil {
+				m.logger.Warn("worker: decrement pipeline run tracking",
+					"root_pipeline_id", task.RootPipelineID, "tweet_id", ev.TweetID, "error", err)
+			}
+			if done {
+				m.firePipelineFinished(ctx, task.RootPipelineID, ev.TweetID)
+			}
+		}()
+	}
+
 	// Load execution metadata for this tweet across all prior actions so that
 	// notification pipelines can reference ONNX/Ollama outputs even when not
 	// triggered via a pipeline (e.g. ${label}, ${score}, ${summary}, ${entity_list}).
@@ -402,6 +418,35 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 
 	// Continue pipeline: push tasks for downstream action nodes whose conditions pass.
 	PushContinuationTasks(ctx, m.store, m.producer, m.cache, task, mergedCtx, m.logger)
+}
+
+// firePipelineFinished dispatches tasks for all pipelines linked to the
+// pipeline_finished trigger for the given source pipeline.
+func (m *Manager) firePipelineFinished(ctx context.Context, pipelineID int64, tweetID string) {
+	eventPayload, err := m.store.GetPipelineRunEventPayload(ctx, pipelineID, tweetID)
+	if err != nil || len(eventPayload) == 0 {
+		if m.logger != nil {
+			m.logger.Warn("worker: pipeline_finished: missing event payload",
+				"pipeline_id", pipelineID, "tweet_id", tweetID)
+		}
+		return
+	}
+	var ev queue.TweetEvent
+	if err := json.Unmarshal(eventPayload, &ev); err != nil {
+		if m.logger != nil {
+			m.logger.Warn("worker: pipeline_finished: unmarshal event", "error", err)
+		}
+		return
+	}
+	if m.logger != nil {
+		m.logger.Info("worker: pipeline finished — firing pipeline_finished trigger",
+			"pipeline_id", pipelineID, "tweet_id", tweetID)
+	}
+	if err := PushInitialPipelineTasks(ctx, m.store, m.producer, m.cache,
+		"pipeline_finished", ev, m.logger, pipelineID); err != nil && m.logger != nil {
+		m.logger.Warn("worker: push pipeline_finished tasks failed",
+			"pipeline_id", pipelineID, "error", err)
+	}
 }
 
 func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *queue.Task, entry *CacheEntry) {
