@@ -554,6 +554,7 @@ const pipelineFormDesc  = ref('')
 const showRunModal      = ref(false)
 const runPipelineRow    = ref<Pipeline | null>(null)
 const runNewOnly        = ref(false)
+const runOrder          = ref<'asc' | 'desc'>('desc')
 const runningPipeline   = ref(false)
 const runStartNodeId    = ref<number | null>(null)
 const runGraphNodes     = ref<PipelineNode[]>([])
@@ -587,6 +588,7 @@ async function onSavePipeline() {
 async function openRunPipeline(row: Pipeline) {
   runPipelineRow.value = row
   runNewOnly.value = false
+  runOrder.value = 'desc'
   runStartNodeId.value = null
   runGraphNodes.value = []
   showRunModal.value = true
@@ -610,6 +612,7 @@ async function onConfirmRunPipeline(): Promise<false | void> {
       runPipelineRow.value.id,
       runNewOnly.value,
       runStartNodeId.value ?? undefined,
+      runOrder.value === 'asc' ? 'asc' : undefined,
     )
     msg.success(res.async
       ? `Pipeline "${runPipelineRow.value.name}" is running in the background`
@@ -1294,6 +1297,12 @@ watch(formUsecase, (val) => {
               ? "Only tweets not yet processed by the selected node's action"
               : "Only tweets without existing executions for this pipeline's actions" }}
           </n-radio>
+        </n-space>
+      </n-radio-group>
+      <n-radio-group v-model:value="runOrder">
+        <n-space vertical :size="8">
+          <n-radio value="desc">Newest first (default)</n-radio>
+          <n-radio value="asc">Oldest first</n-radio>
         </n-space>
       </n-radio-group>
     </n-space>
