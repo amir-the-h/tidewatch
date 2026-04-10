@@ -165,7 +165,7 @@ func (c *ActionCache) resolveAction(ctx context.Context, a *model.Action, action
 		// Always build fresh from DB config so that updates to model name,
 		// system_prompt, or backend assignments take effect without a restart.
 		assignedIDs := actionBackendIDs[a.ID] // nil → use full pool
-		p = inference.NewOllamaPipelineFromConfig(a.Name, cfg, c.pool, assignedIDs, 0, nil)
+		p = inference.NewOllamaPipelineFromConfig(a.Name, cfg, c.pool, assignedIDs, 0, buildOllamaContextLoader(c.store))
 		c.infReg.Register(p)
 
 	case model.ActionTypeInternal:
@@ -281,4 +281,30 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 	}
 
 	return pipeline.NewNotificationPipeline(a.Name, messageTemplate, deliveryConfig, notifProvider, loader), nil
+}
+
+// buildOllamaContextLoader returns a ContextSummaryLoader that fetches per-action
+// metadata from the store, filtered to the requested action IDs in the supplied order.
+func buildOllamaContextLoader(st store.Store) inference.ContextSummaryLoader {
+	return func(ctx context.Context, tweetID string, actionIDs []int64) ([]inference.ContextSummary, error) {
+		all, err := st.ListTweetActionSummaries(ctx, tweetID)
+		if err != nil {
+			return nil, err
+		}
+		byID := make(map[int64]inference.ContextSummary, len(all))
+		for _, s := range all {
+			byID[s.ActionID] = inference.ContextSummary{
+				ActionID:   s.ActionID,
+				ActionName: s.ActionName,
+				Metadata:   s.Metadata,
+			}
+		}
+		out := make([]inference.ContextSummary, 0, len(actionIDs))
+		for _, id := range actionIDs {
+			if s, ok := byID[id]; ok {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	}
 }
