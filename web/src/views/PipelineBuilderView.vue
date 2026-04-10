@@ -118,6 +118,7 @@ const conditionOpOptions = [
   { label: '>', value: '>' }, { label: '>=', value: '>=' },
   { label: '<', value: '<' }, { label: '<=', value: '<=' },
   { label: 'contains', value: 'contains' }, { label: 'not_contains', value: 'not_contains' },
+  { label: 'exists', value: 'exists' }, { label: 'not_exists', value: 'not_exists' },
   { label: 'is_empty', value: 'is_empty' }, { label: 'not_empty', value: 'not_empty' },
   { label: 'rule_matches', value: 'rule_matches' },
   { label: 'rule_not_matches', value: 'rule_not_matches' },
@@ -561,7 +562,7 @@ const pipelineOptions = computed(() =>
                   size="small" placeholder="value" style="width: 100%; margin-top: 3px;"
                 />
                 <n-input
-                  v-else-if="!['is_empty','not_empty','rule_matches','rule_not_matches'].includes(cond.op)"
+                  v-else-if="!['is_empty','not_empty','exists','not_exists','rule_matches','rule_not_matches'].includes(cond.op)"
                   v-model:value="cond.value"
                   size="small" placeholder="value" style="margin-top: 3px;"
                 />
