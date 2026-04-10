@@ -492,12 +492,12 @@ func AllTools() []ToolDef {
 		},
 		{
 			Name:        "pipelines_run",
-			Description: "Dispatch historical tweets through the pipeline's start node. Returns queued count.",
+			Description: "Dispatch historical tweets through a pipeline. Returns queued count (async: true means running in background).",
 			Method:      "POST",
 			Path:        "/api/pipelines/{id}/run",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
 			Body: &BodyDef{
-				Description: "Object with field: new_only (bool, skip tweets already processed by this pipeline).",
+				Description: "Object with optional fields: new_only (bool, skip tweets already processed by the start node's action), start_node_id (int, dispatch from this action or pipeline node instead of the pipeline's Start node — full context from prior runs is available automatically).",
 			},
 		},
 
