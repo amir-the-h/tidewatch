@@ -674,10 +674,12 @@ func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipeline
 
 	if remaining == 0 {
 		now := time.Now().UTC().Format(time.RFC3339)
-		_, _ = tx.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE pipeline_run_tracking SET completed_at = ? WHERE pipeline_id = ? AND tweet_id = ?`,
 			now, pipelineID, tweetID,
-		)
+		); err != nil {
+			return false, fmt.Errorf("store: decrement pipeline run tracking: set completed_at: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
