@@ -225,6 +225,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NewOnly     bool   `json:"new_only"`
 		StartNodeID *int64 `json:"start_node_id"`
+		Order       string `json:"order"` // "asc" | "desc"; default "desc"
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -320,6 +321,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ctx := s.ctx
 		newOnly := req.NewOnly
+		newOrder := req.Order
 
 		// Build exclusion set once if new_only is requested.
 		// When start_node_id is provided, scope the exclusion set to only the
@@ -352,7 +354,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		seenTweetIDs := make(map[string]struct{})
 
 		for _, link := range links {
-			filter := store.TweetFilter{Page: 1, PerPage: 5000}
+			filter := store.TweetFilter{Page: 1, PerPage: 5000, OrderAsc: newOrder == "asc"}
 			switch link.TriggerType {
 			case "new_tweet", "new_categorization":
 				// all tweets

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,12 @@ func (m *mockStore) ListTweets(_ context.Context, f store.TweetFilter) ([]*model
 		}
 		out = append(out, t)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if f.OrderAsc {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
 	return out, nil
 }
 
@@ -1032,6 +1039,55 @@ func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
 	}
 	if !tweetIDs["t2"] {
 		t.Errorf("expected t2 to be queued, got tasks for: %v", tweetIDs)
+	}
+}
+
+func TestRunPipeline_AscOrder(t *testing.T) {
+	srv, ms, mp, _ := newTestServer(t)
+	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
+	ms.triggerLinks = []*model.TriggerPipelineLink{
+		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+	}
+	actionID := int64(5)
+	ms.pipelineGraphs[1] = &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 1, PipelineID: 1, Type: model.PipelineNodeTypeStart},
+			{ID: 2, PipelineID: 1, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
+		},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 1, SourceNodeID: 1, TargetNodeID: 2},
+		},
+	}
+	ms.tweets["t_old"] = &model.Tweet{
+		ID: "t_old", Text: "old tweet", AuthorHandle: "h1",
+		CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	ms.tweets["t_new"] = &model.Tweet{
+		ID: "t_new", Text: "new tweet", AuthorHandle: "h2",
+		CreatedAt: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	body := `{"order": "asc"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
+	w := httptest.NewRecorder()
+	srv.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Handler dispatches in a background goroutine; wait for it.
+	time.Sleep(100 * time.Millisecond)
+
+	if len(mp.pushed) != 2 {
+		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
+	}
+	var ev0 struct{ TweetID string `json:"tweet_id"` }
+	_ = json.Unmarshal(mp.pushed[0].Event, &ev0)
+	if ev0.TweetID != "t_old" {
+		t.Errorf("expected first task for t_old (oldest), got %s", ev0.TweetID)
 	}
 }
 
