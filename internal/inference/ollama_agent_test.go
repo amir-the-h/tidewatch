@@ -90,7 +90,7 @@ func TestAgentStream_ToolCallThenText(t *testing.T) {
 	defer pool.Close()
 	pool.Load([]BackendRecord{{ID: 1, Name: "test", URL: ollamaSrv.URL, Enabled: true}})
 
-	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second)
+	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second, nil)
 
 	executor := &mockToolExecutor{}
 	tools := []mcpserver.OllamaTool{
@@ -163,7 +163,7 @@ func TestAgentStream_DirectTextNoTools(t *testing.T) {
 	defer pool.Close()
 	pool.Load([]BackendRecord{{ID: 1, Name: "test", URL: srv.URL, Enabled: true}})
 
-	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second)
+	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second, nil)
 	executor := &mockToolExecutor{}
 
 	var buf bytes.Buffer
@@ -233,7 +233,7 @@ func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
 	defer pool.Close()
 	pool.Load([]BackendRecord{{ID: 1, Name: "test", URL: srv.URL, Enabled: true}})
 
-	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second)
+	p := NewOllamaPipelineFromConfig("chat", map[string]any{"model": model}, pool, nil, 5*time.Second, nil)
 	executor := &mockToolExecutor{result: `[{"id":1},{"id":2},{"id":3}]`}
 
 	var buf bytes.Buffer

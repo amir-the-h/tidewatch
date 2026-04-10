@@ -1,6 +1,8 @@
 package inference
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -105,5 +107,126 @@ func TestBuildContextBlock_NativeIntValue(t *testing.T) {
 	got := buildContextBlock(map[string]any{}, summaries)
 	if !strings.Contains(got, "  count: 42") {
 		t.Errorf("expected native int rendered as plain text, got:\n%s", got)
+	}
+}
+
+func TestOllamaPipelineRun_TextOnly_NoLoader(t *testing.T) {
+	// text_only with nil loader — must pass raw tweet text unchanged.
+	var sentText string
+	p := &OllamaPipeline{
+		name:      "test",
+		inputMode: "text_only",
+		sendChatFn: func(_ context.Context, text string) (string, error) {
+			sentText = text
+			return `{"result":"ok"}`, nil
+		},
+	}
+	_, err := p.Run(context.Background(), PipelineInput{
+		Text:    "raw tweet",
+		TweetID: "t1",
+		Context: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sentText != "raw tweet" {
+		t.Errorf("expected raw tweet text, got: %s", sentText)
+	}
+}
+
+func TestOllamaPipelineRun_ContextOnly(t *testing.T) {
+	loader := func(_ context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error) {
+		return []ContextSummary{
+			{ActionID: 1, ActionName: "Clf", Metadata: map[string]any{"top_label": "violence"}},
+		}, nil
+	}
+	var sentText string
+	p := &OllamaPipeline{
+		name:             "test",
+		inputMode:        "context_only",
+		contextActionIDs: []int64{1},
+		loadSummaries:    loader,
+		sendChatFn: func(_ context.Context, text string) (string, error) {
+			sentText = text
+			return `{"result":"ok"}`, nil
+		},
+	}
+	_, err := p.Run(context.Background(), PipelineInput{
+		Text:    "raw tweet",
+		TweetID: "t1",
+		Context: map[string]any{"tweet_id": "t1", "tweet_url": "https://x.com/u/status/t1", "tweet_author": "u", "tweet_short": "raw tweet"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(sentText, "raw tweet\n") {
+		t.Errorf("context_only should not include raw tweet text, got:\n%s", sentText)
+	}
+	if !strings.Contains(sentText, "<context>") {
+		t.Errorf("expected <context> block, got:\n%s", sentText)
+	}
+	if !strings.Contains(sentText, "top_label: violence") {
+		t.Errorf("expected top_label in context, got:\n%s", sentText)
+	}
+}
+
+func TestOllamaPipelineRun_TextAndContext(t *testing.T) {
+	loader := func(_ context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error) {
+		return []ContextSummary{
+			{ActionID: 2, ActionName: "NER", Metadata: map[string]any{"entities": []any{"Iran"}}},
+		}, nil
+	}
+	var sentText string
+	p := &OllamaPipeline{
+		name:             "test",
+		inputMode:        "text_and_context",
+		contextActionIDs: []int64{2},
+		loadSummaries:    loader,
+		sendChatFn: func(_ context.Context, text string) (string, error) {
+			sentText = text
+			return `{"result":"ok"}`, nil
+		},
+	}
+	_, err := p.Run(context.Background(), PipelineInput{
+		Text:    "raw tweet",
+		TweetID: "t1",
+		Context: map[string]any{"tweet_id": "t1", "tweet_url": "https://x.com/u/status/t1", "tweet_author": "u", "tweet_short": "raw tweet"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(sentText, "raw tweet") {
+		t.Errorf("expected raw tweet text first, got:\n%s", sentText)
+	}
+	if !strings.Contains(sentText, "<context>") {
+		t.Errorf("expected <context> block, got:\n%s", sentText)
+	}
+}
+
+func TestOllamaPipelineRun_LoaderError_FallsBackToText(t *testing.T) {
+	loader := func(_ context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error) {
+		return nil, fmt.Errorf("db error")
+	}
+	var sentText string
+	p := &OllamaPipeline{
+		name:             "test",
+		inputMode:        "text_and_context",
+		contextActionIDs: []int64{1},
+		loadSummaries:    loader,
+		sendChatFn: func(_ context.Context, text string) (string, error) {
+			sentText = text
+			return `{"result":"ok"}`, nil
+		},
+	}
+	_, err := p.Run(context.Background(), PipelineInput{
+		Text:    "raw tweet",
+		TweetID: "t1",
+		Context: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sentText != "raw tweet" {
+		t.Errorf("expected fallback to raw tweet, got: %s", sentText)
 	}
 }

@@ -165,7 +165,7 @@ func (c *ActionCache) resolveAction(ctx context.Context, a *model.Action, action
 		// Always build fresh from DB config so that updates to model name,
 		// system_prompt, or backend assignments take effect without a restart.
 		assignedIDs := actionBackendIDs[a.ID] // nil → use full pool
-		p = inference.NewOllamaPipelineFromConfig(a.Name, cfg, c.pool, assignedIDs, 0)
+		p = inference.NewOllamaPipelineFromConfig(a.Name, cfg, c.pool, assignedIDs, 0, nil)
 		c.infReg.Register(p)
 
 	case model.ActionTypeInternal:
@@ -251,6 +251,14 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 			return nil, fmt.Errorf("action cache: parse telegram config: %w", err)
 		}
 		notifProvider = notifier.NewTelegramClient(creds.BotToken, logger)
+	case "discord":
+		var creds struct {
+			WebhookURL string `json:"webhook_url"`
+		}
+		if err := json.Unmarshal(provider.Config, &creds); err != nil {
+			return nil, fmt.Errorf("action cache: parse discord config: %w", err)
+		}
+		notifProvider = notifier.NewDiscordClient(creds.WebhookURL)
 	default:
 		return nil, fmt.Errorf("action cache: unknown notification provider type %q", provider.Type)
 	}

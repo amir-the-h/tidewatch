@@ -131,6 +131,12 @@ type OllamaPipeline struct {
 	pool            *BackendPool
 	assignedIDs     []int64 // priority-ordered backend IDs; empty = use full pool
 	fastWaitTimeout time.Duration
+	// Context injection
+	inputMode        string               // "text_only" | "context_only" | "text_and_context"
+	contextActionIDs []int64
+	loadSummaries    ContextSummaryLoader // nil = context disabled
+	// Testability hook: if non-nil, overrides the real sendChat HTTP call.
+	sendChatFn func(ctx context.Context, text string) (string, error)
 }
 
 // NewOllamaPipelineFromConfig creates an Ollama pipeline from DB pipeline config.
@@ -139,19 +145,34 @@ type OllamaPipeline struct {
 // which backends this pipeline uses (empty = any). fastWaitTimeout controls
 // how long acquirePrioritized waits for each backend before trying the next;
 // values <= 0 default to 5s.
-func NewOllamaPipelineFromConfig(name string, cfg map[string]any, pool *BackendPool, assignedIDs []int64, fastWaitTimeout time.Duration) *OllamaPipeline {
+func NewOllamaPipelineFromConfig(name string, cfg map[string]any, pool *BackendPool, assignedIDs []int64, fastWaitTimeout time.Duration, loadSummaries ContextSummaryLoader) *OllamaPipeline {
 	systemPrompt, _ := cfg["system_prompt"].(string)
 	if fastWaitTimeout == 0 {
 		fastWaitTimeout = 5 * time.Second
 	}
 	model, _ := cfg["model"].(string)
+	inputMode, _ := cfg["input_mode"].(string)
+	if inputMode == "" {
+		inputMode = "text_only"
+	}
+	var contextActionIDs []int64
+	if ids, ok := cfg["context_action_ids"].([]any); ok {
+		for _, id := range ids {
+			if fid, ok := id.(float64); ok {
+				contextActionIDs = append(contextActionIDs, int64(fid))
+			}
+		}
+	}
 	return &OllamaPipeline{
-		name:            name,
-		model:           model,
-		systemPrompt:    systemPrompt,
-		pool:            pool,
-		assignedIDs:     assignedIDs,
-		fastWaitTimeout: fastWaitTimeout,
+		name:             name,
+		model:            model,
+		systemPrompt:     systemPrompt,
+		pool:             pool,
+		assignedIDs:      assignedIDs,
+		fastWaitTimeout:  fastWaitTimeout,
+		inputMode:        inputMode,
+		contextActionIDs: contextActionIDs,
+		loadSummaries:    loadSummaries,
 	}
 }
 
@@ -242,7 +263,13 @@ func (p *OllamaPipeline) runRaw(ctx context.Context, text []byte) (json.RawMessa
 	if isTruncated(string(text)) {
 		return json.RawMessage(`{"truncated":true}`), nil
 	}
-	content, err := p.sendChat(ctx, string(text))
+	var content string
+	var err error
+	if p.sendChatFn != nil {
+		content, err = p.sendChatFn(ctx, string(text))
+	} else {
+		content, err = p.sendChat(ctx, string(text))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +278,29 @@ func (p *OllamaPipeline) runRaw(ctx context.Context, text []byte) (json.RawMessa
 
 // Run executes the Ollama pipeline on input.Text and returns structured outputs.
 func (p *OllamaPipeline) Run(ctx context.Context, input PipelineInput) (map[string]any, error) {
-	raw, err := p.runRaw(ctx, []byte(input.Text))
+	userText := input.Text
+
+	if p.inputMode != "text_only" && p.loadSummaries != nil && len(p.contextActionIDs) > 0 {
+		summaries, err := p.loadSummaries(ctx, input.TweetID, p.contextActionIDs)
+		if err == nil {
+			switch p.inputMode {
+			case "context_only":
+				// Only action summaries — no raw tweet text or tweet vars.
+				userText = buildContextBlock(map[string]any{}, summaries)
+			case "text_and_context":
+				tweetVars := map[string]any{
+					"tweet_id":     input.Context["tweet_id"],
+					"tweet_url":    input.Context["tweet_url"],
+					"tweet_author": input.Context["tweet_author"],
+					"tweet_short":  input.Context["tweet_short"],
+				}
+				userText = input.Text + "\n\n" + buildContextBlock(tweetVars, summaries)
+			}
+		}
+		// On loader error: fall through with userText = input.Text (text_only fallback)
+	}
+
+	raw, err := p.runRaw(ctx, []byte(userText))
 	if err != nil {
 		return nil, err
 	}
