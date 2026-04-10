@@ -254,9 +254,13 @@ func (s *sqliteStore) SavePipelineGraph(ctx context.Context, pipelineID int64, n
 
 func (s *sqliteStore) SaveTriggerPipelineLink(ctx context.Context, l *model.TriggerPipelineLink) error {
 	now := time.Now().UTC().Format(time.RFC3339)
+	var sourcePipelineID *int64
+	if l.SourcePipelineID != nil && *l.SourcePipelineID != 0 {
+		sourcePipelineID = l.SourcePipelineID
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO trigger_pipeline_links (trigger_type, pipeline_id, active, created_at) VALUES (?,?,?,?)`,
-		l.TriggerType, l.PipelineID, boolToInt(l.Active), now,
+		`INSERT INTO trigger_pipeline_links (trigger_type, pipeline_id, source_pipeline_id, active, created_at) VALUES (?,?,?,?,?)`,
+		l.TriggerType, l.PipelineID, sourcePipelineID, boolToInt(l.Active), now,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save trigger pipeline link: %w", err)
@@ -268,7 +272,7 @@ func (s *sqliteStore) SaveTriggerPipelineLink(ctx context.Context, l *model.Trig
 
 func (s *sqliteStore) ListTriggerPipelineLinks(ctx context.Context) ([]*model.TriggerPipelineLink, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, trigger_type, pipeline_id, active, created_at
+		`SELECT id, trigger_type, pipeline_id, active, created_at, source_pipeline_id
 		 FROM trigger_pipeline_links ORDER BY id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list trigger pipeline links: %w", err)
@@ -285,10 +289,27 @@ func (s *sqliteStore) ListTriggerPipelineLinks(ctx context.Context) ([]*model.Tr
 	return out, rows.Err()
 }
 
-func (s *sqliteStore) ListActiveTriggerPipelineLinks(ctx context.Context, triggerType string) ([]*model.TriggerPipelineLink, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, trigger_type, pipeline_id, active, created_at
-		 FROM trigger_pipeline_links WHERE trigger_type = ? AND active = 1 ORDER BY id ASC`, triggerType)
+func (s *sqliteStore) ListActiveTriggerPipelineLinks(ctx context.Context, triggerType string, sourcePipelineID int64) ([]*model.TriggerPipelineLink, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if sourcePipelineID == 0 {
+		// Normal triggers: only links without a source_pipeline_id.
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, trigger_type, pipeline_id, active, created_at, source_pipeline_id
+			 FROM trigger_pipeline_links
+			 WHERE trigger_type = ? AND active = 1
+			   AND (source_pipeline_id IS NULL OR source_pipeline_id = 0)
+			 ORDER BY id ASC`, triggerType)
+	} else {
+		// pipeline_finished: only links scoped to this specific source pipeline.
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, trigger_type, pipeline_id, active, created_at, source_pipeline_id
+			 FROM trigger_pipeline_links
+			 WHERE trigger_type = ? AND active = 1 AND source_pipeline_id = ?
+			 ORDER BY id ASC`, triggerType, sourcePipelineID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("store: list active trigger pipeline links: %w", err)
 	}
@@ -430,10 +451,14 @@ func scanTriggerPipelineLink(r pipelineScanner) (*model.TriggerPipelineLink, err
 	l := &model.TriggerPipelineLink{}
 	var activeInt int
 	var createdAt string
-	if err := r.Scan(&l.ID, &l.TriggerType, &l.PipelineID, &activeInt, &createdAt); err != nil {
+	var sourcePipelineID sql.NullInt64
+	if err := r.Scan(&l.ID, &l.TriggerType, &l.PipelineID, &activeInt, &createdAt, &sourcePipelineID); err != nil {
 		return nil, err
 	}
 	l.Active = activeInt != 0
+	if sourcePipelineID.Valid && sourcePipelineID.Int64 != 0 {
+		l.SourcePipelineID = &sourcePipelineID.Int64
+	}
 	if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
 		l.CreatedAt = t
 	}

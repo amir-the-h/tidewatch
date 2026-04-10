@@ -324,3 +324,76 @@ func TestBulkDeleteActions_ByType(t *testing.T) {
 		t.Errorf("expected only ONNX action remaining")
 	}
 }
+
+func TestPipelineRunTracking(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	pipelineID := int64(1)
+	tweetID := "tweet-track-1"
+	payload := []byte(`{"tweet_id":"tweet-track-1","text":"hello"}`)
+
+	// Decrement on non-existent row returns done=false, no error
+	done, err := s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	if err != nil {
+		t.Fatalf("DecrementPipelineRunTracking (no row): %v", err)
+	}
+	if done {
+		t.Error("expected done=false for non-existent row")
+	}
+
+	// Init with 2 tasks
+	if err := s.InitPipelineRunTracking(ctx, pipelineID, tweetID, 2, payload); err != nil {
+		t.Fatalf("InitPipelineRunTracking: %v", err)
+	}
+
+	// Increment adds 1 (simulates a downstream push): 2→3
+	if err := s.IncrementPipelineRunTracking(ctx, pipelineID, tweetID); err != nil {
+		t.Fatalf("IncrementPipelineRunTracking: %v", err)
+	}
+
+	// Decrement 1: 3→2, not done
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	if err != nil {
+		t.Fatalf("DecrementPipelineRunTracking (3→2): %v", err)
+	}
+	if done {
+		t.Error("expected done=false at 2")
+	}
+
+	// Decrement 2: 2→1, not done
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	if err != nil {
+		t.Fatalf("DecrementPipelineRunTracking (2→1): %v", err)
+	}
+	if done {
+		t.Error("expected done=false at 1")
+	}
+
+	// Decrement 3: 1→0, done
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	if err != nil {
+		t.Fatalf("DecrementPipelineRunTracking (1→0): %v", err)
+	}
+	if !done {
+		t.Error("expected done=true at 0")
+	}
+
+	// GetPipelineRunEventPayload returns the stored payload
+	got, err := s.GetPipelineRunEventPayload(ctx, pipelineID, tweetID)
+	if err != nil {
+		t.Fatalf("GetPipelineRunEventPayload: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Errorf("payload mismatch: got %q, want %q", got, payload)
+	}
+
+	// Decrement again at 0 — no-op, no error, done=false (re-entry guard)
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	if err != nil {
+		t.Fatalf("DecrementPipelineRunTracking (re-entry): %v", err)
+	}
+	if done {
+		t.Error("expected done=false on re-entry decrement at 0")
+	}
+}
