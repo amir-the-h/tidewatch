@@ -609,3 +609,91 @@ func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNo
 
 	return total > 0 && total == done, nil
 }
+
+// ── Pipeline Run Tracking (pipeline_finished trigger) ─────────────────────────
+
+func (s *sqliteStore) InitPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string, initialCount int, eventPayload []byte) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO pipeline_run_tracking (pipeline_id, tweet_id, active_tasks, event_payload, created_at, completed_at)
+		VALUES (?, ?, ?, ?, ?, NULL)
+		ON CONFLICT (pipeline_id, tweet_id) DO UPDATE SET
+		    active_tasks  = excluded.active_tasks,
+		    event_payload = excluded.event_payload,
+		    completed_at  = NULL,
+		    created_at    = excluded.created_at`,
+		pipelineID, tweetID, initialCount, eventPayload, now,
+	)
+	if err != nil {
+		return fmt.Errorf("store: init pipeline run tracking: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) IncrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE pipeline_run_tracking SET active_tasks = active_tasks + 1
+		 WHERE pipeline_id = ? AND tweet_id = ?`,
+		pipelineID, tweetID,
+	)
+	if err != nil {
+		return fmt.Errorf("store: increment pipeline run tracking: %w", err)
+	}
+	return nil
+}
+
+func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("store: decrement pipeline run tracking: begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE pipeline_run_tracking SET active_tasks = active_tasks - 1
+		 WHERE pipeline_id = ? AND tweet_id = ? AND active_tasks > 0`,
+		pipelineID, tweetID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: decrement pipeline run tracking: update: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// No tracking row, or already at 0 — untracked pipeline or re-entry guard.
+		_ = tx.Commit()
+		return false, nil
+	}
+
+	var remaining int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT active_tasks FROM pipeline_run_tracking WHERE pipeline_id = ? AND tweet_id = ?`,
+		pipelineID, tweetID,
+	).Scan(&remaining); err != nil {
+		return false, fmt.Errorf("store: decrement pipeline run tracking: query: %w", err)
+	}
+
+	if remaining == 0 {
+		now := time.Now().UTC().Format(time.RFC3339)
+		_, _ = tx.ExecContext(ctx,
+			`UPDATE pipeline_run_tracking SET completed_at = ? WHERE pipeline_id = ? AND tweet_id = ?`,
+			now, pipelineID, tweetID,
+		)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("store: decrement pipeline run tracking: commit: %w", err)
+	}
+	return remaining == 0, nil
+}
+
+func (s *sqliteStore) GetPipelineRunEventPayload(ctx context.Context, pipelineID int64, tweetID string) ([]byte, error) {
+	var payload []byte
+	err := s.db.QueryRowContext(ctx,
+		`SELECT event_payload FROM pipeline_run_tracking WHERE pipeline_id = ? AND tweet_id = ?`,
+		pipelineID, tweetID,
+	).Scan(&payload)
+	if err != nil {
+		return nil, fmt.Errorf("store: get pipeline run event payload: %w", err)
+	}
+	return payload, nil
+}
