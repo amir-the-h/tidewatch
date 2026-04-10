@@ -591,8 +591,10 @@ async function openRunPipeline(row: Pipeline) {
   runGraphNodes.value = []
   showRunModal.value = true
   runGraphLoading.value = true
+  const fetchFor = row.id
   try {
     const graph = await getPipelineGraph(row.id)
+    if (runPipelineRow.value?.id !== fetchFor) return
     runGraphNodes.value = graph.nodes
       .filter(n => n.type === 'action' || n.type === 'pipeline')
       .sort((a, b) => a.pos_y !== b.pos_y ? a.pos_y - b.pos_y : a.pos_x - b.pos_x)
@@ -1273,10 +1275,10 @@ watch(formUsecase, (val) => {
         <n-select
           v-model:value="runStartNodeId"
           :loading="runGraphLoading"
-          :options="([
-            { label: 'Start of pipeline (default)', value: null },
-            ...runGraphNodes.map(n => ({ label: n.label || `Node #${n.id}`, value: n.id }))
-          ] as any)"
+          :options="runGraphNodes.map(n => ({
+            label: n.label || `Node #${n.id}`,
+            value: n.id,
+          }))"
           placeholder="Start of pipeline (default)"
           clearable
         />
