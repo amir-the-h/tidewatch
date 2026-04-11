@@ -31,6 +31,7 @@ var internalMetaKeys = map[string]bool{
 	"sent":                true,
 	"provider":            true,
 	"telegram_message_id": true,
+	"discord_thread_id":   true,
 	"raw":                 true,
 	"truncated":           true,
 }
@@ -75,14 +76,15 @@ func (p *NotificationPipeline) Close() error { return nil }
 //
 // If input.Context contains a "telegram_message_id" key from a prior execution,
 // it is forwarded to the provider so it can edit the existing message instead
-// of sending a new one.
+// of sending a new one. Similarly, if input.Context contains a "discord_thread_id"
+// key, it is forwarded so the provider can route the message to the appropriate thread.
 //
 // If the template contains ${actions} and a loadActions callback was provided,
 // that variable is replaced with a Telegram expandable-block summary of every
 // action that ran on the tweet, formatted for the configured parse_mode.
 //
 // Returns the base output {"sent": true, "provider": name} merged with any
-// provider-assigned metadata (e.g. {"telegram_message_id": 12345}).
+// provider-assigned metadata (e.g. {"telegram_message_id": 12345} or {"discord_thread_id": "xyz"}).
 func (p *NotificationPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
 	pm, _ := p.deliveryConfig["parse_mode"].(string)
 	var escaper func(string) string
@@ -120,6 +122,10 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 		cfg["telegram_message_id"] = v
 	} else if v, ok := input.Context["last_telegram_message_id"]; ok {
 		cfg["reply_to_message_id"] = v
+	}
+
+	if v, ok := input.Context["discord_thread_id"]; ok {
+		cfg["discord_thread_id"] = v
 	}
 
 	providerMeta, err := p.provider.Deliver(ctx, text, cfg)
