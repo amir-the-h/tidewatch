@@ -132,15 +132,14 @@ function formatLastUpdated(d: Date): string {
 <template>
   <n-space vertical size="large">
 
-    <!-- Header -->
+    <!-- Toolbar -->
     <n-space align="center" justify="space-between" style="flex-wrap: wrap; gap: 8px;">
-      <n-h2 style="margin: 0;">Ollama Backends</n-h2>
       <n-space align="center" :size="12">
         <n-text v-if="lastUpdated" depth="3" style="font-size: 12px;">
           Updated {{ formatLastUpdated(lastUpdated) }}
         </n-text>
-        <n-button size="small" type="primary" @click="openAdd">+ Add Backend</n-button>
       </n-space>
+      <n-button size="small" type="primary" @click="openAdd">+ Add Backend</n-button>
     </n-space>
 
     <!-- Loading spinner on first load -->
