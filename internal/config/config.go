@@ -70,6 +70,9 @@ type Config struct {
 		ClientSecret string `yaml:"client_secret"`
 		CallbackURL  string `yaml:"callback_url"`
 	} `yaml:"twitter"`
+	Nominatim struct {
+		URL string `yaml:"url"`
+	} `yaml:"nominatim"`
 }
 
 // defaults returns a Config populated with sensible default values.
@@ -206,6 +209,9 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("IRAN_WATCHER_TWITTER_CALLBACK_URL"); v != "" {
 		cfg.Twitter.CallbackURL = v
+	}
+	if v := os.Getenv("IRAN_WATCHER_NOMINATIM_URL"); v != "" {
+		cfg.Nominatim.URL = v
 	}
 	return nil
 }
