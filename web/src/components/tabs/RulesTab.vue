@@ -120,10 +120,13 @@ const columns: DataTableColumns<Rule> = [
 
 <template>
   <n-space vertical size="large">
-    <n-flex align="center" :size="8" wrap>
-      <n-input v-model:value="filterText" placeholder="Search by name or compiled…" clearable style="width: 260px" />
-      <n-checkbox v-model:checked="filterLocalOnly">Local only</n-checkbox>
-      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+    <n-flex align="center" justify="space-between" :size="8" wrap>
+      <n-flex align="center" :size="8" wrap>
+        <n-input v-model:value="filterText" placeholder="Search by name or compiled…" clearable style="width: 260px" />
+        <n-checkbox v-model:checked="filterLocalOnly">Local only</n-checkbox>
+        <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+      </n-flex>
+      <n-button type="primary" size="small" @click="openCreate">New Rule</n-button>
     </n-flex>
 
     <n-data-table :columns="columns" :data="filteredRules" :loading="store.loading" :scroll-x="680" />

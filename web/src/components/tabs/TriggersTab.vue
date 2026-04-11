@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  NFlex, NCard, NTag, NText, NSwitch, NButton, NIcon, NDivider, NSpin, NSelect, NFormItem,
+  NFlex, NCard, NTag, NText, NSwitch, NButton, NIcon, NSpin, NSelect, NFormItem,
   useMessage,
 } from 'naive-ui'
 import { AddOutline } from '@vicons/ionicons5'

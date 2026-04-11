@@ -2,7 +2,7 @@
 import { ref, h, onMounted } from 'vue'
 import {
   NFlex, NTag, NSpace, NDataTable, NButton, NIcon, NFormItem, NInput, NModal,
-  NRadioGroup, NRadio, NSelect, NText, NSpin,
+  NRadioGroup, NRadio, NSelect, NText,
   useMessage,
   type DataTableColumns,
 } from 'naive-ui'
