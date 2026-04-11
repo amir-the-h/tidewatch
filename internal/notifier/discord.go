@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -77,7 +78,7 @@ func (c *DiscordClient) deliverRoot(ctx context.Context, text string) (map[strin
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("notifier: discord: unexpected status %d", resp.StatusCode)
 	}
 
@@ -104,7 +105,15 @@ func (c *DiscordClient) deliverToThread(ctx context.Context, text string, thread
 		return nil, fmt.Errorf("notifier: discord: marshal body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.webhookURL+"?thread_id="+threadID, bytes.NewReader(payload))
+	u, err := url.Parse(c.webhookURL)
+	if err != nil {
+		return nil, fmt.Errorf("notifier: discord: parse webhook url: %w", err)
+	}
+	q := u.Query()
+	q.Set("thread_id", threadID)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("notifier: discord: build request: %w", err)
 	}
@@ -121,6 +130,34 @@ func (c *DiscordClient) deliverToThread(ctx context.Context, text string, thread
 	}
 
 	return map[string]any{"sent": true}, nil
+}
+
+// stripFirstJSONObject scans text for the first top-level JSON object and removes it.
+// Returns the text with the first valid JSON object removed, or the original text if none found.
+func stripFirstJSONObject(text string) string {
+	start := -1
+	depth := 0
+	for i, ch := range text {
+		if ch == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		} else if ch == '}' && depth > 0 {
+			depth--
+			if depth == 0 {
+				candidate := text[start : i+1]
+				var obj map[string]any
+				if err := json.Unmarshal([]byte(candidate), &obj); err == nil && len(obj) > 0 {
+					return text[:start] + text[i+1:]
+				}
+				// Not valid JSON — reset and keep scanning.
+				start = -1
+				depth = 0
+			}
+		}
+	}
+	return text
 }
 
 // extractEmbedBody scans text for the first top-level JSON object. If found,
@@ -141,7 +178,7 @@ func extractEmbedBody(text string) map[string]any {
 				candidate := text[start : i+1]
 				var embed map[string]any
 				if err := json.Unmarshal([]byte(candidate), &embed); err == nil && len(embed) > 0 {
-					surrounding := (text[:start] + text[i+1:])
+					surrounding := stripFirstJSONObject(text)
 					content := strings.TrimSpace(surrounding)
 					body := map[string]any{"embeds": []any{embed}}
 					if content != "" {
@@ -162,29 +199,7 @@ func extractEmbedBody(text string) map[string]any {
 // It strips any embedded JSON object first, trims whitespace, then returns the
 // first 100 runes. Falls back to "notification" when the result is empty.
 func threadNameFromText(text string) string {
-	stripped := text
-	start := -1
-	depth := 0
-	for i, ch := range text {
-		if ch == '{' {
-			if depth == 0 {
-				start = i
-			}
-			depth++
-		} else if ch == '}' && depth > 0 {
-			depth--
-			if depth == 0 {
-				candidate := text[start : i+1]
-				var obj map[string]any
-				if err := json.Unmarshal([]byte(candidate), &obj); err == nil && len(obj) > 0 {
-					stripped = text[:start] + text[i+1:]
-					break
-				}
-				start = -1
-				depth = 0
-			}
-		}
-	}
+	stripped := stripFirstJSONObject(text)
 	stripped = strings.TrimSpace(stripped)
 	if stripped == "" {
 		return "notification"
