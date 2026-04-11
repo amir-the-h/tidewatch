@@ -38,7 +38,7 @@ func (p *DiscordTagThreadPipeline) Close() error { return nil }
 // Reads "discord_thread_id" from input.Context (set by the upstream Discord
 // notification action). Reads tag names from input.Context[tagNamesKey]
 // (accepts []string or []any of strings). Unknown tag names are silently skipped.
-// Returns {"tags_applied": []string, "tag_count": int}.
+// Returns {"tags_applied": []string of tag IDs, "tag_count": int}.
 func (p *DiscordTagThreadPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
 	threadID, _ := input.Context["discord_thread_id"].(string)
 	if threadID == "" {

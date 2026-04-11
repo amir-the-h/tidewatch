@@ -52,7 +52,33 @@ func TestDiscordTagThreadPipeline_AppliesTags(t *testing.T) {
 	if mock.patchedThreadID != "thread123" {
 		t.Errorf("patched thread ID: got %q, want thread123", mock.patchedThreadID)
 	}
-	if len(mock.patchedTagIDs) != 2 {
+	if len(mock.patchedTagIDs) != 2 || mock.patchedTagIDs[0] != "111" || mock.patchedTagIDs[1] != "222" {
+		t.Errorf("patched tag IDs: got %v, want [111 222]", mock.patchedTagIDs)
+	}
+}
+
+func TestDiscordTagThreadPipeline_AppliesTags_StringSlice(t *testing.T) {
+	mock := &mockDiscordTagger{
+		tags: []notifier.ForumTag{
+			{ID: "111", Name: "Military"},
+			{ID: "222", Name: "Diplomacy"},
+		},
+	}
+	p := &DiscordTagThreadPipeline{name: "test", client: mock, tagNamesKey: "discord_tag_names"}
+
+	out, err := p.Run(context.Background(), inference.PipelineInput{
+		Context: map[string]any{
+			"discord_thread_id": "thread123",
+			"discord_tag_names": []string{"military", "diplomacy"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if out["tag_count"] != 2 {
+		t.Errorf("tag_count: got %v, want 2", out["tag_count"])
+	}
+	if len(mock.patchedTagIDs) != 2 || mock.patchedTagIDs[0] != "111" || mock.patchedTagIDs[1] != "222" {
 		t.Errorf("patched tag IDs: got %v, want [111 222]", mock.patchedTagIDs)
 	}
 }
