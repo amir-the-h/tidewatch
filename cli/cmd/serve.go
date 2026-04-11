@@ -135,6 +135,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	pipeReg.Register("entity_matcher", pipeline.NewEntityMatcherFactory(s))
 	pipeReg.Register("entity_discovery", pipeline.NewEntityDiscoveryFactory(s))
 	pipeReg.Register("entity_cooccurrence", pipeline.NewEntityCooccurrenceFactory(s))
+	nominatimURL := cfg.Nominatim.URL
+	if nominatimURL == "" {
+		nominatimURL = "http://nominatim:8080"
+	}
+	pipeReg.Register("reverse_geocoder", pipeline.NewReverseGeocoderFactory(s, nominatimURL))
 	if twitterClient != nil {
 		pipeReg.Register("twitter_retweet", pipeline.NewRetweetFactory(twitterClient))
 		pipeReg.Register("twitter_like", pipeline.NewLikeFactory(twitterClient))
