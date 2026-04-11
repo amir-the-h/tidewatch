@@ -6,9 +6,10 @@ export interface OllamaBackend {
   name: string
   url: string
   enabled: boolean
+  max_concurrent: number
   created_at: string
   healthy: boolean
-  in_use: boolean
+  active_count: number
   score: number
   request_count: number
   last_active_at?: string
@@ -18,14 +19,14 @@ export function listOllamaBackends(): Promise<OllamaBackend[]> {
   return apiFetch<OllamaBackend[]>('/api/ollama/backends')
 }
 
-export function createOllamaBackend(name: string, url: string): Promise<OllamaBackend> {
+export function createOllamaBackend(name: string, url: string, maxConcurrent: number): Promise<OllamaBackend> {
   return apiFetch<OllamaBackend>('/api/ollama/backends', {
     method: 'POST',
-    body: JSON.stringify({ name, url }),
+    body: JSON.stringify({ name, url, max_concurrent: maxConcurrent }),
   })
 }
 
-export function updateOllamaBackend(id: number, patch: { name?: string; url?: string }): Promise<OllamaBackend> {
+export function updateOllamaBackend(id: number, patch: { name?: string; url?: string; max_concurrent?: number }): Promise<OllamaBackend> {
   return apiFetch<OllamaBackend>(`/api/ollama/backends/${id}`, {
     method: 'PUT',
     body: JSON.stringify(patch),

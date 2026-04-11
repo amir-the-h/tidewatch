@@ -71,15 +71,15 @@ func TestBackendPool_ReleaseAndMarkUnhealthy(t *testing.T) {
 	}
 
 	p.mu.Lock()
-	b.inUse = true
+	b.activeCount = 1
 	p.mu.Unlock()
 
 	p.Release(b)
 	p.mu.Lock()
-	inUse := b.inUse
+	active := b.activeCount
 	p.mu.Unlock()
-	if inUse {
-		t.Fatal("expected inUse=false after Release")
+	if active != 0 {
+		t.Fatal("expected activeCount=0 after Release")
 	}
 
 	p.MarkUnhealthy(b)
@@ -127,11 +127,12 @@ func TestBackendPool_IsAnyAvailable_FalseWhenAllInUse(t *testing.T) {
 	p.Load([]BackendRecord{{ID: 1, Name: "b1", URL: "http://localhost:11434", Enabled: true}})
 
 	p.mu.Lock()
-	p.backends[1].inUse = true
+	b := p.backends[1]
+	b.activeCount = b.concurrencyLimit() // fill to capacity
 	p.mu.Unlock()
 
 	if p.IsAnyAvailable(nil) {
-		t.Fatal("expected no backend when all in use")
+		t.Fatal("expected no backend when all at capacity")
 	}
 }
 
@@ -144,7 +145,8 @@ func TestBackendPool_IsAnyAvailable_RespectAssignedIDs(t *testing.T) {
 	})
 
 	p.mu.Lock()
-	p.backends[1].inUse = true
+	b1 := p.backends[1]
+	b1.activeCount = b1.concurrencyLimit() // fill b1 to capacity
 	p.mu.Unlock()
 
 	// Full pool: backend 2 is still available.
@@ -168,7 +170,7 @@ func TestBackendPool_WaitForAvailability_ReturnsWhenBackendReleased(t *testing.T
 
 	b := p.Get(1)
 	p.mu.Lock()
-	b.inUse = true
+	b.activeCount = b.concurrencyLimit() // fill to capacity
 	p.mu.Unlock()
 
 	// Release the backend after 50ms.
@@ -199,7 +201,7 @@ func TestBackendPool_WaitForAvailability_RespectsTimeout(t *testing.T) {
 
 	b := p.Get(1)
 	p.mu.Lock()
-	b.inUse = true
+	b.activeCount = b.concurrencyLimit() // fill to capacity
 	p.mu.Unlock()
 
 	start := time.Now()

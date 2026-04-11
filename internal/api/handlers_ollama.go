@@ -38,9 +38,10 @@ func (s *Server) handleListOllamaBackends(w http.ResponseWriter, r *http.Request
 			"name":           b.Name,
 			"url":            b.URL,
 			"enabled":        b.Enabled,
+			"max_concurrent": b.MaxConcurrent,
 			"created_at":     b.CreatedAt,
 			"healthy":        st.Healthy,
-			"in_use":         st.InUse,
+			"active_count":   st.ActiveCount,
 			"score":          st.Score,
 			"request_count":  st.RequestCount,
 			"last_active_at": st.LastActiveAt,
@@ -53,8 +54,9 @@ func (s *Server) handleListOllamaBackends(w http.ResponseWriter, r *http.Request
 // POST /api/ollama/backends
 func (s *Server) handleCreateOllamaBackend(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name          string `json:"name"`
+		URL           string `json:"url"`
+		MaxConcurrent int    `json:"max_concurrent"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -67,7 +69,10 @@ func (s *Server) handleCreateOllamaBackend(w http.ResponseWriter, r *http.Reques
 	if req.Name == "" {
 		req.Name = req.URL
 	}
-	b, err := s.store.CreateOllamaBackend(r.Context(), req.Name, req.URL)
+	if req.MaxConcurrent < 1 {
+		req.MaxConcurrent = 1
+	}
+	b, err := s.store.CreateOllamaBackend(r.Context(), req.Name, req.URL, req.MaxConcurrent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -79,7 +84,7 @@ func (s *Server) handleCreateOllamaBackend(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, b)
 }
 
-// handleUpdateOllamaBackend updates name and/or URL for a backend.
+// handleUpdateOllamaBackend updates name, URL, and/or max_concurrent for a backend.
 // PUT /api/ollama/backends/{id}
 func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -88,8 +93,9 @@ func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var req struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
+		Name          string `json:"name"`
+		URL           string `json:"url"`
+		MaxConcurrent int    `json:"max_concurrent"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -106,7 +112,10 @@ func (s *Server) handleUpdateOllamaBackend(w http.ResponseWriter, r *http.Reques
 	if req.URL == "" {
 		req.URL = existing.URL
 	}
-	if err := s.store.UpdateOllamaBackend(r.Context(), id, req.Name, req.URL); err != nil {
+	if req.MaxConcurrent < 1 {
+		req.MaxConcurrent = existing.MaxConcurrent
+	}
+	if err := s.store.UpdateOllamaBackend(r.Context(), id, req.Name, req.URL, req.MaxConcurrent); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -266,7 +275,7 @@ func (s *Server) reloadBackendPool(ctx context.Context) {
 	}
 	records := make([]inference.BackendRecord, len(backends))
 	for i, b := range backends {
-		records[i] = inference.BackendRecord{ID: b.ID, Name: b.Name, URL: b.URL, Enabled: b.Enabled}
+		records[i] = inference.BackendRecord{ID: b.ID, Name: b.Name, URL: b.URL, Enabled: b.Enabled, MaxConcurrent: b.MaxConcurrent}
 	}
 	s.backendPool.Load(records)
 	s.reloadCache(ctx)

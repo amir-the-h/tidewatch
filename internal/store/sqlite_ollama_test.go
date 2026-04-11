@@ -11,7 +11,7 @@ func TestOllamaBackends_CRUD(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	b, err := s.CreateOllamaBackend(ctx, "local", "http://localhost:11434")
+	b, err := s.CreateOllamaBackend(ctx, "local", "http://localhost:11434", 1)
 	if err != nil {
 		t.Fatalf("CreateOllamaBackend: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestOllamaBackends_CRUD(t *testing.T) {
 		t.Fatalf("unexpected name: %s", got.Name)
 	}
 
-	if err := s.UpdateOllamaBackend(ctx, b.ID, "remote", "http://remote:11434"); err != nil {
+	if err := s.UpdateOllamaBackend(ctx, b.ID, "remote", "http://remote:11434", 2); err != nil {
 		t.Fatalf("UpdateOllamaBackend: %v", err)
 	}
 	got, _ = s.GetOllamaBackend(ctx, b.ID)
@@ -69,8 +69,8 @@ func TestActionBackends_SetAndList(t *testing.T) {
 	if err := s.SaveAction(ctx, act); err != nil {
 		t.Fatalf("SaveAction: %v", err)
 	}
-	b1, _ := s.CreateOllamaBackend(ctx, "b1", "http://b1:11434")
-	b2, _ := s.CreateOllamaBackend(ctx, "b2", "http://b2:11434")
+	b1, _ := s.CreateOllamaBackend(ctx, "b1", "http://b1:11434", 1)
+	b2, _ := s.CreateOllamaBackend(ctx, "b2", "http://b2:11434", 1)
 
 	assignments := []model.ActionBackend{
 		{ActionID: act.ID, BackendID: b1.ID, Priority: 1},
@@ -98,7 +98,7 @@ func TestActionBackends_SetAndList(t *testing.T) {
 		t.Fatalf("expected only b2 after replace: %+v", list)
 	}
 
-	b3, _ := s.CreateOllamaBackend(ctx, "b3", "http://b3:11434")
+	b3, _ := s.CreateOllamaBackend(ctx, "b3", "http://b3:11434", 1)
 	_ = s.SetActionBackends(ctx, act.ID, []model.ActionBackend{
 		{ActionID: act.ID, BackendID: b2.ID, Priority: 1},
 		{ActionID: act.ID, BackendID: b3.ID, Priority: 2},
@@ -114,7 +114,7 @@ func TestActionBackends_SetAndList(t *testing.T) {
 
 func seedOllamaBackend(t *testing.T, s Store, name string, enabled bool) int64 {
 	t.Helper()
-	b, err := s.CreateOllamaBackend(context.Background(), name, "http://"+name+":11434")
+	b, err := s.CreateOllamaBackend(context.Background(), name, "http://"+name+":11434", 1)
 	if err != nil {
 		t.Fatalf("CreateOllamaBackend(%q): %v", name, err)
 	}
@@ -188,8 +188,8 @@ func TestListAllActionBackendIDs(t *testing.T) {
 	act := sampleAction()
 	act.Name = "action-for-all-backends"
 	_ = s.SaveAction(ctx, act)
-	b1, _ := s.CreateOllamaBackend(ctx, "b1", "http://b1:11434")
-	b2, _ := s.CreateOllamaBackend(ctx, "b2", "http://b2:11434")
+	b1, _ := s.CreateOllamaBackend(ctx, "b1", "http://b1:11434", 1)
+	b2, _ := s.CreateOllamaBackend(ctx, "b2", "http://b2:11434", 1)
 	_ = s.SetActionBackends(ctx, act.ID, []model.ActionBackend{
 		{ActionID: act.ID, BackendID: b1.ID, Priority: 1},
 		{ActionID: act.ID, BackendID: b2.ID, Priority: 2},

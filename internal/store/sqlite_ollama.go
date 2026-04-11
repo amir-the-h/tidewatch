@@ -13,7 +13,7 @@ import (
 
 func (s *sqliteStore) ListOllamaBackends(ctx context.Context) ([]model.OllamaBackend, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, url, enabled, created_at FROM ollama_backends ORDER BY id`)
+		`SELECT id, name, url, enabled, max_concurrent, created_at FROM ollama_backends ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list ollama backends: %w", err)
 	}
@@ -22,10 +22,13 @@ func (s *sqliteStore) ListOllamaBackends(ctx context.Context) ([]model.OllamaBac
 	for rows.Next() {
 		var b model.OllamaBackend
 		var enabledInt int
-		if err := rows.Scan(&b.ID, &b.Name, &b.URL, &enabledInt, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.URL, &enabledInt, &b.MaxConcurrent, &b.CreatedAt); err != nil {
 			return nil, fmt.Errorf("store: scan ollama backend: %w", err)
 		}
 		b.Enabled = enabledInt != 0
+		if b.MaxConcurrent < 1 {
+			b.MaxConcurrent = 1
+		}
 		out = append(out, b)
 	}
 	return out, rows.Err()
@@ -35,8 +38,8 @@ func (s *sqliteStore) GetOllamaBackend(ctx context.Context, id int64) (model.Oll
 	var b model.OllamaBackend
 	var enabledInt int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, name, url, enabled, created_at FROM ollama_backends WHERE id = ?`, id).
-		Scan(&b.ID, &b.Name, &b.URL, &enabledInt, &b.CreatedAt)
+		`SELECT id, name, url, enabled, max_concurrent, created_at FROM ollama_backends WHERE id = ?`, id).
+		Scan(&b.ID, &b.Name, &b.URL, &enabledInt, &b.MaxConcurrent, &b.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return b, fmt.Errorf("store: get ollama backend: not found: %w", err)
 	}
@@ -44,24 +47,34 @@ func (s *sqliteStore) GetOllamaBackend(ctx context.Context, id int64) (model.Oll
 		return b, fmt.Errorf("store: get ollama backend: %w", err)
 	}
 	b.Enabled = enabledInt != 0
+	if b.MaxConcurrent < 1 {
+		b.MaxConcurrent = 1
+	}
 	return b, nil
 }
 
-func (s *sqliteStore) CreateOllamaBackend(ctx context.Context, name, url string) (model.OllamaBackend, error) {
+func (s *sqliteStore) CreateOllamaBackend(ctx context.Context, name, url string, maxConcurrent int) (model.OllamaBackend, error) {
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO ollama_backends (name, url, enabled, created_at) VALUES (?, ?, 1, ?)`,
-		name, url, now)
+		`INSERT INTO ollama_backends (name, url, enabled, max_concurrent, created_at) VALUES (?, ?, 1, ?, ?)`,
+		name, url, maxConcurrent, now)
 	if err != nil {
 		return model.OllamaBackend{}, fmt.Errorf("store: create ollama backend: %w", err)
 	}
 	id, _ := res.LastInsertId()
-	return model.OllamaBackend{ID: id, Name: name, URL: url, Enabled: true, CreatedAt: now}, nil
+	return model.OllamaBackend{ID: id, Name: name, URL: url, Enabled: true, MaxConcurrent: maxConcurrent, CreatedAt: now}, nil
 }
 
-func (s *sqliteStore) UpdateOllamaBackend(ctx context.Context, id int64, name, url string) error {
+func (s *sqliteStore) UpdateOllamaBackend(ctx context.Context, id int64, name, url string, maxConcurrent int) error {
+	if maxConcurrent < 1 {
+		maxConcurrent = 1
+	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE ollama_backends SET name = ?, url = ? WHERE id = ?`, name, url, id)
+		`UPDATE ollama_backends SET name = ?, url = ?, max_concurrent = ? WHERE id = ?`,
+		name, url, maxConcurrent, id)
 	if err != nil {
 		return fmt.Errorf("store: update ollama backend: %w", err)
 	}

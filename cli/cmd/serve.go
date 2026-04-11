@@ -277,7 +277,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 func toBackendRecords(backends []model.OllamaBackend) []inference.BackendRecord {
 	out := make([]inference.BackendRecord, len(backends))
 	for i, b := range backends {
-		out[i] = inference.BackendRecord{ID: b.ID, Name: b.Name, URL: b.URL, Enabled: b.Enabled}
+		out[i] = inference.BackendRecord{ID: b.ID, Name: b.Name, URL: b.URL, Enabled: b.Enabled, MaxConcurrent: b.MaxConcurrent}
 	}
 	return out
 }

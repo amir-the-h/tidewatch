@@ -39,8 +39,14 @@ func (e *ollamaHTTPError) Error() string {
 
 // isBackendError reports whether err indicates the Ollama backend itself is
 // unavailable (network failure or 5xx), as opposed to a model or request error.
+// Context cancellation and deadline exceeded are excluded: a slow or cancelled
+// request does not mean the backend is down — only genuine connectivity failures
+// (connection refused, reset, etc.) and 5xx responses do.
 func isBackendError(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	var netErr net.Error
@@ -56,18 +62,34 @@ func isBackendError(err error) bool {
 
 // ollamaBackend represents a single Ollama server instance.
 // Each backend has its own HTTP client. healthy tracks whether the backend is
-// currently reachable; inUse tracks whether a request holds it. State is
-// managed under BackendPool.mu.
+// currently reachable; activeCount tracks how many requests currently hold it.
+// maxConcurrent caps how many simultaneous requests are allowed (mirrors
+// OLLAMA_NUM_PARALLEL on the server). State is managed under BackendPool.mu.
 type ollamaBackend struct {
-	name         string    // display name; defaults to baseURL if empty
-	baseURL      string
-	client       *http.Client
-	enabled      bool      // false means the backend is disabled and should not be used
-	healthy      bool      // managed by health checker and request-time failures
-	inUse        bool      // true while a request holds this backend
-	score        float64   // tokens/sec, exponential moving average; 0 = not yet measured
-	requestCount int64     // total completed requests
-	lastActiveAt time.Time // zero value if never used
+	name          string // display name; defaults to baseURL if empty
+	baseURL       string
+	client        *http.Client
+	enabled       bool  // false means the backend is disabled and should not be used
+	healthy       bool  // managed by health checker and request-time failures
+	activeCount   int   // number of requests currently in-flight
+	maxConcurrent int   // max simultaneous requests; < 1 treated as 1
+	score         float64   // tokens/sec, exponential moving average; 0 = not yet measured
+	requestCount  int64     // total completed requests
+	lastActiveAt  time.Time // zero value if never used
+}
+
+// concurrencyLimit returns the effective concurrency cap for this backend.
+func (b *ollamaBackend) concurrencyLimit() int {
+	if b.maxConcurrent < 1 {
+		return 1
+	}
+	return b.maxConcurrent
+}
+
+// hasCapacity reports whether the backend can accept another request.
+// Must be called with BackendPool.mu held.
+func (b *ollamaBackend) hasCapacity() bool {
+	return b.enabled && b.healthy && b.activeCount < b.concurrencyLimit()
 }
 
 // updateScore updates the backend's performance score using an exponential
@@ -131,6 +153,7 @@ type OllamaPipeline struct {
 	pool            *BackendPool
 	assignedIDs     []int64 // priority-ordered backend IDs; empty = use full pool
 	fastWaitTimeout time.Duration
+	think           *bool // nil = model default; false = disable thinking (e.g. qwen3)
 	// Context injection
 	inputMode        string               // "text_only" | "context_only" | "text_and_context"
 	contextActionIDs []int64
@@ -163,6 +186,10 @@ func NewOllamaPipelineFromConfig(name string, cfg map[string]any, pool *BackendP
 			}
 		}
 	}
+	var think *bool
+	if v, ok := cfg["think"].(bool); ok {
+		think = &v
+	}
 	return &OllamaPipeline{
 		name:             name,
 		model:            model,
@@ -170,6 +197,7 @@ func NewOllamaPipelineFromConfig(name string, cfg map[string]any, pool *BackendP
 		pool:             pool,
 		assignedIDs:      assignedIDs,
 		fastWaitTimeout:  fastWaitTimeout,
+		think:            think,
 		inputMode:        inputMode,
 		contextActionIDs: contextActionIDs,
 		loadSummaries:    loadSummaries,
@@ -229,11 +257,18 @@ func (p *OllamaPipeline) recordEval(b *ollamaBackend, eval ollamaEval) {
 // Name returns the pipeline name as registered in the pipelines table.
 func (p *OllamaPipeline) Name() string { return p.name }
 
-// MaxConcurrency returns the count of all enabled backends in the pool,
-// satisfying ConcurrencyLimiter. Each backend handles at most one request
-// at a time, so the total throughput scales with pool size.
+// MaxConcurrency returns the sum of maxConcurrent across all enabled backends,
+// satisfying ConcurrencyLimiter. Total throughput scales with both pool size
+// and per-backend concurrency limit (mirroring OLLAMA_NUM_PARALLEL).
 func (p *OllamaPipeline) MaxConcurrency() int {
-	return len(p.pool.All())
+	total := 0
+	for _, b := range p.pool.All() {
+		total += b.concurrencyLimit()
+	}
+	if total < 1 {
+		return 1
+	}
+	return total
 }
 
 // IsAvailable reports whether a backend is immediately acquirable for this
@@ -400,6 +435,7 @@ func (p *OllamaPipeline) sendChat(ctx context.Context, userText string) (string,
 		Messages []message `json:"messages"`
 		Stream   bool      `json:"stream"`
 		Format   string    `json:"format"`
+		Think    *bool     `json:"think,omitempty"`
 	}
 	type chatResponse struct {
 		Message      message `json:"message"`
@@ -413,8 +449,9 @@ func (p *OllamaPipeline) sendChat(ctx context.Context, userText string) (string,
 			{Role: "system", Content: p.systemPrompt},
 			{Role: "user", Content: userText},
 		},
-		Stream: false,
-		Format: "json",
+		Stream:  false,
+		Format:  "json",
+		Think:   p.think,
 	})
 	if err != nil {
 		return "", fmt.Errorf("inference: ollama: marshal request: %w", err)
@@ -495,6 +532,7 @@ func (p *OllamaPipeline) Digest(ctx context.Context, tweets []string) (string, e
 		Model    string    `json:"model"`
 		Messages []message `json:"messages"`
 		Stream   bool      `json:"stream"`
+		Think    *bool     `json:"think,omitempty"`
 	}
 	type chatResponse struct {
 		Message      message `json:"message"`
@@ -509,6 +547,7 @@ func (p *OllamaPipeline) Digest(ctx context.Context, tweets []string) (string, e
 			{Role: "user", Content: sb.String()},
 		},
 		Stream: false,
+		Think:  p.think,
 	})
 	if err != nil {
 		return "", fmt.Errorf("inference: ollama: digest: marshal request: %w", err)
@@ -609,6 +648,7 @@ func (p *OllamaPipeline) AgentStream(
 		Messages []ollamaAgentMsg       `json:"messages"`
 		Tools    []mcpserver.OllamaTool `json:"tools,omitempty"`
 		Stream   bool                   `json:"stream"`
+		Think    *bool                  `json:"think,omitempty"`
 	}
 	type agentChatResp struct {
 		Message ollamaAgentMsg `json:"message"`
@@ -657,6 +697,7 @@ func (p *OllamaPipeline) AgentStream(
 				Messages: msgs,
 				Tools:    tools,
 				Stream:   false,
+				Think:    p.think,
 			})
 			if err != nil {
 				loopErr = fmt.Errorf("inference: ollama: agent: marshal: %w", err)

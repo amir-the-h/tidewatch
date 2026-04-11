@@ -19,24 +19,27 @@ const loading     = ref(false)
 const lastUpdated = ref<Date | null>(null)
 
 // ── add / edit modal ────────────────────────────────────────────────────────
-const showModal    = ref(false)
-const editTarget   = ref<OllamaBackend | null>(null)
-const formName     = ref('')
-const formUrl      = ref('')
-const saving       = ref(false)
+const showModal        = ref(false)
+const editTarget       = ref<OllamaBackend | null>(null)
+const formName         = ref('')
+const formUrl          = ref('')
+const formMaxConcurrent = ref(1)
+const saving           = ref(false)
 
 function openAdd() {
-  editTarget.value = null
-  formName.value   = ''
-  formUrl.value    = ''
-  showModal.value  = true
+  editTarget.value        = null
+  formName.value          = ''
+  formUrl.value           = ''
+  formMaxConcurrent.value = 1
+  showModal.value         = true
 }
 
 function openEdit(b: OllamaBackend) {
-  editTarget.value = b
-  formName.value   = b.name
-  formUrl.value    = b.url
-  showModal.value  = true
+  editTarget.value        = b
+  formName.value          = b.name
+  formUrl.value           = b.url
+  formMaxConcurrent.value = b.max_concurrent ?? 1
+  showModal.value         = true
 }
 
 async function saveModal() {
@@ -44,16 +47,18 @@ async function saveModal() {
     message.warning('URL is required')
     return
   }
+  const maxConcurrent = Math.max(1, formMaxConcurrent.value || 1)
   saving.value = true
   try {
     if (editTarget.value) {
       await updateOllamaBackend(editTarget.value.id, {
-        name: formName.value.trim() || undefined,
-        url:  formUrl.value.trim(),
+        name:           formName.value.trim() || undefined,
+        url:            formUrl.value.trim(),
+        max_concurrent: maxConcurrent,
       })
       message.success('Backend updated')
     } else {
-      await createOllamaBackend(formName.value.trim(), formUrl.value.trim())
+      await createOllamaBackend(formName.value.trim(), formUrl.value.trim(), maxConcurrent)
       message.success('Backend added')
     }
     showModal.value = false
@@ -179,29 +184,31 @@ function formatLastUpdated(d: Date): string {
                       flexShrink: '0',
                       background: !backend.enabled
                         ? '#585b70'
-                        : backend.in_use
-                          ? '#f9e2af'
-                          : backend.healthy
-                            ? '#a6e3a1'
-                            : '#f38ba8',
+                        : !backend.healthy
+                          ? '#f38ba8'
+                          : backend.active_count >= (backend.max_concurrent || 1)
+                            ? '#f9e2af'
+                            : '#a6e3a1',
                       boxShadow: !backend.enabled
                         ? 'none'
-                        : backend.in_use
-                          ? '0 0 0 2px rgba(249,226,175,0.3)'
-                          : backend.healthy
-                            ? '0 0 0 2px rgba(166,227,161,0.2)'
-                            : '0 0 0 2px rgba(243,139,168,0.2)',
+                        : !backend.healthy
+                          ? '0 0 0 2px rgba(243,139,168,0.2)'
+                          : backend.active_count >= (backend.max_concurrent || 1)
+                            ? '0 0 0 2px rgba(249,226,175,0.3)'
+                            : '0 0 0 2px rgba(166,227,161,0.2)',
                     }"
                   />
                 </template>
                 {{
                   !backend.enabled
                     ? 'Disabled'
-                    : backend.in_use
-                      ? 'In use'
-                      : backend.healthy
-                        ? 'Healthy'
-                        : 'Unhealthy'
+                    : !backend.healthy
+                      ? 'Unhealthy'
+                      : backend.active_count >= (backend.max_concurrent || 1)
+                        ? `At capacity (${backend.active_count}/${backend.max_concurrent})`
+                        : backend.active_count > 0
+                          ? `Active (${backend.active_count}/${backend.max_concurrent})`
+                          : 'Healthy (idle)'
                 }}
               </n-tooltip>
 
@@ -261,10 +268,13 @@ function formatLastUpdated(d: Date): string {
               </n-text>
             </div>
 
-            <!-- Request count + last active -->
+            <!-- Request count + active/max + last active -->
             <n-space justify="space-between" align="center" style="flex-wrap: wrap; gap: 4px; margin-bottom: 10px;">
               <n-text depth="3" style="font-size: 11px; font-variant-numeric: tabular-nums;">
                 {{ backend.request_count }} requests
+              </n-text>
+              <n-text depth="3" style="font-size: 11px; font-variant-numeric: tabular-nums;">
+                {{ backend.active_count }}/{{ backend.max_concurrent }} active
               </n-text>
               <n-text depth="3" style="font-size: 11px;">
                 {{ backend.last_active_at ? timeAgo(backend.last_active_at) : 'Never' }}
@@ -303,7 +313,7 @@ function formatLastUpdated(d: Date): string {
     style="width: 400px;"
     :mask-closable="!saving"
   >
-    <n-form label-placement="left" label-width="60px">
+    <n-form label-placement="left" label-width="90px">
       <n-form-item label="Name">
         <n-input
           v-model:value="formName"
@@ -317,6 +327,18 @@ function formatLastUpdated(d: Date): string {
           placeholder="http://localhost:11434"
           :disabled="saving"
         />
+      </n-form-item>
+      <n-form-item label="Max Slots">
+        <n-input-number
+          v-model:value="formMaxConcurrent"
+          :min="1"
+          :max="32"
+          :disabled="saving"
+          style="width: 100%"
+        />
+        <template #feedback>
+          Set to match <n-text code>OLLAMA_NUM_PARALLEL</n-text> on the server
+        </template>
       </n-form-item>
     </n-form>
     <template #footer>

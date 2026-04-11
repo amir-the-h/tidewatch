@@ -101,15 +101,16 @@ type ChatPipeline interface {
 
 // BackendStat is a runtime snapshot of one Ollama backend.
 type BackendStat struct {
-	ID           int64      `json:"id"`
-	Name         string     `json:"name"`
-	URL          string     `json:"url"`
-	Enabled      bool       `json:"enabled"`
-	Healthy      bool       `json:"healthy"`
-	InUse        bool       `json:"in_use"`
-	Score        float64    `json:"score"`
-	RequestCount int64      `json:"request_count"`
-	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
+	ID            int64      `json:"id"`
+	Name          string     `json:"name"`
+	URL           string     `json:"url"`
+	Enabled       bool       `json:"enabled"`
+	Healthy       bool       `json:"healthy"`
+	ActiveCount   int        `json:"active_count"`
+	MaxConcurrent int        `json:"max_concurrent"`
+	Score         float64    `json:"score"`
+	RequestCount  int64      `json:"request_count"`
+	LastActiveAt  *time.Time `json:"last_active_at,omitempty"`
 }
 
 // ExtractionResult is the structured output of the geo-event extraction pipeline.

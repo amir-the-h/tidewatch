@@ -407,10 +407,12 @@ func (m *mockStore) ListOllamaBackends(_ context.Context) ([]model.OllamaBackend
 func (m *mockStore) GetOllamaBackend(_ context.Context, _ int64) (model.OllamaBackend, error) {
 	return model.OllamaBackend{}, nil
 }
-func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string) (model.OllamaBackend, error) {
+func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string, _ int) (model.OllamaBackend, error) {
 	return model.OllamaBackend{}, nil
 }
-func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string) error { return nil }
+func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string, _ int) error {
+	return nil
+}
 func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error              { return nil }
 func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error  { return nil }
 func (m *mockStore) ListActionBackends(_ context.Context, _ int64) ([]model.ActionBackend, error) {

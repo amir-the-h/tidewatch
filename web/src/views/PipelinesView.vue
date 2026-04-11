@@ -64,6 +64,7 @@ const formType          = ref<ActionFormType>('onnx')
 const formUsecase       = ref<string>('custom')
 const formModel         = ref('')
 const formSystemPrompt  = ref('')
+const formThink         = ref<string>('null') // 'null' | 'true' | 'false'
 const formAllowedTools  = ref<string[]>([])
 const formInputMode         = ref<string>('text_only')
 const formContextActionIds  = ref<number[]>([])
@@ -244,6 +245,7 @@ function resetActionForm() {
   formUsecase.value = 'custom'
   formModel.value = ''
   formSystemPrompt.value = ''
+  formThink.value = 'null'
   formAllowedTools.value = []
   formInputMode.value = 'text_only'
   formContextActionIds.value = []
@@ -287,6 +289,7 @@ function openEditAction(row: Action) {
   formModel.value = row.config?.model ?? ''
   formUsecase.value = row.config?.usecase ?? 'custom'
   formSystemPrompt.value = row.config?.system_prompt ?? ''
+  formThink.value = typeof row.config?.think === 'boolean' ? String(row.config.think) : 'null'
   formAllowedTools.value = Array.isArray(row.config?.allowed_tools) ? [...row.config.allowed_tools] : []
   formInputMode.value = row.config?.input_mode ?? 'text_only'
   formContextActionIds.value = Array.isArray(row.config?.context_action_ids)
@@ -359,6 +362,9 @@ async function onSaveAction() {
     }
     if (formUsecase.value === 'chat' && formAllowedTools.value.length > 0) {
       config.allowed_tools = formAllowedTools.value
+    }
+    if (formThink.value !== 'null') {
+      config.think = formThink.value === 'true'
     }
     if (formUsecase.value !== 'chat' && formInputMode.value && formInputMode.value !== 'text_only') {
       config.input_mode = formInputMode.value
@@ -1083,6 +1089,19 @@ watch(formUsecase, (val) => {
           placeholder="Leave empty to use the default system prompt"
           style="font-family: monospace; font-size: 12px"
         />
+      </n-form-item>
+      <n-form-item label="Thinking Mode">
+        <n-select
+          v-model:value="formThink"
+          :options="[
+            { label: 'Model default', value: 'null'  },
+            { label: 'Enabled',       value: 'true'  },
+            { label: 'Disabled',      value: 'false' },
+          ]"
+        />
+        <template #feedback>
+          Set to <n-text code>Disabled</n-text> for JSON extraction tasks on thinking models (e.g. qwen3) to skip chain-of-thought and improve throughput.
+        </template>
       </n-form-item>
       <!-- Context injection (custom/digest usecase only) -->
       <template v-if="formUsecase !== 'chat'">

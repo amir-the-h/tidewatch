@@ -393,8 +393,8 @@ type Store interface {
 	// OllamaBackends
 	ListOllamaBackends(ctx context.Context) ([]model.OllamaBackend, error)
 	GetOllamaBackend(ctx context.Context, id int64) (model.OllamaBackend, error)
-	CreateOllamaBackend(ctx context.Context, name, url string) (model.OllamaBackend, error)
-	UpdateOllamaBackend(ctx context.Context, id int64, name, url string) error
+	CreateOllamaBackend(ctx context.Context, name, url string, maxConcurrent int) (model.OllamaBackend, error)
+	UpdateOllamaBackend(ctx context.Context, id int64, name, url string, maxConcurrent int) error
 	DeleteOllamaBackend(ctx context.Context, id int64) error
 	BulkDeleteOllamaBackends(ctx context.Context, f BulkDeleteOllamaBackendsFilter) (int64, error)
 	SetOllamaBackendEnabled(ctx context.Context, id int64, enabled bool) error

@@ -13,10 +13,11 @@ import (
 
 // BackendRecord is DB data for a single Ollama backend, used to populate the pool.
 type BackendRecord struct {
-	ID      int64
-	Name    string
-	URL     string
-	Enabled bool
+	ID            int64
+	Name          string
+	URL           string
+	Enabled       bool
+	MaxConcurrent int // 0 or negative treated as 1
 }
 
 // BackendPool owns all ollamaBackend instances and their health-checking goroutines.
@@ -57,17 +58,23 @@ func (p *BackendPool) Load(records []BackendRecord) {
 	p.mu.Lock()
 	newMap := make(map[int64]*ollamaBackend, len(records))
 	for _, r := range records {
+		mc := r.MaxConcurrent
+		if mc < 1 {
+			mc = 1
+		}
 		if existing, ok := p.backends[r.ID]; ok && existing.baseURL == r.URL {
 			existing.name = r.Name
 			existing.enabled = r.Enabled
+			existing.maxConcurrent = mc
 			newMap[r.ID] = existing
 		} else {
 			newMap[r.ID] = &ollamaBackend{
-				name:    r.Name,
-				baseURL: r.URL,
-				enabled: r.Enabled,
-				client:  &http.Client{Timeout: 30 * time.Second},
-				healthy: true,
+				name:          r.Name,
+				baseURL:       r.URL,
+				enabled:       r.Enabled,
+				maxConcurrent: mc,
+				client:        &http.Client{}, // no client-level timeout; per-request context timeouts apply
+				healthy:       true,
 			}
 		}
 	}
@@ -107,8 +114,8 @@ func (p *BackendPool) All() []*ollamaBackend {
 	return out
 }
 
-// AcquireAny blocks until any healthy idle enabled backend is available or ctx is cancelled.
-// Picks the highest-score backend when multiple are available.
+// AcquireAny blocks until any healthy backend with available capacity is found,
+// or ctx is cancelled. Picks the highest-score backend when multiple are available.
 func (p *BackendPool) AcquireAny(ctx context.Context) (*ollamaBackend, error) {
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	defer watchCancel()
@@ -122,14 +129,14 @@ func (p *BackendPool) AcquireAny(ctx context.Context) (*ollamaBackend, error) {
 		}
 		best := p.bestEnabledIdle()
 		if best != nil {
-			best.inUse = true
+			best.activeCount++
 			return best, nil
 		}
 		p.cond.Wait()
 	}
 }
 
-// AcquireWithTimeout tries to acquire b within timeout.
+// AcquireWithTimeout tries to acquire a slot on b within timeout.
 // Returns (true, nil) if acquired, (false, nil) on timeout, (false, err) if ctx cancelled.
 func (p *BackendPool) AcquireWithTimeout(ctx context.Context, b *ollamaBackend, timeout time.Duration) (bool, error) {
 	timer := time.AfterFunc(timeout, func() { p.cond.Broadcast() })
@@ -148,27 +155,29 @@ func (p *BackendPool) AcquireWithTimeout(ctx context.Context, b *ollamaBackend, 
 		if time.Now().After(deadline) {
 			return false, nil
 		}
-		if b.enabled && b.healthy && !b.inUse {
-			b.inUse = true
+		if b.hasCapacity() {
+			b.activeCount++
 			return true, nil
 		}
 		p.cond.Wait()
 	}
 }
 
-// Release marks b as not in use and broadcasts to wake waiters.
+// Release decrements the active request count and broadcasts to wake waiters.
 func (p *BackendPool) Release(b *ollamaBackend) {
 	p.mu.Lock()
-	b.inUse = false
+	if b.activeCount > 0 {
+		b.activeCount--
+	}
 	p.mu.Unlock()
 	p.cond.Broadcast()
 }
 
-// MarkUnhealthy marks b as unhealthy and not in use, then wakes waiters.
+// MarkUnhealthy marks b as unhealthy and clears active count, then wakes waiters.
 func (p *BackendPool) MarkUnhealthy(b *ollamaBackend) {
 	p.mu.Lock()
 	b.healthy = false
-	b.inUse = false
+	b.activeCount = 0
 	p.mu.Unlock()
 	p.cond.Broadcast()
 	slog.Warn("ollama: backend marked unhealthy", "url", b.baseURL)
@@ -186,15 +195,16 @@ func (p *BackendPool) Stats() []BackendStat {
 			lat = &t
 		}
 		out = append(out, BackendStat{
-			ID:           id,
-			Name:         b.name,
-			URL:          b.baseURL,
-			Enabled:      b.enabled,
-			Healthy:      b.healthy,
-			InUse:        b.inUse,
-			Score:        b.score,
-			RequestCount: b.requestCount,
-			LastActiveAt: lat,
+			ID:            id,
+			Name:          b.name,
+			URL:           b.baseURL,
+			Enabled:       b.enabled,
+			Healthy:       b.healthy,
+			ActiveCount:   b.activeCount,
+			MaxConcurrent: b.concurrencyLimit(),
+			Score:         b.score,
+			RequestCount:  b.requestCount,
+			LastActiveAt:  lat,
 		})
 	}
 	return out
@@ -207,12 +217,12 @@ func (p *BackendPool) Close() {
 	}
 }
 
-// bestEnabledIdle returns the enabled healthy idle backend with the highest score.
-// Must be called with p.mu held.
+// bestEnabledIdle returns the enabled healthy backend with available capacity
+// and the highest score. Must be called with p.mu held.
 func (p *BackendPool) bestEnabledIdle() *ollamaBackend {
 	var best *ollamaBackend
 	for _, b := range p.backends {
-		if !b.enabled || !b.healthy || b.inUse {
+		if !b.hasCapacity() {
 			continue
 		}
 		if best == nil || b.score > best.score {
@@ -222,8 +232,8 @@ func (p *BackendPool) bestEnabledIdle() *ollamaBackend {
 	return best
 }
 
-// isAnyAvailable reports whether any backend matching assignedIDs is healthy,
-// enabled, and not in use. Empty/nil assignedIDs checks the full pool.
+// isAnyAvailable reports whether any backend matching assignedIDs has available
+// capacity. Empty/nil assignedIDs checks the full pool.
 // Caller must hold p.mu.
 func (p *BackendPool) isAnyAvailable(assignedIDs []int64) bool {
 	if len(assignedIDs) == 0 {
@@ -231,7 +241,7 @@ func (p *BackendPool) isAnyAvailable(assignedIDs []int64) bool {
 	}
 	for _, id := range assignedIDs {
 		b, ok := p.backends[id]
-		if ok && b.enabled && b.healthy && !b.inUse {
+		if ok && b.hasCapacity() {
 			return true
 		}
 	}

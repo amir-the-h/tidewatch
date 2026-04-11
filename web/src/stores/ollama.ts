@@ -7,9 +7,10 @@ export interface OllamaBackend {
   name: string
   url: string
   enabled: boolean
+  max_concurrent: number
   created_at: string
   healthy: boolean
-  in_use: boolean
+  active_count: number
   score: number
   request_count: number
   last_active_at?: string
