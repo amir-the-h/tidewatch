@@ -139,6 +139,19 @@ func PushInitialTasksForGraph(
 		}
 	}
 
+	// Seed the tracking row to 0 BEFORE pushing any tasks. This prevents a race
+	// where the initial dispatch loop takes time (e.g. loading sub-pipeline graphs
+	// from NFS-backed SQLite) and workers complete tasks before InitPipelineRunTracking
+	// is called — the old post-loop reset would overwrite those decrements, leaving
+	// the counter permanently inflated and pipeline_finished never firing.
+	// Each pushTrackedTask call below will increment from 0 as it enqueues.
+	if tweetID != "" {
+		if err := st.InitPipelineRunTracking(ctx, pipelineID, tweetID, 0, eventPayload); err != nil && logger != nil {
+			logger.Warn("pipeline: init run tracking failed",
+				"pipeline_id", pipelineID, "tweet_id", tweetID, "error", err)
+		}
+	}
+
 	pushed := 0
 	for _, edge := range outgoingEdges(graph, startNode.ID) {
 		node := findNode(graph, edge.TargetNodeID)
@@ -147,14 +160,6 @@ func PushInitialTasksForGraph(
 		}
 		pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
 			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, logger)
-	}
-
-	// Seed pipeline run tracking so pipeline_finished fires when all tasks complete.
-	if pushed > 0 && tweetID != "" {
-		if err := st.InitPipelineRunTracking(ctx, pipelineID, tweetID, pushed, eventPayload); err != nil && logger != nil {
-			logger.Warn("pipeline: init run tracking failed",
-				"pipeline_id", pipelineID, "tweet_id", tweetID, "error", err)
-		}
 	}
 
 	return pushed
@@ -690,19 +695,23 @@ func pushTrackedTask(
 	task *queue.Task,
 	logger *slog.Logger,
 ) bool {
-	if err := producer.PushTask(ctx, task); err != nil {
-		if logger != nil {
-			logger.Warn("pipeline: push task failed",
-				"action_id", task.ActionID, "node_id", task.PipelineNodeID, "error", err)
-		}
-		return false
-	}
+	// Increment the tracking counter BEFORE pushing to Redis so that no worker
+	// can pop and complete the task before the counter reflects it. If the Redis
+	// push subsequently fails the counter is left one too high (pipeline_finished
+	// won't fire for that run), but push failures are transient and rare.
 	if task.RootPipelineID != 0 {
 		tweetID := extractTweetID(task)
 		if err := st.IncrementPipelineRunTracking(ctx, task.RootPipelineID, tweetID); err != nil && logger != nil {
 			logger.Warn("pipeline: increment run tracking failed",
 				"root_pipeline_id", task.RootPipelineID, "tweet_id", tweetID, "error", err)
 		}
+	}
+	if err := producer.PushTask(ctx, task); err != nil {
+		if logger != nil {
+			logger.Warn("pipeline: push task failed",
+				"action_id", task.ActionID, "node_id", task.PipelineNodeID, "error", err)
+		}
+		return false
 	}
 	return true
 }

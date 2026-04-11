@@ -350,54 +350,66 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Push tasks: for each active trigger link, select eligible tweets and dispatch.
+		const runBatchSize = 500
 		count := 0
 		seenTweetIDs := make(map[string]struct{})
 
 		for _, link := range links {
-			filter := store.TweetFilter{Page: 1, PerPage: 5000, OrderAsc: newOrder == "asc"}
+			baseFilter := store.TweetFilter{PerPage: runBatchSize, OrderAsc: newOrder == "asc"}
 			switch link.TriggerType {
 			case "new_tweet", "new_categorization", "pipeline_finished":
 				// all tweets
 			case "entity_matched":
-				filter.HasEntityTrack = true
+				baseFilter.HasEntityTrack = true
 			default:
 				continue
 			}
 
-			tweets, err := s.store.ListTweets(ctx, filter)
-			if err != nil {
-				s.logger.Error("api: run pipeline: list tweets", "trigger", link.TriggerType, "error", err)
-				continue
-			}
-
-			for _, tweet := range tweets {
-				if _, seen := seenTweetIDs[tweet.ID]; seen {
-					continue
+			for page := 1; ; page++ {
+				filter := baseFilter
+				filter.Page = page
+				tweets, err := s.store.ListTweets(ctx, filter)
+				if err != nil {
+					s.logger.Error("api: run pipeline: list tweets", "trigger", link.TriggerType, "page", page, "error", err)
+					break
 				}
-				seenTweetIDs[tweet.ID] = struct{}{}
+				if len(tweets) == 0 {
+					break
+				}
 
-				if newOnly {
-					if _, done := executedIDs[tweet.ID]; done {
+				for _, tweet := range tweets {
+					if _, seen := seenTweetIDs[tweet.ID]; seen {
 						continue
 					}
+					seenTweetIDs[tweet.ID] = struct{}{}
+
+					if newOnly {
+						if _, done := executedIDs[tweet.ID]; done {
+							continue
+						}
+					}
+					ruleIDs, _ := s.store.ListTweetRuleIDs(ctx, tweet.ID)
+					evPayload, _ := json.Marshal(queue.TweetEvent{
+						TweetID:      tweet.ID,
+						Text:         tweet.Text,
+						AuthorHandle: tweet.AuthorHandle,
+						RuleIDs:      ruleIDs,
+					})
+					if capturedStartNode != nil {
+						count += worker.PushTasksFromNode(
+							ctx, s.store, s.producer, s.actionCache,
+							graph, id, link.TriggerType, evPayload, tweet.ID, capturedStartNode, s.logger,
+						)
+					} else {
+						count += worker.PushInitialTasksForGraph(
+							ctx, s.store, s.producer, s.actionCache,
+							graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
+						)
+					}
 				}
-				ruleIDs, _ := s.store.ListTweetRuleIDs(ctx, tweet.ID)
-				evPayload, _ := json.Marshal(queue.TweetEvent{
-					TweetID:      tweet.ID,
-					Text:         tweet.Text,
-					AuthorHandle: tweet.AuthorHandle,
-					RuleIDs:      ruleIDs,
-				})
-				if capturedStartNode != nil {
-					count += worker.PushTasksFromNode(
-						ctx, s.store, s.producer, s.actionCache,
-						graph, id, link.TriggerType, evPayload, tweet.ID, capturedStartNode, s.logger,
-					)
-				} else {
-					count += worker.PushInitialTasksForGraph(
-						ctx, s.store, s.producer, s.actionCache,
-						graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
-					)
+
+				if len(tweets) < runBatchSize {
+					break
 				}
 			}
 		}
