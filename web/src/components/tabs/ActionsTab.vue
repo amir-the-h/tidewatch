@@ -417,7 +417,7 @@ async function onSaveAction() {
     if (formType.value === 'internal' && formHandler.value) {
       config.handler = formHandler.value
     }
-    if (formHandler.value === 'entity_discovery') {
+    if (formType.value === 'internal' && formHandler.value === 'entity_discovery') {
       config.min_confidence     = formDiscoveryMinConfidence.value
       config.min_frequency      = formDiscoveryMinFrequency.value
       config.auto_promote_types = formDiscoveryAutoPromoteTypes.value
@@ -427,7 +427,7 @@ async function onSaveAction() {
     }
   }
 
-  if (formTransformers.value.length > 0) {
+  if (formType.value !== 'notification' && formTransformers.value.length > 0) {
     config.transformers = formTransformers.value
       .filter(t => t.type)
       .map(t => {
@@ -456,7 +456,7 @@ async function onSaveAction() {
       })
   }
 
-  if (formMapCoordinateKey.value.trim()) {
+  if (formType.value !== 'notification' && formMapCoordinateKey.value.trim()) {
     config.map_config = {
       coordinate_key:  formMapCoordinateKey.value.trim(),
       coordinate_type: formMapCoordinateType.value,
