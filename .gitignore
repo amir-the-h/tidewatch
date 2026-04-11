@@ -14,6 +14,9 @@ models/
 # SQLite database
 data/
 
+# Nominatim PostgreSQL data (bind-mounted Docker volume)
+nominatim-data/*
+
 # Environment files
 .env
 *.env
