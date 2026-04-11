@@ -253,12 +253,19 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 		notifProvider = notifier.NewTelegramClient(creds.BotToken, logger)
 	case "discord":
 		var creds struct {
-			WebhookURL string `json:"webhook_url"`
+			BotToken       string `json:"bot_token"`
+			ForumChannelID string `json:"forum_channel_id"`
 		}
 		if err := json.Unmarshal(provider.Config, &creds); err != nil {
 			return nil, fmt.Errorf("action cache: parse discord config: %w", err)
 		}
-		notifProvider = notifier.NewDiscordClient(creds.WebhookURL)
+		if creds.BotToken == "" {
+			return nil, fmt.Errorf("action cache: discord provider missing bot_token")
+		}
+		if creds.ForumChannelID == "" {
+			return nil, fmt.Errorf("action cache: discord provider missing forum_channel_id")
+		}
+		notifProvider = notifier.NewDiscordBotClient(creds.BotToken, creds.ForumChannelID)
 	default:
 		return nil, fmt.Errorf("action cache: unknown notification provider type %q", provider.Type)
 	}

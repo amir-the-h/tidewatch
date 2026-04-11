@@ -5,41 +5,51 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// DiscordClient sends messages to a Discord Forum channel via an incoming webhook URL.
-type DiscordClient struct {
-	webhookURL string
-	httpClient *http.Client
+// ForumTag represents a Discord Forum channel tag.
+type ForumTag struct {
+	ID   string
+	Name string
 }
 
-// NewDiscordClient creates a DiscordClient that delivers to the given webhook URL.
-func NewDiscordClient(webhookURL string) *DiscordClient {
-	return &DiscordClient{
-		webhookURL: webhookURL,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+// DiscordBotClient sends messages to a Discord Forum channel using the Discord Bot API.
+// It authenticates with Authorization: Bot <token>.
+type DiscordBotClient struct {
+	botToken       string
+	forumChannelID string
+	baseURL        string // defaults to "https://discord.com/api/v10"; overridable in tests
+	httpClient     *http.Client
+}
+
+// NewDiscordBotClient creates a DiscordBotClient for the given bot token and Forum channel ID.
+func NewDiscordBotClient(botToken, forumChannelID string) *DiscordBotClient {
+	return &DiscordBotClient{
+		botToken:       botToken,
+		forumChannelID: forumChannelID,
+		baseURL:        "https://discord.com/api/v10",
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// Deliver implements notifier.Provider for DiscordClient.
+// Deliver implements notifier.Provider for DiscordBotClient.
 //
-// If config contains a non-empty "discord_thread_id" key, this is a reply send:
-// the message is posted to the existing Forum thread via ?thread_id=<id>.
+// If config contains a non-empty "discord_thread_id" key, the message is posted
+// to the existing Forum thread via POST /channels/{thread_id}/messages.
 // Returns {"sent": true} on success.
 //
-// If "discord_thread_id" is absent from config, this is a root send:
-// the message is posted with ?wait=true and a thread_name derived from the
-// first 100 characters of the rendered text. The Forum channel creates a new
-// thread automatically. Returns {"discord_thread_id": <thread_id>} on success.
+// If "discord_thread_id" is absent, a new Forum thread is created via
+// POST /channels/{forum_channel_id}/threads. If config contains "applied_tags"
+// ([]string or []any of strings), they are included at creation time.
+// Returns {"discord_thread_id": "<id>"} on success.
 //
 // If "discord_thread_id" is present but empty, an error is returned.
-func (c *DiscordClient) Deliver(ctx context.Context, text string, config map[string]any) (map[string]any, error) {
+func (c *DiscordBotClient) Deliver(ctx context.Context, text string, config map[string]any) (map[string]any, error) {
 	if text == "" {
 		return nil, fmt.Errorf("notifier: discord: message text is empty")
 	}
@@ -52,116 +62,222 @@ func (c *DiscordClient) Deliver(ctx context.Context, text string, config map[str
 		return c.deliverToThread(ctx, text, threadID)
 	}
 
-	return c.deliverRoot(ctx, text)
+	var appliedTagIDs []string
+	if rawTags, ok := config["applied_tags"]; ok {
+		switch v := rawTags.(type) {
+		case []string:
+			appliedTagIDs = v
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					appliedTagIDs = append(appliedTagIDs, s)
+				}
+			}
+		}
+	}
+
+	return c.deliverRoot(ctx, text, appliedTagIDs)
 }
 
-// deliverRoot creates a new Forum thread by posting with ?wait=true.
-// Returns {"discord_thread_id": <channel_id>} from the Discord response.
-func (c *DiscordClient) deliverRoot(ctx context.Context, text string) (map[string]any, error) {
-	body := extractEmbedBody(text)
-	body["thread_name"] = threadNameFromText(text)
+// deliverRoot creates a new Forum thread via POST /channels/{forum_channel_id}/threads.
+// Returns {"discord_thread_id": "<id>"} from the Discord response.
+func (c *DiscordBotClient) deliverRoot(ctx context.Context, text string, appliedTagIDs []string) (map[string]any, error) {
+	msgBody := extractEmbedBody(text)
 
-	payload, err := json.Marshal(body)
+	reqBody := map[string]any{
+		"name":    threadNameFromText(text),
+		"message": msgBody,
+	}
+	if len(appliedTagIDs) > 0 {
+		reqBody["applied_tags"] = appliedTagIDs
+	}
+
+	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("notifier: discord: marshal body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.webhookURL+"?wait=true", bytes.NewReader(payload))
+	url := c.baseURL + "/channels/" + c.forumChannelID + "/threads"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("notifier: discord: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bot "+c.botToken)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(ctx, req, payload)
 	if err != nil {
-		return nil, fmt.Errorf("notifier: discord: http: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("notifier: discord: unexpected status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("notifier: discord: unexpected status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
 	}
 
-	var waitResp struct {
-		ChannelID string `json:"channel_id"`
+	var threadResp struct {
+		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&waitResp); err != nil {
-		return nil, fmt.Errorf("notifier: discord: decode wait response: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&threadResp); err != nil {
+		return nil, fmt.Errorf("notifier: discord: decode thread response: %w", err)
 	}
-	if waitResp.ChannelID == "" {
-		return nil, fmt.Errorf("notifier: discord: thread_id missing from wait response")
+	if threadResp.ID == "" {
+		return nil, fmt.Errorf("notifier: discord: thread id missing from response")
 	}
 
-	return map[string]any{"discord_thread_id": waitResp.ChannelID}, nil
+	return map[string]any{"discord_thread_id": threadResp.ID}, nil
 }
 
-// deliverToThread posts a message into an existing Forum thread via ?thread_id=<id>.
-// Returns {"sent": true} on success.
-func (c *DiscordClient) deliverToThread(ctx context.Context, text string, threadID string) (map[string]any, error) {
-	body := extractEmbedBody(text)
+// deliverToThread posts a message into an existing Forum thread via
+// POST /channels/{thread_id}/messages. Returns {"sent": true} on success.
+func (c *DiscordBotClient) deliverToThread(ctx context.Context, text string, threadID string) (map[string]any, error) {
+	msgBody := extractEmbedBody(text)
 
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(msgBody)
 	if err != nil {
 		return nil, fmt.Errorf("notifier: discord: marshal body: %w", err)
 	}
 
-	u, err := url.Parse(c.webhookURL)
-	if err != nil {
-		return nil, fmt.Errorf("notifier: discord: parse webhook url: %w", err)
-	}
-	q := u.Query()
-	q.Set("thread_id", threadID)
-	u.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(payload))
+	url := c.baseURL + "/channels/" + threadID + "/messages"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("notifier: discord: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bot "+c.botToken)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(ctx, req, payload)
 	if err != nil {
-		return nil, fmt.Errorf("notifier: discord: http: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("notifier: discord: unexpected status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("notifier: discord: unexpected status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
 	}
 
 	return map[string]any{"sent": true}, nil
 }
 
-// stripFirstJSONObject scans text for the first top-level JSON object and removes it.
-// Returns the text with the first valid JSON object removed, or the original text if none found.
-func stripFirstJSONObject(text string) string {
-	start := -1
-	depth := 0
-	for i, ch := range text {
-		if ch == '{' {
-			if depth == 0 {
-				start = i
-			}
-			depth++
-		} else if ch == '}' && depth > 0 {
-			depth--
-			if depth == 0 {
-				candidate := text[start : i+1]
-				var obj map[string]any
-				if err := json.Unmarshal([]byte(candidate), &obj); err == nil && len(obj) > 0 {
-					return text[:start] + text[i+1:]
-				}
-				// Not valid JSON — reset and keep scanning.
-				start = -1
-				depth = 0
+// GetAvailableTags fetches the Forum channel's available tags via
+// GET /channels/{forum_channel_id}. Returns a slice of ForumTag.
+func (c *DiscordBotClient) GetAvailableTags(ctx context.Context) ([]ForumTag, error) {
+	url := c.baseURL + "/channels/" + c.forumChannelID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("notifier: discord: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bot "+c.botToken)
+
+	resp, err := c.doRequest(ctx, req, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("notifier: discord: get channel status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
+	}
+
+	var channelResp struct {
+		AvailableTags []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"available_tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&channelResp); err != nil {
+		return nil, fmt.Errorf("notifier: discord: decode channel response: %w", err)
+	}
+
+	tags := make([]ForumTag, len(channelResp.AvailableTags))
+	for i, t := range channelResp.AvailableTags {
+		tags[i] = ForumTag{ID: t.ID, Name: t.Name}
+	}
+	return tags, nil
+}
+
+// PatchThreadTags applies the given tag IDs to the Forum thread via
+// PATCH /channels/{thread_id}.
+func (c *DiscordBotClient) PatchThreadTags(ctx context.Context, threadID string, tagIDs []string) error {
+	reqBody := map[string]any{"applied_tags": tagIDs}
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("notifier: discord: marshal patch body: %w", err)
+	}
+
+	url := c.baseURL + "/channels/" + threadID
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("notifier: discord: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bot "+c.botToken)
+
+	resp, err := c.doRequest(ctx, req, payload)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("notifier: discord: patch thread status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
+	}
+	return nil
+}
+
+// doRequest executes an HTTP request against the Discord API. If the response is
+// 429 Too Many Requests, it honours the Retry-After value and retries up to twice
+// (3 total attempts). For nil payload (GET requests), the body is set to http.NoBody.
+// Returns the final *http.Response on success or an error.
+func (c *DiscordBotClient) doRequest(ctx context.Context, req *http.Request, payload []byte) (*http.Response, error) {
+	const maxRetries = 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if payload != nil {
+			req.Body = io.NopCloser(bytes.NewReader(payload))
+			req.ContentLength = int64(len(payload))
+		} else {
+			req.Body = http.NoBody
+			req.ContentLength = 0
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("notifier: discord: http: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusTooManyRequests {
+			return resp, nil
+		}
+		resp.Body.Close()
+
+		var delay time.Duration
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if secs, err := strconv.ParseFloat(ra, 64); err == nil {
+				delay = time.Duration(secs*1000) * time.Millisecond
 			}
 		}
+		if delay <= 0 {
+			delay = 5 * time.Second
+		}
+		if delay > 30*time.Second {
+			return nil, fmt.Errorf("notifier: discord: rate limited, retry_after %s exceeds cap", delay)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
-	return text
+	return nil, fmt.Errorf("notifier: discord: rate limited after %d retries", maxRetries)
 }
 
 // extractEmbedBody scans text for the first top-level JSON object. If found,
-// it builds a Discord webhook body with the JSON as an embed and any surrounding
+// it builds a Discord message body with the JSON as an embed and any surrounding
 // non-blank text as content. If no JSON object is found the full text is content.
 func extractEmbedBody(text string) map[string]any {
 	start := -1
@@ -186,7 +302,6 @@ func extractEmbedBody(text string) map[string]any {
 					}
 					return body
 				}
-				// Not valid JSON — reset and keep scanning.
 				start = -1
 				depth = 0
 			}
@@ -195,9 +310,35 @@ func extractEmbedBody(text string) map[string]any {
 	return map[string]any{"content": text}
 }
 
+// stripFirstJSONObject scans text for the first top-level JSON object and removes it.
+func stripFirstJSONObject(text string) string {
+	start := -1
+	depth := 0
+	for i, ch := range text {
+		if ch == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		} else if ch == '}' && depth > 0 {
+			depth--
+			if depth == 0 {
+				candidate := text[start : i+1]
+				var obj map[string]any
+				if err := json.Unmarshal([]byte(candidate), &obj); err == nil && len(obj) > 0 {
+					return text[:start] + text[i+1:]
+				}
+				start = -1
+				depth = 0
+			}
+		}
+	}
+	return text
+}
+
 // threadNameFromText derives a Forum thread name from the rendered message text.
-// It strips any embedded JSON object first, trims whitespace, then returns the
-// first 100 runes. Falls back to "notification" when the result is empty.
+// Strips any embedded JSON object first, trims whitespace, returns the first 100 runes.
+// Falls back to "notification" when the result is empty.
 func threadNameFromText(text string) string {
 	stripped := stripFirstJSONObject(text)
 	stripped = strings.TrimSpace(stripped)
@@ -210,3 +351,6 @@ func threadNameFromText(text string) string {
 	}
 	return string(runes)
 }
+
+// Ensure DiscordBotClient satisfies notifier.Provider at compile time.
+var _ Provider = (*DiscordBotClient)(nil)
