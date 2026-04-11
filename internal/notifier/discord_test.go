@@ -44,6 +44,9 @@ func TestDiscordClient_ReplySend_UsesThreadID(t *testing.T) {
 		if r.URL.Query().Get("thread_id") != "thread456" {
 			t.Errorf("expected thread_id=thread456, got %q", r.URL.RawQuery)
 		}
+		if r.URL.Query().Get("wait") != "" {
+			t.Errorf("reply send must not include wait=true, got %q", r.URL.RawQuery)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
@@ -71,6 +74,9 @@ func TestDiscordClient_ReplySend_MissingThreadID_Errors(t *testing.T) {
 
 func TestDiscordClient_RootSend_MissingChannelID_Errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("wait") != "true" {
+			t.Errorf("expected wait=true query param, got %q", r.URL.RawQuery)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "msg123"}) // no channel_id
 	}))
