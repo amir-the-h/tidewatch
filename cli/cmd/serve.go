@@ -151,6 +151,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if telegramClient != nil {
 		pipeReg.Register("notification_tg", pipeline.NewTelegramFactory(telegramClient))
 	}
+	pipeReg.Register("discord_tag_thread", pipeline.NewDiscordTagThreadFactory())
 
 	// Build ActionCache.
 	cache := worker.NewActionCache(s, infReg, pipeReg, pool, logger)
