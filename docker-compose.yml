@@ -34,6 +34,9 @@ services:
       # Stream
       IRAN_WATCHER_STREAM_AUTO_CONNECT: "${IRAN_WATCHER_STREAM_AUTO_CONNECT:-true}"
 
+      # Nominatim reverse geocoding
+      IRAN_WATCHER_NOMINATIM_URL: "${IRAN_WATCHER_NOMINATIM_URL:-http://nominatim:8080}"
+
       # Auth — set a strong jwt_secret in production!
       IRAN_WATCHER_AUTH_JWT_SECRET: "${IRAN_WATCHER_AUTH_JWT_SECRET}"
       IRAN_WATCHER_AUTH_ADMIN_USERNAME: "${IRAN_WATCHER_AUTH_ADMIN_USERNAME:-admin}"
@@ -70,6 +73,21 @@ services:
     networks:
       network:
         ipv4_address: 172.79.0.4
+
+  nominatim:
+    image: mediagis/nominatim:4.4
+    container_name: iran-watcher-nominatim
+    restart: unless-stopped
+    shm_size: 1g
+    environment:
+      PBF_URL: "https://download.geofabrik.de/asia/iran-latest.osm.pbf"
+      REPLICATION_URL: "https://download.geofabrik.de/asia/iran-updates/"
+      NOMINATIM_PASSWORD: "nominatim"
+    volumes:
+      - ./nominatim-data:/var/lib/postgresql/14/main
+    networks:
+      network:
+        ipv4_address: 172.79.0.5
 
   iran-watcher-ui:
     build:
