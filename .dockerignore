@@ -3,3 +3,5 @@ models/
 web/
 .git/
 *.md
+nominatim-data/
+nominatim-pbf/

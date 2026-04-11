@@ -17,6 +17,9 @@ data/
 # Nominatim PostgreSQL data (bind-mounted Docker volume)
 nominatim-data/*
 
+# Nominatim PBF extracts
+nominatim-pbf/*
+
 # Environment files
 .env
 *.env
