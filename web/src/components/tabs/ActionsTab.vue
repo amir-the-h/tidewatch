@@ -77,6 +77,11 @@ const formMapCoordinateKey  = ref('')
 const formMapCoordinateType = ref('array_of_pairs')
 const formMapPopupTemplate  = ref('')
 
+// discord_tag_thread-specific
+const formDiscordTagBotToken       = ref('')
+const formDiscordTagForumChannelID = ref('')
+const formDiscordTagNamesKey       = ref('discord_tag_names')
+
 // entity_discovery-specific
 const formDiscoveryMinConfidence      = ref(0.75)
 const formDiscoveryMinFrequency       = ref(3)
@@ -246,6 +251,9 @@ function resetActionForm() {
   formMapCoordinateKey.value = ''
   formMapCoordinateType.value = 'array_of_pairs'
   formMapPopupTemplate.value = ''
+  formDiscordTagBotToken.value       = ''
+  formDiscordTagForumChannelID.value = ''
+  formDiscordTagNamesKey.value       = 'discord_tag_names'
   formDiscoveryMinConfidence.value      = 0.75
   formDiscoveryMinFrequency.value       = 3
   formDiscoveryAutoPromoteTypes.value   = []
@@ -282,6 +290,9 @@ function openEditAction(row: Action) {
   }
   // Internal-specific
   formHandler.value = row.config?.handler ?? null
+  formDiscordTagBotToken.value       = row.config?.bot_token        ?? ''
+  formDiscordTagForumChannelID.value = row.config?.forum_channel_id ?? ''
+  formDiscordTagNamesKey.value       = row.config?.tag_names_key    ?? 'discord_tag_names'
   formDiscoveryMinConfidence.value      = row.config?.min_confidence      ?? 0.75
   formDiscoveryMinFrequency.value       = row.config?.min_frequency       ?? 3
   formDiscoveryAutoPromoteTypes.value   = Array.isArray(row.config?.auto_promote_types)   ? [...row.config.auto_promote_types]   : []
@@ -416,6 +427,12 @@ async function onSaveAction() {
     }
     if (formType.value === 'internal' && formHandler.value) {
       config.handler = formHandler.value
+    }
+    if (formType.value === 'internal' && formHandler.value === 'discord_tag_thread') {
+      config.bot_token        = formDiscordTagBotToken.value
+      config.forum_channel_id = formDiscordTagForumChannelID.value
+      if (formDiscordTagNamesKey.value && formDiscordTagNamesKey.value !== 'discord_tag_names')
+        config.tag_names_key = formDiscordTagNamesKey.value
     }
     if (formType.value === 'internal' && formHandler.value === 'entity_discovery') {
       config.min_confidence     = formDiscoveryMinConfidence.value
@@ -649,6 +666,24 @@ watch(formUsecase, (val) => {
     <n-form-item v-if="formType === 'internal'" label="Handler">
       <n-select v-model:value="formHandler" :options="handlerOptions" placeholder="Select handler" clearable />
     </n-form-item>
+
+    <!-- discord_tag_thread config -->
+    <template v-if="formType === 'internal' && formHandler === 'discord_tag_thread'">
+      <n-form-item label="Bot Token" required>
+        <n-input v-model:value="formDiscordTagBotToken" placeholder="Bot MTxxxxx…" />
+      </n-form-item>
+      <n-form-item label="Forum Channel ID" required>
+        <n-input v-model:value="formDiscordTagForumChannelID" placeholder="1234567890123456789" />
+      </n-form-item>
+      <n-form-item label="Tag Names Context Key">
+        <n-flex vertical :size="4">
+          <n-input v-model:value="formDiscordTagNamesKey" placeholder="discord_tag_names" />
+          <n-text depth="3" style="font-size: 11px">
+            Pipeline context key holding the list of tag names to apply (default: <code>discord_tag_names</code>).
+          </n-text>
+        </n-flex>
+      </n-form-item>
+    </template>
 
     <!-- entity_discovery config -->
     <template v-if="formType === 'internal' && formHandler === 'entity_discovery'">

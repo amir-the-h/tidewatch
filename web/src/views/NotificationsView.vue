@@ -33,14 +33,15 @@ interface ProviderForm {
   // telegram
   telegram_bot_token: string
   // discord
-  discord_webhook_url: string
+  discord_bot_token:       string
+  discord_forum_channel_id: string
 }
 
 const defaultProviderForm = (): ProviderForm => ({
   name: '', type: 'pushover',
   pushover_app_token: '', pushover_user_key: '',
   telegram_bot_token: '',
-  discord_webhook_url: '',
+  discord_bot_token: '', discord_forum_channel_id: '',
 })
 const providerForm = ref<ProviderForm>(defaultProviderForm())
 
@@ -62,14 +63,15 @@ function openEditProvider(p: NotificationProvider) {
     pushover_app_token:  p.type === 'pushover' ? (p.config.app_token   ?? '') : '',
     pushover_user_key:   p.type === 'pushover' ? (p.config.user_key    ?? '') : '',
     telegram_bot_token:  p.type === 'telegram' ? (p.config.bot_token   ?? '') : '',
-    discord_webhook_url: p.type === 'discord'  ? (p.config.webhook_url ?? '') : '',
+    discord_bot_token:        p.type === 'discord' ? (p.config.bot_token        ?? '') : '',
+    discord_forum_channel_id: p.type === 'discord' ? (p.config.forum_channel_id ?? '') : '',
   }
   showProviderDrawer.value = true
 }
 
 function buildProviderConfig(f: ProviderForm): Record<string, any> {
   if (f.type === 'pushover') return { app_token: f.pushover_app_token, user_key: f.pushover_user_key }
-  if (f.type === 'discord')  return { webhook_url: f.discord_webhook_url }
+  if (f.type === 'discord')  return { bot_token: f.discord_bot_token, forum_channel_id: f.discord_forum_channel_id }
   return { bot_token: f.telegram_bot_token }
 }
 
@@ -82,8 +84,8 @@ async function onSaveProvider() {
   if (f.type === 'telegram' && !f.telegram_bot_token) {
     msg.error('Bot token is required'); return
   }
-  if (f.type === 'discord' && !f.discord_webhook_url) {
-    msg.error('Webhook URL is required'); return
+  if (f.type === 'discord' && (!f.discord_bot_token || !f.discord_forum_channel_id)) {
+    msg.error('Bot token and Forum Channel ID are required'); return
   }
   savingProvider.value = true
   try {
@@ -268,9 +270,12 @@ const channelColumns: DataTableColumns<NotificationChannel> = [
           </template>
 
           <template v-else-if="isDiscordProvider">
-            <n-divider>Discord credentials</n-divider>
-            <n-form-item label="Webhook URL">
-              <n-input v-model:value="providerForm.discord_webhook_url" placeholder="https://discord.com/api/webhooks/…" />
+            <n-divider>Discord Bot credentials</n-divider>
+            <n-form-item label="Bot Token">
+              <n-input v-model:value="providerForm.discord_bot_token" placeholder="Bot MTxxxxx…" />
+            </n-form-item>
+            <n-form-item label="Forum Channel ID">
+              <n-input v-model:value="providerForm.discord_forum_channel_id" placeholder="1234567890123456789" />
             </n-form-item>
           </template>
         </FormDrawer>
