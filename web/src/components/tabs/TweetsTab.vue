@@ -2,17 +2,17 @@
 <script setup lang="ts">
 import { h, onMounted, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useTweetsStore } from '../stores/tweets'
-import { useRulesStore } from '../stores/rules'
+import { useTweetsStore } from '../../stores/tweets'
+import { useRulesStore } from '../../stores/rules'
 import { useMessage, NButton, NSpace } from 'naive-ui'
 import type { DataTableColumns, DataTableRowKey } from 'naive-ui'
-import type { Tweet, TweetDetail } from '../api/tweets'
-import { deleteExecutions } from '../api/tweets'
-import { listActions } from '../api/actions'
-import type { Action } from '../api/actions'
-import { formatDateTime } from '../utils/format'
+import type { Tweet, TweetDetail } from '../../api/tweets'
+import { deleteExecutions } from '../../api/tweets'
+import { listActions } from '../../api/actions'
+import type { Action } from '../../api/actions'
+import { formatDateTime } from '../../utils/format'
 import { EyeOutline, TrashOutline, TrashBinOutline, FunnelOutline, CloseCircleOutline, RefreshOutline, OpenOutline } from '@vicons/ionicons5'
-import { iconBtn } from '../utils/renderActions'
+import { iconBtn } from '../../utils/renderActions'
 
 const route  = useRoute()
 const router = useRouter()
@@ -295,8 +295,6 @@ const columns: DataTableColumns<Tweet> = [
 
 <template>
   <n-space vertical size="large">
-    <n-h2>Tweets</n-h2>
-
     <!-- Filters -->
     <n-space wrap>
       <n-select
