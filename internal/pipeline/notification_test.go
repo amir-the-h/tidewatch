@@ -243,6 +243,21 @@ func TestNotificationPipeline_ForwardsMessageIDToProvider(t *testing.T) {
 	}
 }
 
+func TestNotificationPipeline_ForwardsDiscordThreadID(t *testing.T) {
+	mp := &mockProvider{}
+	p := NewNotificationPipeline("test", "msg", map[string]any{}, mp, nil)
+
+	_, err := p.Run(context.Background(), inference.PipelineInput{
+		Context: map[string]any{"discord_thread_id": "thread456"},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if mp.lastConfig["discord_thread_id"] != "thread456" {
+		t.Errorf("expected discord_thread_id forwarded to provider config, got %v", mp.lastConfig["discord_thread_id"])
+	}
+}
+
 func TestNotificationPipeline_ProviderMetaMergedIntoOutput(t *testing.T) {
 	mp := &mockProvider{meta: map[string]any{"telegram_message_id": int64(123)}}
 	p := NewNotificationPipeline("test", "msg", nil, mp, nil)
