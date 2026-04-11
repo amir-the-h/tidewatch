@@ -80,14 +80,13 @@ services:
     restart: unless-stopped
     shm_size: 1g
     environment:
-      PBF_URL: "https://download.geofabrik.de/asia/iran-latest.osm.pbf"
-      REPLICATION_URL: "https://download.geofabrik.de/asia/iran-updates/"
+      PBF_PATH: "/nominatim/pbf/middle-east.osm.pbf"
       NOMINATIM_PASSWORD: "nominatim"
     volumes:
       - ./nominatim-data:/var/lib/postgresql/14/main
+      - ./nominatim-pbf:/nominatim/pbf
     networks:
-      network:
-        ipv4_address: 172.79.0.5
+      - network
 
   iran-watcher-ui:
     build:
