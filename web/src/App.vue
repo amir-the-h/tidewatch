@@ -17,19 +17,17 @@ const queues = useQueuesStore()
 const failures = useFailuresStore()
 
 const adminMenuOptions = [
-  { label: 'Map',              key: '/map' },
-  { label: 'Tweets',           key: '/tweets' },
-  { label: 'Search',           key: '/search' },
-  { label: 'Rules',            key: '/rules' },
-  { label: 'Sources',          key: '/sources' },
-  { label: 'Pipelines',        key: '/pipelines' },
-  { label: 'Ollama Backends',  key: '/ollama' },
-  { label: 'Notifications',    key: '/notifications' },
-  { label: 'Tracker',          key: '/tracker' },
-  { label: 'Digest',           key: '/summarize' },
-  { label: 'Chat',             key: '/chat' },
-  { label: 'Queue',            key: '/queue' },
-  { label: 'Users',            key: '/users' },
+  { label: 'Map',           key: '/map'           },
+  { label: 'Tweets',        key: '/tweets'        },
+  { label: 'Sources',       key: '/sources'       },
+  { label: 'Actions',       key: '/actions'       },
+  { label: 'Pipelines',     key: '/pipelines'     },
+  { label: 'Notifications', key: '/notifications' },
+  { label: 'Tracker',       key: '/tracker'       },
+  { label: 'Digest',        key: '/summarize'     },
+  { label: 'Chat',          key: '/chat'          },
+  { label: 'Queue',         key: '/queue'         },
+  { label: 'Users',         key: '/users'         },
 ]
 
 const viewerMenuOptions = [
