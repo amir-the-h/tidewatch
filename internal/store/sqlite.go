@@ -1545,9 +1545,11 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
                a.name AS model_name,
                aem_loc.value AS coordinates_json,
                COALESCE(json_extract(a.config, '$.map_config.coordinate_type'), '') AS coordinate_type,
-               COALESCE((SELECT json_group_object(key, json(value))
-                         FROM action_execution_metadata
-                         WHERE execution_id = ae.id), '{}') AS metadata_json,
+               COALESCE((SELECT json_group_object(aem2.key, json(aem2.value))
+                         FROM action_execution_metadata aem2
+                         JOIN action_executions ae2 ON ae2.id = aem2.execution_id
+                         WHERE ae2.tweet_id = ae.tweet_id
+                           AND ae2.status = 'success'), '{}') AS metadata_json,
                COALESCE(json_extract(a.config, '$.map_config.popup_template'), '') AS popup_template
         FROM action_execution_metadata aem_loc
         JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
