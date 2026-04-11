@@ -30,7 +30,7 @@ Two tabs: **Tweets** (default) and **Search**.
 **Search tab**
 - Content: moved from `SearchView.vue`
 - Filters: Rule IDs (multi-select), Start time (date picker), End time (date picker), Since tweet ID (text), Until tweet ID (text), Max results (number), Limit (number of jobs to display)
-- Implementation: inline the SearchView content as a tab pane; no separate route needed
+- Implementation: `SearchTab.vue` component; no separate route needed
 
 ---
 
@@ -45,7 +45,7 @@ Two tabs: **Sources** (default) and **Rules**.
 **Rules tab**
 - Content: moved from `RulesView.vue`
 - Filters (all client-side, already present): Text search (name/compiled), Local only (checkbox), Active only (checkbox)
-- Implementation: inline the RulesView content as a tab pane; no separate route needed
+- Implementation: `RulesTab.vue` component; no separate route needed
 
 ---
 
@@ -117,21 +117,52 @@ No backwards-compatibility redirects.
 
 ---
 
+## Component Architecture
+
+Each tab is a self-contained Vue component rather than inlined markup inside the parent view. This keeps view files small and focused on tab orchestration only.
+
+The parent view (`TweetsView.vue`, `SourcesView.vue`, etc.) owns only:
+- The `<n-tabs>` shell and tab routing (query-param `?tab=`)
+- Shared state that must flow between tabs (if any)
+
+All logic, refs, API calls, and template markup for a tab live in the tab component.
+
+### Tab component naming convention
+
+`web/src/components/tabs/<TabName>Tab.vue`
+
+Examples: `TweetsTab.vue`, `SearchTab.vue`, `SourcesTab.vue`, `RulesTab.vue`, `ActionsTab.vue`, `OllamaTab.vue`, `PipelinesTab.vue`, `TriggersTab.vue`, `ExecutionsTab.vue`
+
+---
+
 ## Files Affected
 
-### New files
-- `web/src/views/ActionsView.vue` — Actions + Ollama Backends tabs (extracted from PipelinesView + OllamaView)
+### New view files
+- `web/src/views/ActionsView.vue` — tab shell only; imports ActionsTab + OllamaTab
 
-### Modified files
-- `web/src/views/TweetsView.vue` — wrap existing content in a Tweets tab pane; add Search tab pane (inline SearchView content)
-- `web/src/views/SourcesView.vue` — wrap existing content in a Sources tab pane; add Rules tab pane (inline RulesView content)
-- `web/src/views/PipelinesView.vue` — remove Actions tab; add Executions tab (moved from old position); fix Executions columns and filters
-- `web/src/router/index.ts` — add `/actions` route (ActionsView); remove `/search`, `/rules`, `/ollama` routes; remove legacy redirect routes
-- `web/src/App.vue` — update sidebar nav: remove Search, Rules, Ollama Backends entries; add Actions entry; update Pipelines entry label/icon if needed
-- `internal/store/executions.go` (or equivalent) — add `action_id` filter and `pipeline_name` join to `ListExecutions` query
-- `internal/api/executions.go` (or equivalent) — pass `action_id` query param through to store; include `pipeline_name` in response struct
+### New tab components (`web/src/components/tabs/`)
+- `TweetsTab.vue` — extracted from TweetsView (tweets list, filters, bulk actions)
+- `SearchTab.vue` — extracted from SearchView (search job form + job list)
+- `SourcesTab.vue` — extracted from SourcesView (sources list, filters, CRUD)
+- `RulesTab.vue` — extracted from RulesView (rules list, filters, CRUD)
+- `ActionsTab.vue` — extracted from PipelinesView Actions tab (actions list, filters including new Type filter, CRUD drawer)
+- `OllamaTab.vue` — extracted from OllamaView (backends list, CRUD)
+- `PipelinesTab.vue` — extracted from PipelinesView Pipelines tab (pipelines list, CRUD)
+- `TriggersTab.vue` — extracted from PipelinesView Triggers tab (trigger links list, CRUD)
+- `ExecutionsTab.vue` — extracted from PipelinesView Executions tab (fixed columns, improved filters)
 
-### Deleted/retired files (content merged elsewhere)
-- `web/src/views/SearchView.vue` — content inlined into TweetsView Search tab
-- `web/src/views/RulesView.vue` — content inlined into SourcesView Rules tab
-- `web/src/views/OllamaView.vue` — content inlined into ActionsView Ollama Backends tab
+### Modified view files
+- `web/src/views/TweetsView.vue` — replace body with `<n-tabs>` shell importing TweetsTab + SearchTab
+- `web/src/views/SourcesView.vue` — replace body with `<n-tabs>` shell importing SourcesTab + RulesTab
+- `web/src/views/PipelinesView.vue` — replace body with `<n-tabs>` shell importing PipelinesTab + TriggersTab + ExecutionsTab; remove all Actions tab code
+- `web/src/router/index.ts` — add `/actions` route (ActionsView); remove `/search`, `/rules`, `/ollama` routes; remove all legacy redirect routes
+- `web/src/App.vue` — remove Search, Rules, Ollama Backends from sidebar; add Actions entry
+
+### Backend files
+- `internal/store/` — add `action_id` filter and `pipeline_name` join to `ListExecutions` query
+- `internal/api/` — pass `action_id` query param through to store; add `pipeline_name` field to `ActionExecution` response
+
+### Deleted files
+- `web/src/views/SearchView.vue` — replaced by SearchTab.vue
+- `web/src/views/RulesView.vue` — replaced by RulesTab.vue
+- `web/src/views/OllamaView.vue` — replaced by OllamaTab.vue
