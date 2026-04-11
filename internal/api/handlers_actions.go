@@ -255,6 +255,11 @@ func (s *Server) handleListAllExecutions(w http.ResponseWriter, r *http.Request)
 	if v := r.URL.Query().Get("tweet_id"); v != "" {
 		filter.TweetID = &v
 	}
+	if v := r.URL.Query().Get("action_id"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			filter.ActionID = &n
+		}
+	}
 	if v := r.URL.Query().Get("status"); v != "" {
 		filter.Status = &v
 	}

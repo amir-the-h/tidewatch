@@ -72,13 +72,14 @@ const (
 
 // ActionExecution is one log entry per action fired on a tweet.
 type ActionExecution struct {
-	ID         int64             `json:"id"`
-	ActionID   int64             `json:"action_id"`
-	TweetID    string            `json:"tweet_id"`
-	Status     string            `json:"status"`
-	Error      string            `json:"error,omitempty"`
-	ExecutedAt time.Time         `json:"executed_at"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	ID           int64             `json:"id"`
+	ActionID     int64             `json:"action_id"`
+	TweetID      string            `json:"tweet_id"`
+	Status       string            `json:"status"`
+	Error        string            `json:"error,omitempty"`
+	ExecutedAt   time.Time         `json:"executed_at"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	PipelineName string            `json:"pipeline_name,omitempty"`
 }
 
 // TwitterCredentials stores the connected Twitter account's OAuth 2.0 tokens.

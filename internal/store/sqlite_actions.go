@@ -228,31 +228,40 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 	var args []any
 
 	if filter.ActionID != nil {
-		where = append(where, "action_id = ?")
+		where = append(where, "ae.action_id = ?")
 		args = append(args, *filter.ActionID)
 	}
 	if filter.TweetID != nil {
-		where = append(where, "tweet_id = ?")
+		where = append(where, "ae.tweet_id = ?")
 		args = append(args, *filter.TweetID)
 	}
 	if filter.Status != nil {
-		where = append(where, "status = ?")
+		where = append(where, "ae.status = ?")
 		args = append(args, *filter.Status)
 	}
 	if filter.From != nil {
-		where = append(where, "executed_at >= ?")
+		where = append(where, "ae.executed_at >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "executed_at <= ?")
+		where = append(where, "ae.executed_at <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 
-	q := "SELECT id, action_id, tweet_id, status, COALESCE(error,''), executed_at FROM action_executions"
+	q := `SELECT ae.id, ae.action_id, ae.tweet_id, ae.status, COALESCE(ae.error,''), ae.executed_at,
+	       COALESCE((
+	         SELECT p.name
+	         FROM pipeline_nodes pn
+	         JOIN pipeline_run_tracking prt ON prt.pipeline_id = pn.pipeline_id AND prt.tweet_id = ae.tweet_id
+	         JOIN pipelines p ON p.id = pn.pipeline_id
+	         WHERE pn.action_id = ae.action_id
+	         LIMIT 1
+	       ), '') AS pipeline_name
+	FROM action_executions ae`
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
-	q += " ORDER BY executed_at DESC"
+	q += " ORDER BY ae.executed_at DESC"
 
 	page, perPage := filter.Page, filter.PerPage
 	if perPage > 0 {
@@ -272,7 +281,7 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 	for rows.Next() {
 		e := &model.ActionExecution{}
 		var executedAt string
-		if err := rows.Scan(&e.ID, &e.ActionID, &e.TweetID, &e.Status, &e.Error, &executedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.ActionID, &e.TweetID, &e.Status, &e.Error, &executedAt, &e.PipelineName); err != nil {
 			return nil, fmt.Errorf("store: list action executions: scan: %w", err)
 		}
 		if t, err := time.Parse(time.RFC3339, executedAt); err == nil {

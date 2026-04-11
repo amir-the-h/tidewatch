@@ -26,6 +26,7 @@ export interface ActionExecution {
   error?: string
   executed_at: string
   metadata?: Record<string, string>
+  pipeline_name?: string
 }
 
 export interface TwitterCredentials {
@@ -43,6 +44,7 @@ export interface ExecutionFilter {
   to?: string
   tweet_id?: string
   status?: string
+  action_id?: number
 }
 
 // Actions CRUD
@@ -106,6 +108,7 @@ export const listAllExecutions = (filter: ExecutionFilter = {}) => {
   if (filter.from) params.set('from', filter.from)
   if (filter.to) params.set('to', filter.to)
   if (filter.tweet_id) params.set('tweet_id', filter.tweet_id)
+  if (filter.action_id) params.set('action_id', String(filter.action_id))
   if (filter.status) params.set('status', filter.status)
   const qs = params.toString() ? `?${params}` : ''
   return apiFetch<ActionExecution[]>(`/api/executions${qs}`)
