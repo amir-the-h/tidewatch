@@ -87,7 +87,7 @@ onMounted(async () => {
       }
       loading.value = false
 
-      if (page.length < MAP_PAGE_SIZE) break
+      if (page.length === 0) break
       offset += MAP_PAGE_SIZE
       // yield to browser between pages
       await new Promise(r => setTimeout(r, 0))
@@ -139,6 +139,13 @@ function buildPopup(pin: import('../api/map').MapPin, color: string): string {
     )
   }
   const lines: string[] = []
+  if (pin.metadata?.location_names) {
+    try {
+      const names: string[] = JSON.parse(pin.metadata.location_names)
+      const filtered = names.filter(n => n)
+      if (filtered.length) lines.push(`<span style="color:#89dceb;font-size:12px">📍 ${filtered.map(escHtml).join(' · ')}</span>`)
+    } catch { /* ignore parse errors */ }
+  }
   if (pin.metadata?.description) lines.push(escHtml(pin.metadata.description))
   if (pin.tweet_text) {
     const truncated = pin.tweet_text.length > 120 ? pin.tweet_text.slice(0, 120) + '…' : pin.tweet_text
