@@ -1584,6 +1584,32 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
 	return pins, rows.Err()
 }
 
+func (s *sqliteStore) GetGeocodeCache(ctx context.Context, lat, lon float64) (string, bool, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT name FROM geocode_cache WHERE lat = ? AND lon = ?`, lat, lon,
+	).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("store: get geocode cache: %w", err)
+	}
+	return name, true, nil
+}
+
+func (s *sqliteStore) SetGeocodeCache(ctx context.Context, lat, lon float64, name string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO geocode_cache (lat, lon, name, cached_at)
+		 VALUES (?, ?, ?, strftime('%s','now'))`,
+		lat, lon, name,
+	)
+	if err != nil {
+		return fmt.Errorf("store: set geocode cache: %w", err)
+	}
+	return nil
+}
+
 // ── EntityCandidates ──────────────────────────────────────────────────────────
 
 // UpsertEntityCandidate inserts a new candidate or updates an existing pending

@@ -290,6 +290,15 @@ type Store interface {
 	// Map
 	ListMapPins(ctx context.Context, limit, offset int) ([]*MapPin, error)
 
+	// GeocodeCache
+	// GetGeocodeCache returns the cached location name for a pre-rounded coordinate.
+	// found=false means no cache entry exists (distinct from found=true, name="" which
+	// means Nominatim confirmed no result for that coordinate).
+	GetGeocodeCache(ctx context.Context, lat, lon float64) (name string, found bool, err error)
+	// SetGeocodeCache stores a location name for a pre-rounded coordinate.
+	// name="" is a valid cached value meaning "Nominatim returned no result here".
+	SetGeocodeCache(ctx context.Context, lat, lon float64, name string) error
+
 	// DigestJobs
 	SaveDigestJob(ctx context.Context, job *model.DigestJob) error
 	GetDigestJob(ctx context.Context, id string) (*model.DigestJob, error)
