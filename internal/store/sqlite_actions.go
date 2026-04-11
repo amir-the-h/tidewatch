@@ -248,6 +248,10 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 
+	// NOTE: the correlated subquery picks the pipeline name associated with this execution.
+	// When an action is a node in multiple pipelines that both ran for the same tweet,
+	// LIMIT 1 returns one pipeline name non-deterministically. This is a cosmetic
+	// display limitation — it does not affect execution correctness.
 	q := `SELECT ae.id, ae.action_id, ae.tweet_id, ae.status, COALESCE(ae.error,''), ae.executed_at,
 	       COALESCE((
 	         SELECT p.name
