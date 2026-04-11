@@ -85,3 +85,25 @@ func TestParseCoordinates_DefaultFallback(t *testing.T) {
 		t.Errorf("unexpected result: %v", pairs)
 	}
 }
+
+func TestParseCoordinates_ObjectUnknownField(t *testing.T) {
+	// "lng" is not a recognised field; lon must be zeroed silently.
+	pairs, err := ParseCoordinates(`{"lat":35.6892,"lng":51.389}`, CoordinateTypeObject)
+	if err != nil {
+		t.Fatalf("ParseCoordinates: %v", err)
+	}
+	if len(pairs) != 1 || pairs[0] != [2]float64{35.6892, 0.0} {
+		t.Errorf("unexpected result: %v", pairs)
+	}
+}
+
+func TestParseCoordinates_ArrayOfPairsEmpty(t *testing.T) {
+	// Empty array should return an empty slice without error.
+	pairs, err := ParseCoordinates(`[]`, CoordinateTypeArrayOfPairs)
+	if err != nil {
+		t.Fatalf("ParseCoordinates: %v", err)
+	}
+	if len(pairs) != 0 {
+		t.Errorf("expected empty slice, got %v", pairs)
+	}
+}
