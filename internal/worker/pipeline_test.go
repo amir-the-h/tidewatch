@@ -278,3 +278,42 @@ func TestDispatchInitialNode_SubPipelineDepthPlusOne(t *testing.T) {
 		t.Errorf("sub-pipeline entry task Depth = %d, want 1 (depth 0 + 1)", mp.pushed[0].Depth)
 	}
 }
+
+func TestPushInitialTasksForGraph_ConditionNodeTransparent(t *testing.T) {
+	// Start → Condition(pass) → Action should produce Depth=0, not Depth=1.
+	actionID := int64(11)
+	graph := &model.PipelineGraph{
+		Nodes: []*model.PipelineNode{
+			{ID: 1, PipelineID: 6, Type: model.PipelineNodeTypeStart},
+			{ID: 2, PipelineID: 6, Type: model.PipelineNodeTypeCondition, Conditions: nil}, // no conditions = always pass
+			{ID: 3, PipelineID: 6, Type: model.PipelineNodeTypeAction, ActionID: &actionID},
+		},
+		Edges: []*model.PipelineEdge{
+			{ID: 1, PipelineID: 6, SourceNodeID: 1, TargetNodeID: 2},
+			{ID: 2, PipelineID: 6, SourceNodeID: 2, TargetNodeID: 3, SourceHandle: "pass"},
+		},
+	}
+	mp := &mockProducer{}
+	cache := &ActionCache{entries: make(map[int64]*CacheEntry)}
+	cache.entries[actionID] = &CacheEntry{
+		Action:   &model.Action{ID: actionID, Name: "after-cond", Active: true},
+		Pipeline: &mockPipeline{name: "mock"},
+	}
+	st := &graphStore{
+		mockStore: mockStore{},
+		graphByID: map[int64]*model.PipelineGraph{6: graph},
+	}
+
+	pushed := PushInitialTasksForGraph(
+		context.Background(), st, mp, cache,
+		graph, 6, "new_tweet",
+		[]byte(`{"tweet_id":"t3","text":"test","author_handle":"u3"}`),
+		"t3", nil,
+	)
+	if pushed != 1 {
+		t.Fatalf("expected 1 pushed, got %d", pushed)
+	}
+	if mp.pushed[0].Depth != 0 {
+		t.Errorf("action after condition Depth = %d, want 0 (condition node is transparent)", mp.pushed[0].Depth)
+	}
+}
