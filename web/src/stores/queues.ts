@@ -17,16 +17,10 @@ export const useQueuesStore = defineStore('queues', () => {
     workers.value       = w
   }
 
-  // Called on queue_update WebSocket event.
-  function setQueuePending(pt: number, po: number) {
-    pendingTasks.value  = pt
-    pendingOllama.value = po
-  }
-
   // Called on worker_stats WebSocket event.
   function setWorkers(w: WorkerInfo[]) {
     workers.value = w
   }
 
-  return { pendingTasks, pendingOllama, workers, setFromResponse, setQueuePending, setWorkers }
+  return { pendingTasks, pendingOllama, workers, setFromResponse, setWorkers }
 })

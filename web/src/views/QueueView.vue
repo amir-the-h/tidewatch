@@ -145,15 +145,6 @@ const workerColumns: DataTableColumns<WorkerInfo> = [
         : h('span', { style: { color: '#313244' } }, '—'),
   },
   {
-    title: 'Depth',
-    key: 'depth',
-    width: 70,
-    render: (row) =>
-      row.status === 'active'
-        ? h('span', { style: { color: '#cba6f7', fontVariantNumeric: 'tabular-nums' } }, String(row.depth))
-        : h('span', { style: { color: '#313244' } }, '—'),
-  },
-  {
     title: 'Duration',
     key: 'duration_ms',
     width: 100,
