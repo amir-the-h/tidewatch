@@ -458,6 +458,13 @@ func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _
 	return []*model.EntityConnection{}, nil
 }
 
+func (m *mockStore) GetGeocodeCache(_ context.Context, _, _ float64) (string, bool, error) {
+	return "", false, nil
+}
+func (m *mockStore) SetGeocodeCache(_ context.Context, _, _ float64, _ string) error {
+	return nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 func (m *mockStore) BulkDeleteRules(_ context.Context, _ store.BulkDeleteRulesFilter) (int64, error) {

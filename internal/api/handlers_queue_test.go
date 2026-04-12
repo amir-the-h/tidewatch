@@ -1,39 +1,63 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
-func TestBuildWorkerRefs_MultipleWorkersOnSameAction(t *testing.T) {
-	workers := []worker.WorkerInfo{
-		{ID: 1, Action: "Detect Assassination", Pipeline: "ollama", Backend: "http://localhost:11434"},
-		{ID: 4, Action: "Detect Assassination", Pipeline: "ollama", Backend: "http://localhost:11435"},
-		{ID: 2, Action: "Summarize", Pipeline: "ollama", Backend: "http://localhost:11434"},
-	}
-	got := buildWorkerRefs(workers)
-
-	if len(got["Detect Assassination"]) != 2 {
-		t.Errorf("Detect Assassination: want 2 workers, got %d", len(got["Detect Assassination"]))
-	}
-	if got["Detect Assassination"][0].ID != 1 {
-		t.Errorf("first worker ID: want 1, got %d", got["Detect Assassination"][0].ID)
-	}
-	if got["Detect Assassination"][1].ID != 4 {
-		t.Errorf("second worker ID: want 4, got %d", got["Detect Assassination"][1].ID)
-	}
-	if len(got["Summarize"]) != 1 {
-		t.Errorf("Summarize: want 1 worker, got %d", len(got["Summarize"]))
-	}
-	if got["Summarize"][0].Backend != "http://localhost:11434" {
-		t.Errorf("Summarize backend: want %q, got %q", "http://localhost:11434", got["Summarize"][0].Backend)
-	}
+type stubPoolStats struct {
+	stats worker.PoolStats
 }
 
-func TestBuildWorkerRefs_EmptyInput(t *testing.T) {
-	got := buildWorkerRefs(nil)
-	if len(got) != 0 {
-		t.Errorf("want empty map, got %d entries", len(got))
+func (s *stubPoolStats) Stats() worker.PoolStats { return s.stats }
+
+type stubSizerQueue struct{ pending int64 }
+
+func (s *stubSizerQueue) Len(_ context.Context, _ string) (int64, error)    { return s.pending, nil }
+func (s *stubSizerQueue) TotalTaskLen(_ context.Context) (int64, error)     { return s.pending, nil }
+
+func TestHandleGetQueue_Shape(t *testing.T) {
+	srv := &Server{
+		pool: &stubPoolStats{
+			stats: worker.PoolStats{
+				Total:  3,
+				Active: 1,
+				Idle:   2,
+				Workers: []worker.WorkerInfo{
+					{ID: 1, Status: "active", Action: "NER", Pipeline: "onnx", TweetID: "123", Depth: 0},
+					{ID: 2, Status: "idle"},
+					{ID: 3, Status: "idle"},
+				},
+			},
+		},
+		sizer: &stubSizerQueue{pending: 42},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
+	rr := httptest.NewRecorder()
+	srv.handleGetQueue(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if _, ok := resp["pending"]; !ok {
+		t.Error("response missing 'pending' field")
+	}
+	if _, ok := resp["workers"]; !ok {
+		t.Error("response missing 'workers' field")
+	}
+	if _, ok := resp["queues"]; ok {
+		t.Error("response must NOT contain 'queues' field")
 	}
 }
