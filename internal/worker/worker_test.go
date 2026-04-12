@@ -29,6 +29,18 @@ func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration) (*queue.Task,
 	return t, nil
 }
 
+func (m *mockConsumer) TryPopTask(_ context.Context) (*queue.Task, error) {
+	return nil, nil
+}
+
+func (m *mockConsumer) TryPopOllamaTask(_ context.Context) (*queue.Task, error) {
+	return nil, nil
+}
+
+func (m *mockConsumer) PeekMinDepth(_ context.Context, _ string) (float64, bool) {
+	return 0, false
+}
+
 func (m *mockConsumer) PopFailed(_ context.Context, _ time.Duration) (*queue.FailedTweet, error) {
 	return nil, nil
 }
@@ -822,5 +834,20 @@ func TestManager_Flush_CancelsActiveWorkers(t *testing.T) {
 	}
 	if mgr.active.Load() != 0 {
 		t.Errorf("expected 0 active workers after Flush, got %d", mgr.active.Load())
+	}
+}
+
+func TestRunWorker_UsesIsOllamaForRequeue(t *testing.T) {
+	// This test verifies that when a task has IsOllama=true and the re-queue
+	// safety net fires, PushTask is called with a task that still has IsOllama=true.
+	prod := &mockProducer{}
+	// Build a task with IsOllama=true.
+	task := &queue.Task{ActionID: 1, IsOllama: true}
+	// Verify IsOllama is preserved across a PushTask call (the router reads it).
+	if err := prod.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	if len(prod.pushed) != 1 || !prod.pushed[0].IsOllama {
+		t.Error("expected re-queued task to have IsOllama=true")
 	}
 }

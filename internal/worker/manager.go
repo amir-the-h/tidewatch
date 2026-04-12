@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -143,13 +144,48 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		default:
 		}
 
-		task, err := m.consumer.PopTask(ctx, 1*time.Second)
-		if err != nil {
-			if m.logger != nil {
-				m.logger.Error("worker: pop task", "worker_id", id, "error", err)
-			}
-			continue
+		// Peek minimum depths across both queues to find the globally lowest-depth
+		// runnable task. Non-Ollama tasks are always immediately runnable;
+		// Ollama tasks are only considered when backend capacity exists.
+		d1, hasD1 := m.consumer.PeekMinDepth(ctx, queue.QueueTasksKey)
+		if !hasD1 {
+			d1 = math.MaxFloat64
 		}
+
+		d2 := math.MaxFloat64
+		ollamaPool := m.cache.Pool()
+		ollamaAvailable := ollamaPool != nil && ollamaPool.IsAnyAvailable(nil)
+		if ollamaAvailable {
+			if depth, ok := m.consumer.PeekMinDepth(ctx, queue.QueueOllamaTasksKey); ok {
+				d2 = depth
+			}
+		}
+
+		var task *queue.Task
+		var popErr error
+
+		switch {
+		case d1 == math.MaxFloat64 && d2 == math.MaxFloat64:
+			// Both queues empty (or no Ollama capacity): block on non-Ollama queue
+			// with a short timeout so we periodically re-check Ollama capacity.
+			task, popErr = m.consumer.PopTask(ctx, 250*time.Millisecond)
+			if popErr != nil && m.logger != nil {
+				m.logger.Error("worker: pop task", "worker_id", id, "error", popErr)
+			}
+		case d1 <= d2:
+			// Non-Ollama queue has equal or lower depth — pop from it.
+			task, popErr = m.consumer.TryPopTask(ctx)
+			if popErr != nil && m.logger != nil {
+				m.logger.Error("worker: try pop task", "worker_id", id, "error", popErr)
+			}
+		default:
+			// Ollama queue has strictly lower depth and capacity is available — pop from it.
+			task, popErr = m.consumer.TryPopOllamaTask(ctx)
+			if popErr != nil && m.logger != nil {
+				m.logger.Error("worker: try pop ollama task", "worker_id", id, "error", popErr)
+			}
+		}
+
 		if task == nil {
 			continue
 		}
@@ -164,13 +200,19 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 			continue
 		}
 
-		// Post-pop: if Ollama and no backend available, re-queue and sleep to avoid spin.
-		if av, ok := entry.Pipeline.(inference.AvailabilityChecker); ok && !av.IsAvailable() {
-			if pushErr := m.producer.PushTask(ctx, task); pushErr != nil && m.logger != nil {
-				m.logger.Warn("worker: re-queue Ollama task — no backend available", "error", pushErr)
+		// Safety net for Ollama tasks: re-check availability after pop to close the
+		// race between PeekMinDepth and AcquireForPipeline inside the pipeline.
+		// If the race occurred, re-queue the task (IsOllama is preserved so it routes
+		// back to iran-watcher:tasks:ollama) and continue without sleeping —
+		// the loop will block naturally in the empty-queues branch above.
+		if task.IsOllama {
+			if av, ok := entry.Pipeline.(inference.AvailabilityChecker); ok && !av.IsAvailable() {
+				if pushErr := m.producer.PushTask(ctx, task); pushErr != nil && m.logger != nil {
+					m.logger.Warn("worker: re-queue Ollama task — no backend after pop (race)",
+						"worker_id", id, "action_id", task.ActionID, "error", pushErr)
+				}
+				continue
 			}
-			time.Sleep(100 * time.Millisecond)
-			continue
 		}
 
 		func() {
