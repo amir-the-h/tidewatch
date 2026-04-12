@@ -36,7 +36,7 @@ Discord enforces a 100-character maximum on thread names. The rendered value is 
 `NotificationPipeline` gains a `threadNameTemplate string` field. `NewNotificationPipeline` accepts it as a new parameter after `messageTemplate`.
 
 In `Run()`, if `threadNameTemplate` is non-empty:
-1. Render it via `substituteVars` using the same escaper and context map as `messageTemplate`.
+1. Render it via `substituteVars` with a `nil` escaper (thread names are plain text, regardless of `parse_mode`) and the same context map as `messageTemplate`.
 2. Truncate the result to 100 runes.
 3. Copy `p.deliveryConfig` into a local map (to avoid mutating shared state), set `"thread_name"` on the copy, and pass the copy to `provider.Deliver()`.
 
