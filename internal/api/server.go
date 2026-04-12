@@ -28,7 +28,7 @@ import (
 // queueSizer can report queue sizes.
 type queueSizer interface {
 	Len(ctx context.Context, queue string) (int64, error)
-	// TotalTaskLen returns the sum of all per-action task queue lengths.
+	// TotalTaskLen returns the total number of pending tasks in the global sorted-set queue.
 	TotalTaskLen(ctx context.Context) (int64, error)
 }
 
