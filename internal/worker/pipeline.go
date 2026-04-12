@@ -170,7 +170,7 @@ func PushInitialTasksForGraph(
 			continue
 		}
 		pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, 0, logger)
+			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, logger)
 	}
 
 	return pushed
@@ -208,7 +208,7 @@ func PushTasksFromNode(
 		}
 	}
 	return dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-		pipelineID, triggerType, eventPayload, tweetID, startNode, initCtx, 0, logger)
+		pipelineID, triggerType, eventPayload, tweetID, startNode, initCtx, logger)
 }
 
 // FindNodeInGraph returns the node with the given ID, or nil if not found.
@@ -233,7 +233,6 @@ func dispatchInitialNode(
 	tweetID string,
 	node *model.PipelineNode,
 	initCtx map[string]any,
-	depth int,
 	logger *slog.Logger,
 ) int {
 	pushed := 0
@@ -261,9 +260,7 @@ func dispatchInitialNode(
 			PipelineNodeID: node.ID,
 			PipelineID:     pipelineID,
 			RootPipelineID: rootPipelineID,
-			Depth:          depth,
 			Context:        map[string]any{},
-			IsOllama:       IsOllamaAction(cache, *node.ActionID),
 		}
 		if pushTrackedTask(ctx, st, producer, task, logger) {
 			pushed++
@@ -319,9 +316,7 @@ func dispatchInitialNode(
 				RootPipelineID:         rootPipelineID,
 				ParentPipelineNodeID:   &parentNodeID,
 				SubPipelineEntryNodeID: &entryNodeID,
-				Depth:                  depth + 1,
 				Context:                map[string]any{},
-				IsOllama:               IsOllamaAction(cache, *subActionNode.ActionID),
 			}
 			if pushTrackedTask(ctx, st, producer, subTask, logger) {
 				pushed++
@@ -362,7 +357,7 @@ func dispatchInitialNode(
 			}
 			// Recurse: handles Action, Pipeline, and nested Condition nodes.
 			pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-				rootPipelineID, triggerType, eventPayload, tweetID, nextNode, initCtx, depth, logger)
+				rootPipelineID, triggerType, eventPayload, tweetID, nextNode, initCtx, logger)
 		}
 	}
 	return pushed
@@ -454,7 +449,6 @@ func PushContinuationTasks(
 					PipelineNodeID: *task.ParentPipelineNodeID,
 					PipelineID:     parentPipelineID,
 					RootPipelineID: task.RootPipelineID,
-					Depth:          task.Depth,
 				}
 				PushContinuationTasks(ctx, st, producer, cache, parentTask, freshCtx, logger)
 			}
@@ -626,9 +620,7 @@ func PushContinuationTasks(
 							RootPipelineID:         task.RootPipelineID,
 							ParentPipelineNodeID:   &parentNodeID,
 							SubPipelineEntryNodeID: &entryNodeID,
-							Depth:                  task.Depth + 1,
 							Context:                copyContext(mergedCtx),
-							IsOllama:               IsOllamaAction(cache, *subActionNode.ActionID),
 						}
 						if pushTrackedTask(ctx, st, producer, subTask, logger) {
 							pushed++
@@ -688,9 +680,7 @@ func PushContinuationTasks(
 					RootPipelineID:         task.RootPipelineID,
 					ParentPipelineNodeID:   &parentNodeID,
 					SubPipelineEntryNodeID: &entryNodeID,
-					Depth:                  task.Depth + 1,
 					Context:                copyContext(mergedCtx),
-					IsOllama:               IsOllamaAction(cache, *subActionNode.ActionID),
 				}
 				if pushTrackedTask(ctx, st, producer, subTask, logger) {
 					pushed++
@@ -758,9 +748,7 @@ func pushContinuationTask(
 		RootPipelineID:         parent.RootPipelineID,
 		ParentPipelineNodeID:   parent.ParentPipelineNodeID,
 		SubPipelineEntryNodeID: parent.SubPipelineEntryNodeID,
-		Depth:                  parent.Depth + 1,
 		Context:                copyContext(mergedCtx),
-		IsOllama:               IsOllamaAction(cache, *node.ActionID),
 	}
 	return pushTrackedTask(ctx, st, producer, task, logger)
 }
