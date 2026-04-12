@@ -22,7 +22,6 @@ type WorkerInfo struct {
 	Action      string    `json:"action"`
 	Pipeline    string    `json:"pipeline"`
 	TweetID     string    `json:"tweet_id"`
-	Depth       int       `json:"depth"`
 	StartedAt   time.Time `json:"started_at"`
 	DurationMS  int64     `json:"duration_ms"`  // computed at snapshot time
 	BackendName string    `json:"backend_name"` // display name; empty for non-Ollama
