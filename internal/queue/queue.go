@@ -3,25 +3,19 @@ package queue
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 	"time"
 )
 
 const (
-	// QueueTasksPrefix is the key prefix for per-action task queues.
-	// Full key: QueueTasksPrefix + strconv.FormatInt(actionID, 10)
-	QueueTasksPrefix = "iran-watcher:tasks:"
+	// QueueTasksKey is the single global Redis sorted-set key for all pending tasks.
+	// Tasks are scored by Depth (lower = higher priority).
+	QueueTasksKey = "iran-watcher:tasks"
 
 	// QueueFailed is the dead-letter queue key.
 	QueueFailed = "iran-watcher:failed"
 )
 
-// QueueTasksKey returns the Redis key for the task queue of the given action.
-func QueueTasksKey(actionID int64) string {
-	return QueueTasksPrefix + strconv.FormatInt(actionID, 10)
-}
-
-// Task is a single unit of work pushed to iran-watcher:tasks:{action_id}.
+// Task is a single unit of work pushed to iran-watcher:tasks.
 type Task struct {
 	TriggerType    string          `json:"trigger_type"`
 	Event          json.RawMessage `json:"event"`
@@ -77,10 +71,10 @@ type Producer interface {
 }
 
 // Consumer pops tasks from a queue.
-// PopTask accepts one or more queue keys and performs a BRPOP across all of
-// them. Returns (nil, nil) on timeout or when keys is empty.
+// PopTask blocks until a task is available or the timeout elapses.
+// Returns (nil, nil) on timeout.
 type Consumer interface {
-	PopTask(ctx context.Context, timeout time.Duration, keys ...string) (*Task, error)
+	PopTask(ctx context.Context, timeout time.Duration) (*Task, error)
 	PopFailed(ctx context.Context, timeout time.Duration) (*FailedTweet, error)
 }
 

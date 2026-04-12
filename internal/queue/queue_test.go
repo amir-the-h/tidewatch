@@ -117,7 +117,7 @@ func TestTask_JSONRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 3: PopTask returns (nil, nil) on timeout (redis.Nil error from BRPop)
+// Test 3: PopTask returns (nil, nil) on timeout (redis.Nil error from BZPopMin)
 // ---------------------------------------------------------------------------
 
 // fakeRedisClient implements redisClient for unit tests.
@@ -125,6 +125,8 @@ func TestTask_JSONRoundTrip(t *testing.T) {
 type fakeRedisClient struct {
 	brpopErr    error
 	brpopResult []string
+	zcard       map[string]int64
+	deleted     []string
 }
 
 func (f *fakeRedisClient) LPush(_ context.Context, _ string, _ ...interface{}) *redis.IntCmd {
@@ -139,8 +141,9 @@ func (f *fakeRedisClient) LRange(_ context.Context, _ string, _, _ int64) *redis
 	return redis.NewStringSliceResult(nil, nil)
 }
 
-func (f *fakeRedisClient) Del(_ context.Context, _ ...string) *redis.IntCmd {
-	return redis.NewIntResult(0, nil)
+func (f *fakeRedisClient) Del(ctx context.Context, keys ...string) *redis.IntCmd {
+	f.deleted = append(f.deleted, keys...)
+	return redis.NewIntCmd(ctx)
 }
 
 func (f *fakeRedisClient) ZAdd(_ context.Context, _ string, _ ...redis.Z) *redis.IntCmd {
@@ -153,15 +156,19 @@ func (f *fakeRedisClient) BZPopMin(ctx context.Context, _ time.Duration, _ ...st
 	return cmd
 }
 
-func (f *fakeRedisClient) ZCard(_ context.Context, _ string) *redis.IntCmd {
-	return redis.NewIntResult(0, nil)
+func (f *fakeRedisClient) ZCard(_ context.Context, key string) *redis.IntCmd {
+	cmd := redis.NewIntCmd(context.Background())
+	if f.zcard != nil {
+		cmd.SetVal(f.zcard[key])
+	}
+	return cmd
 }
 
 func TestPopTask_ReturnsNilOnTimeout(t *testing.T) {
 	// fakeRedisClient.BZPopMin returns redis.Nil (timeout) by default.
 	q := &RedisQueue{client: &fakeRedisClient{}}
 
-	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:1")
+	task, err := q.PopTask(context.Background(), 1*time.Second)
 	if err != nil {
 		t.Fatalf("expected nil error on timeout, got: %v", err)
 	}
@@ -183,17 +190,6 @@ func TestPopFailed_ReturnsNilOnTimeout(t *testing.T) {
 	}
 	if ft != nil {
 		t.Fatalf("expected nil FailedTweet on timeout, got: %+v", ft)
-	}
-}
-
-func TestPopTask_EmptyKeys_ReturnsNil(t *testing.T) {
-	q := &RedisQueue{client: &fakeRedisClient{}}
-	task, err := q.PopTask(context.Background(), 1*time.Second)
-	if err != nil {
-		t.Fatalf("expected nil error with no keys, got: %v", err)
-	}
-	if task != nil {
-		t.Fatalf("expected nil task with no keys, got: %+v", task)
 	}
 }
 
@@ -219,7 +215,7 @@ func (f *pushCaptureFakeClient) ZCard(_ context.Context, _ string) *redis.IntCmd
 	return redis.NewIntResult(1, nil) // returns 1 for broadcast assertions
 }
 
-func TestPushTask_RoutesToCorrectKey(t *testing.T) {
+func TestPushTask_RoutesToGlobalKey(t *testing.T) {
 	fake := &pushCaptureFakeClient{}
 	q := &RedisQueue{client: fake}
 
@@ -227,7 +223,7 @@ func TestPushTask_RoutesToCorrectKey(t *testing.T) {
 	if err := q.PushTask(context.Background(), task); err != nil {
 		t.Fatalf("PushTask: %v", err)
 	}
-	want := "iran-watcher:tasks:7"
+	want := "iran-watcher:tasks"
 	if fake.pushedKey != want {
 		t.Errorf("pushed to key %q, want %q", fake.pushedKey, want)
 	}
@@ -265,49 +261,27 @@ func TestPushTask_BroadcastsQueueUpdate(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type %T", bc.events[0].Payload)
 	}
-	if payload["action_id"] != 7 {
-		t.Errorf("action_id: got %d, want 7", payload["action_id"])
-	}
 	if payload["pending"] != 1 { // pushCaptureFakeClient.ZCard returns 1
 		t.Errorf("pending: got %d, want 1", payload["pending"])
 	}
 }
 
 // ---------------------------------------------------------------------------
-// scanFakeClient — extends fakeRedisClient with Scan for TotalTaskLen/FlushQueue
+// Key constant test
 // ---------------------------------------------------------------------------
 
-// scanFakeClient extends fakeRedisClient with Scan and ZCard for TotalTaskLen/FlushQueue tests.
-type scanFakeClient struct {
-	fakeRedisClient
-	scanKeys   []string         // keys returned by Scan
-	zcardByKey map[string]int64 // key → ZCARD result
-	deleted    []string         // keys passed to Del
-}
-
-func (f *scanFakeClient) Scan(_ context.Context, cursor uint64, _ string, _ int64) *redis.ScanCmd {
-	if cursor == 0 {
-		return redis.NewScanCmdResult(f.scanKeys, 0, nil)
+// TestQueueTasksKey_IsConstant verifies the global queue key constant.
+func TestQueueTasksKey_IsConstant(t *testing.T) {
+	if QueueTasksKey != "iran-watcher:tasks" {
+		t.Errorf("QueueTasksKey = %q, want %q", QueueTasksKey, "iran-watcher:tasks")
 	}
-	return redis.NewScanCmdResult(nil, 0, nil)
 }
 
-func (f *scanFakeClient) ZCard(_ context.Context, key string) *redis.IntCmd {
-	n := f.zcardByKey[key]
-	return redis.NewIntResult(n, nil)
-}
-
-func (f *scanFakeClient) Del(_ context.Context, keys ...string) *redis.IntCmd {
-	f.deleted = append(f.deleted, keys...)
-	return redis.NewIntResult(int64(len(keys)), nil)
-}
-
-func TestTotalTaskLen_SumsAllActionQueues(t *testing.T) {
-	fake := &scanFakeClient{
-		scanKeys: []string{"iran-watcher:tasks:1", "iran-watcher:tasks:2"},
-		zcardByKey: map[string]int64{
-			"iran-watcher:tasks:1": 3,
-			"iran-watcher:tasks:2": 5,
+// TestTotalTaskLen_SingleKey verifies TotalTaskLen uses ZCard on the global key.
+func TestTotalTaskLen_SingleKey(t *testing.T) {
+	fake := &fakeRedisClient{
+		zcard: map[string]int64{
+			"iran-watcher:tasks": 17,
 		},
 	}
 	q := &RedisQueue{client: fake}
@@ -315,43 +289,20 @@ func TestTotalTaskLen_SumsAllActionQueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TotalTaskLen: %v", err)
 	}
-	if total != 8 {
-		t.Errorf("TotalTaskLen = %d, want 8", total)
+	if total != 17 {
+		t.Errorf("TotalTaskLen = %d, want 17", total)
 	}
 }
 
-func TestFlushQueue_DeletesAllActionKeys(t *testing.T) {
-	fake := &scanFakeClient{
-		scanKeys: []string{"iran-watcher:tasks:3", "iran-watcher:tasks:4"},
-	}
+// TestFlushQueue_SingleDel verifies FlushQueue issues a single DEL on the global key.
+func TestFlushQueue_SingleDel(t *testing.T) {
+	fake := &fakeRedisClient{}
 	q := &RedisQueue{client: fake}
 	if err := q.FlushQueue(context.Background()); err != nil {
 		t.Fatalf("FlushQueue: %v", err)
 	}
-	if len(fake.deleted) != 2 {
-		t.Errorf("deleted %d keys, want 2", len(fake.deleted))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Key format tests
-// ---------------------------------------------------------------------------
-
-// TestQueueTasksKey_Format verifies the per-action key format.
-func TestQueueTasksKey_Format(t *testing.T) {
-	key := QueueTasksKey(42)
-	want := "iran-watcher:tasks:42"
-	if key != want {
-		t.Errorf("QueueTasksKey(42) = %q, want %q", key, want)
-	}
-}
-
-// TestQueueTasksKey_Zero verifies key for action ID 0.
-func TestQueueTasksKey_Zero(t *testing.T) {
-	key := QueueTasksKey(0)
-	want := "iran-watcher:tasks:0"
-	if key != want {
-		t.Errorf("QueueTasksKey(0) = %q, want %q", key, want)
+	if len(fake.deleted) != 1 || fake.deleted[0] != "iran-watcher:tasks" {
+		t.Errorf("deleted keys = %v, want [iran-watcher:tasks]", fake.deleted)
 	}
 }
 
@@ -391,14 +342,14 @@ func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
 		Context:     map[string]any{},
 	})
 	fake := &bzpopSuccessFakeClient{
-		popKey:    "iran-watcher:tasks:7",
+		popKey:    "iran-watcher:tasks",
 		popMember: string(taskJSON),
 		zcardN:    5,
 	}
 	bc := &captureBroadcaster{}
 	q := &RedisQueue{client: fake, broadcaster: bc}
 
-	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:7")
+	task, err := q.PopTask(context.Background(), 1*time.Second)
 	if err != nil {
 		t.Fatalf("PopTask: %v", err)
 	}
@@ -415,9 +366,6 @@ func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map[string]int64 payload, got %T", bc.events[0].Payload)
 	}
-	if payload["action_id"] != 7 {
-		t.Errorf("action_id: got %d, want 7", payload["action_id"])
-	}
 	if payload["pending"] != 5 {
 		t.Errorf("pending: got %d, want 5", payload["pending"])
 	}
@@ -426,10 +374,10 @@ func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
 func TestPopTask_NoBroadcastWhenNoBroadcaster(t *testing.T) {
 	ev, _ := json.Marshal(TweetEvent{TweetID: "2", Text: "x", AuthorHandle: "u"})
 	taskJSON, _ := json.Marshal(&Task{TriggerType: "new_tweet", ActionID: 3, Event: json.RawMessage(ev), Context: map[string]any{}})
-	fake := &bzpopSuccessFakeClient{popKey: "iran-watcher:tasks:3", popMember: string(taskJSON), zcardN: 0}
+	fake := &bzpopSuccessFakeClient{popKey: "iran-watcher:tasks", popMember: string(taskJSON), zcardN: 0}
 	q := &RedisQueue{client: fake} // no broadcaster
 
-	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:3")
+	task, err := q.PopTask(context.Background(), 1*time.Second)
 	if err != nil {
 		t.Fatalf("PopTask: %v", err)
 	}
