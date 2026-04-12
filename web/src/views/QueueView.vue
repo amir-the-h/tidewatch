@@ -30,7 +30,7 @@ const msg         = useMessage()
 async function fetchQueue() {
   try {
     const data = await getQueue()
-    queuesStore.setFromResponse(data.pending, data.workers)
+    queuesStore.setFromResponse(data.pending_tasks, data.pending_ollama, data.workers)
   } catch { /* ignore */ }
 }
 
@@ -297,19 +297,30 @@ onMounted(() => {
     </n-space>
 
     <!-- Stats cards -->
-    <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
-      <n-gi span="3 s:1">
+    <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
+      <n-gi span="4 s:1">
         <n-card size="small" embedded>
-          <n-statistic label="Pending">
+          <n-statistic label="Pending (tasks)">
             <template #default>
-              <span :style="{ color: queuesStore.pending > 0 ? '#f9e2af' : '#cdd6f4' }">
-                {{ queuesStore.pending }}
+              <span :style="{ color: queuesStore.pendingTasks > 0 ? '#f9e2af' : '#cdd6f4' }">
+                {{ queuesStore.pendingTasks }}
               </span>
             </template>
           </n-statistic>
         </n-card>
       </n-gi>
-      <n-gi span="3 s:1">
+      <n-gi span="4 s:1">
+        <n-card size="small" embedded>
+          <n-statistic label="Pending (Ollama)">
+            <template #default>
+              <span :style="{ color: queuesStore.pendingOllama > 0 ? '#f9e2af' : '#cdd6f4' }">
+                {{ queuesStore.pendingOllama }}
+              </span>
+            </template>
+          </n-statistic>
+        </n-card>
+      </n-gi>
+      <n-gi span="4 s:1">
         <n-card size="small" embedded>
           <n-statistic label="Dead-Letter">
             <template #default>
@@ -320,7 +331,7 @@ onMounted(() => {
           </n-statistic>
         </n-card>
       </n-gi>
-      <n-gi span="3 s:1">
+      <n-gi span="4 s:1">
         <n-card size="small" embedded>
           <n-statistic label="Workers">
             <template #default>

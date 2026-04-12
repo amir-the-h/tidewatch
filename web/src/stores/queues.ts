@@ -6,18 +6,21 @@ import type { WorkerInfo } from '../api/queue'
 export type { WorkerInfo }
 
 export const useQueuesStore = defineStore('queues', () => {
-  const pending = ref(0)
-  const workers = ref<WorkerInfo[]>([])
+  const pendingTasks  = ref(0)
+  const pendingOllama = ref(0)
+  const workers       = ref<WorkerInfo[]>([])
 
   // Called on initial HTTP fetch (onMounted in QueueView).
-  function setFromResponse(p: number, w: WorkerInfo[]) {
-    pending.value = p
-    workers.value = w
+  function setFromResponse(pt: number, po: number, w: WorkerInfo[]) {
+    pendingTasks.value  = pt
+    pendingOllama.value = po
+    workers.value       = w
   }
 
   // Called on queue_update WebSocket event.
-  function setQueuePending(p: number) {
-    pending.value = p
+  function setQueuePending(pt: number, po: number) {
+    pendingTasks.value  = pt
+    pendingOllama.value = po
   }
 
   // Called on worker_stats WebSocket event.
@@ -25,5 +28,5 @@ export const useQueuesStore = defineStore('queues', () => {
     workers.value = w
   }
 
-  return { pending, workers, setFromResponse, setQueuePending, setWorkers }
+  return { pendingTasks, pendingOllama, workers, setFromResponse, setQueuePending, setWorkers }
 })

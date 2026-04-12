@@ -65,7 +65,7 @@ async function disconnectStream() {
 
 // ── Stats from stores (populated via WebSocket events) ───────────────────────
 
-const totalPending    = computed(() => queues.pending)
+const totalPending    = computed(() => queues.pendingTasks + queues.pendingOllama)
 const failedCount     = computed(() => failures.total)
 const totalWorkers    = computed(() => queues.workers.length)
 const activeWorkerCnt = computed(() => queues.workers.filter(w => w.status === 'active').length)

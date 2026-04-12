@@ -7,9 +7,10 @@ import (
 )
 
 func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
-	var pending int64
+	var pendingTasks, pendingOllama int64
 	if s.sizer != nil {
-		pending, _ = s.sizer.Len(r.Context(), queue.QueueTasksKey)
+		pendingTasks, _ = s.sizer.Len(r.Context(), queue.QueueTasksKey)
+		pendingOllama, _ = s.sizer.Len(r.Context(), queue.QueueOllamaTasksKey)
 	}
 
 	var workers any = []any{}
@@ -18,7 +19,8 @@ func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"pending": pending,
-		"workers": workers,
+		"pending_tasks":  pendingTasks,
+		"pending_ollama": pendingOllama,
+		"workers":        workers,
 	})
 }

@@ -14,7 +14,8 @@ export interface WorkerInfo {
 }
 
 export interface QueueResponse {
-  pending: number
+  pending_tasks: number
+  pending_ollama: number
   workers: WorkerInfo[]
 }
 

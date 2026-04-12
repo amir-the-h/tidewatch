@@ -22,22 +22,7 @@ func (s *stubSizerQueue) Len(_ context.Context, _ string) (int64, error)    { re
 func (s *stubSizerQueue) TotalTaskLen(_ context.Context) (int64, error)     { return s.pending, nil }
 
 func TestHandleGetQueue_Shape(t *testing.T) {
-	srv := &Server{
-		pool: &stubPoolStats{
-			stats: worker.PoolStats{
-				Total:  3,
-				Active: 1,
-				Idle:   2,
-				Workers: []worker.WorkerInfo{
-					{ID: 1, Status: "active", Action: "NER", Pipeline: "onnx", TweetID: "123", Depth: 0},
-					{ID: 2, Status: "idle"},
-					{ID: 3, Status: "idle"},
-				},
-			},
-		},
-		sizer: &stubSizerQueue{pending: 42},
-	}
-
+	srv := &Server{sizer: &stubSizerQueue{pending: 5}, pool: &stubPoolStats{}}
 	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
 	rr := httptest.NewRecorder()
 	srv.handleGetQueue(rr, req)
@@ -45,19 +30,23 @@ func TestHandleGetQueue_Shape(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rr.Code)
 	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+	var body map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-
-	if _, ok := resp["pending"]; !ok {
-		t.Error("response missing 'pending' field")
+	if _, ok := body["pending_tasks"]; !ok {
+		t.Error("response missing 'pending_tasks'")
 	}
-	if _, ok := resp["workers"]; !ok {
-		t.Error("response missing 'workers' field")
+	if _, ok := body["pending_ollama"]; !ok {
+		t.Error("response missing 'pending_ollama'")
 	}
-	if _, ok := resp["queues"]; ok {
-		t.Error("response must NOT contain 'queues' field")
+	if _, ok := body["workers"]; !ok {
+		t.Error("response missing 'workers'")
+	}
+	if _, ok := body["pending"]; ok {
+		t.Error("response should not contain legacy 'pending' key")
+	}
+	if _, ok := body["queues"]; ok {
+		t.Error("response should not contain 'queues'")
 	}
 }
