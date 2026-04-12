@@ -14,9 +14,9 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
-// isOllamaAction reports whether the action identified by actionID uses an
+// IsOllamaAction reports whether the action identified by actionID uses an
 // Ollama pipeline. Returns false when cache is nil or the action is not found.
-func isOllamaAction(cache *ActionCache, actionID int64) bool {
+func IsOllamaAction(cache *ActionCache, actionID int64) bool {
 	if cache == nil {
 		return false
 	}
@@ -263,7 +263,7 @@ func dispatchInitialNode(
 			RootPipelineID: rootPipelineID,
 			Depth:          depth,
 			Context:        map[string]any{},
-			IsOllama:       isOllamaAction(cache, *node.ActionID),
+			IsOllama:       IsOllamaAction(cache, *node.ActionID),
 		}
 		if pushTrackedTask(ctx, st, producer, task, logger) {
 			pushed++
@@ -321,7 +321,7 @@ func dispatchInitialNode(
 				SubPipelineEntryNodeID: &entryNodeID,
 				Depth:                  depth + 1,
 				Context:                map[string]any{},
-				IsOllama:               isOllamaAction(cache, *subActionNode.ActionID),
+				IsOllama:               IsOllamaAction(cache, *subActionNode.ActionID),
 			}
 			if pushTrackedTask(ctx, st, producer, subTask, logger) {
 				pushed++
@@ -628,7 +628,7 @@ func PushContinuationTasks(
 							SubPipelineEntryNodeID: &entryNodeID,
 							Depth:                  task.Depth + 1,
 							Context:                copyContext(mergedCtx),
-							IsOllama:               isOllamaAction(cache, *subActionNode.ActionID),
+							IsOllama:               IsOllamaAction(cache, *subActionNode.ActionID),
 						}
 						if pushTrackedTask(ctx, st, producer, subTask, logger) {
 							pushed++
@@ -690,7 +690,7 @@ func PushContinuationTasks(
 					SubPipelineEntryNodeID: &entryNodeID,
 					Depth:                  task.Depth + 1,
 					Context:                copyContext(mergedCtx),
-					IsOllama:               isOllamaAction(cache, *subActionNode.ActionID),
+					IsOllama:               IsOllamaAction(cache, *subActionNode.ActionID),
 				}
 				if pushTrackedTask(ctx, st, producer, subTask, logger) {
 					pushed++
@@ -760,7 +760,7 @@ func pushContinuationTask(
 		SubPipelineEntryNodeID: parent.SubPipelineEntryNodeID,
 		Depth:                  parent.Depth + 1,
 		Context:                copyContext(mergedCtx),
-		IsOllama:               isOllamaAction(cache, *node.ActionID),
+		IsOllama:               IsOllamaAction(cache, *node.ActionID),
 	}
 	return pushTrackedTask(ctx, st, producer, task, logger)
 }

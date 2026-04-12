@@ -39,27 +39,27 @@ func buildCacheWithPipeline(actionID int64, p inference.Pipeline) *ActionCache {
 
 func TestIsOllamaAction_ReturnsTrueForOllama(t *testing.T) {
 	cache := buildCacheWithPipeline(1, &mockOllamaPipeline{})
-	if !isOllamaAction(cache, 1) {
-		t.Error("expected isOllamaAction=true for Ollama pipeline")
+	if !IsOllamaAction(cache, 1) {
+		t.Error("expected IsOllamaAction=true for Ollama pipeline")
 	}
 }
 
 func TestIsOllamaAction_ReturnsFalseForONNX(t *testing.T) {
 	cache := buildCacheWithPipeline(2, &mockOnnxPipeline{})
-	if isOllamaAction(cache, 2) {
-		t.Error("expected isOllamaAction=false for ONNX pipeline")
+	if IsOllamaAction(cache, 2) {
+		t.Error("expected IsOllamaAction=false for ONNX pipeline")
 	}
 }
 
 func TestIsOllamaAction_ReturnsFalseForNilCache(t *testing.T) {
-	if isOllamaAction(nil, 1) {
-		t.Error("expected isOllamaAction=false for nil cache")
+	if IsOllamaAction(nil, 1) {
+		t.Error("expected IsOllamaAction=false for nil cache")
 	}
 }
 
 func TestIsOllamaAction_ReturnsFalseForUnknownAction(t *testing.T) {
 	cache := buildCacheWithPipeline(1, &mockOllamaPipeline{})
-	if isOllamaAction(cache, 999) {
-		t.Error("expected isOllamaAction=false for unknown action_id")
+	if IsOllamaAction(cache, 999) {
+		t.Error("expected IsOllamaAction=false for unknown action_id")
 	}
 }
