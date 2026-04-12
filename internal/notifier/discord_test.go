@@ -24,8 +24,8 @@ func TestDiscordBotClient_CreateThread_ReturnsThreadID(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body["name"] == nil || body["name"] == "" {
-			t.Errorf("expected thread name in body, got %v", body)
+		if body["name"] != "My Thread" {
+			t.Errorf("expected thread name 'My Thread', got %v", body["name"])
 		}
 		if body["message"] == nil {
 			t.Errorf("expected message object in body, got %v", body)
@@ -37,7 +37,9 @@ func TestDiscordBotClient_CreateThread_ReturnsThreadID(t *testing.T) {
 
 	c := NewDiscordBotClient("mytoken", "forum456")
 	c.baseURL = srv.URL
-	out, err := c.Deliver(context.Background(), "hello world", map[string]any{})
+	out, err := c.Deliver(context.Background(), "hello world", map[string]any{
+		"thread_name": "My Thread",
+	})
 	if err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}

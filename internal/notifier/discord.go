@@ -9,8 +9,43 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
+
+// discordTokenBucket is a package-level rate limiter shared across all DiscordBotClient
+// instances. It allows at most 1 Discord API call per second, preventing 429 floods
+// when many workers fire simultaneously during bulk backfills.
+var (
+	discordTokenBucket     = make(chan struct{}, 1)
+	discordTokenBucketOnce sync.Once
+)
+
+func initDiscordRateLimiter() {
+	discordTokenBucketOnce.Do(func() {
+		discordTokenBucket <- struct{}{} // seed one initial token
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			for range ticker.C {
+				select {
+				case discordTokenBucket <- struct{}{}:
+				default: // bucket full, discard
+				}
+			}
+		}()
+	})
+}
+
+// acquireDiscordToken blocks until a rate-limit token is available or ctx is cancelled.
+func acquireDiscordToken(ctx context.Context) error {
+	initDiscordRateLimiter()
+	select {
+	case <-discordTokenBucket:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // ForumTag represents a Discord Forum channel tag.
 type ForumTag struct {
@@ -33,7 +68,7 @@ func NewDiscordBotClient(botToken, forumChannelID string) *DiscordBotClient {
 		botToken:       botToken,
 		forumChannelID: forumChannelID,
 		baseURL:        "https://discord.com/api/v10",
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -76,16 +111,18 @@ func (c *DiscordBotClient) Deliver(ctx context.Context, text string, config map[
 		}
 	}
 
-	return c.deliverRoot(ctx, text, appliedTagIDs)
+	return c.deliverRoot(ctx, text, appliedTagIDs, config)
 }
 
 // deliverRoot creates a new Forum thread via POST /channels/{forum_channel_id}/threads.
 // Returns {"discord_thread_id": "<id>"} from the Discord response.
-func (c *DiscordBotClient) deliverRoot(ctx context.Context, text string, appliedTagIDs []string) (map[string]any, error) {
+func (c *DiscordBotClient) deliverRoot(ctx context.Context, text string, appliedTagIDs []string, config map[string]any) (map[string]any, error) {
 	msgBody := extractEmbedBody(text)
 
+	threadName, _ := config["thread_name"].(string)
+
 	reqBody := map[string]any{
-		"name":    threadNameFromText(text),
+		"name":    threadName,
 		"message": msgBody,
 	}
 	if len(appliedTagIDs) > 0 {
@@ -199,6 +236,66 @@ func (c *DiscordBotClient) GetAvailableTags(ctx context.Context) ([]ForumTag, er
 	return tags, nil
 }
 
+// AddForumTag creates a new tag in the Forum channel by appending it to the
+// channel's available_tags via PATCH /channels/{forum_channel_id}. Returns the
+// newly created ForumTag with its Discord-assigned snowflake ID.
+// Existing tags are preserved; only the new one is appended.
+func (c *DiscordBotClient) AddForumTag(ctx context.Context, name string) (ForumTag, error) {
+	existing, err := c.GetAvailableTags(ctx)
+	if err != nil {
+		return ForumTag{}, fmt.Errorf("notifier: discord: add forum tag: fetch existing: %w", err)
+	}
+
+	// Build the updated tag list: keep all existing (by ID) then append the new one.
+	tags := make([]map[string]any, len(existing)+1)
+	for i, t := range existing {
+		tags[i] = map[string]any{"id": t.ID, "name": t.Name, "moderated": false}
+	}
+	tags[len(existing)] = map[string]any{"name": name, "moderated": false}
+
+	payload, err := json.Marshal(map[string]any{"available_tags": tags})
+	if err != nil {
+		return ForumTag{}, fmt.Errorf("notifier: discord: add forum tag: marshal: %w", err)
+	}
+
+	url := c.baseURL + "/channels/" + c.forumChannelID
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, http.NoBody)
+	if err != nil {
+		return ForumTag{}, fmt.Errorf("notifier: discord: add forum tag: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bot "+c.botToken)
+
+	resp, err := c.doRequest(ctx, req, payload)
+	if err != nil {
+		return ForumTag{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return ForumTag{}, fmt.Errorf("notifier: discord: add forum tag: status %d: %s", resp.StatusCode, bytes.TrimSpace(respBody))
+	}
+
+	var channelResp struct {
+		AvailableTags []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"available_tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&channelResp); err != nil {
+		return ForumTag{}, fmt.Errorf("notifier: discord: add forum tag: decode: %w", err)
+	}
+
+	lname := strings.ToLower(name)
+	for _, t := range channelResp.AvailableTags {
+		if strings.ToLower(t.Name) == lname {
+			return ForumTag{ID: t.ID, Name: t.Name}, nil
+		}
+	}
+	return ForumTag{}, fmt.Errorf("notifier: discord: add forum tag: newly created tag %q not found in response", name)
+}
+
 // PatchThreadTags applies the given tag IDs to the Forum thread via
 // PATCH /channels/{thread_id}.
 func (c *DiscordBotClient) PatchThreadTags(ctx context.Context, threadID string, tagIDs []string) error {
@@ -229,13 +326,21 @@ func (c *DiscordBotClient) PatchThreadTags(ctx context.Context, threadID string,
 	return nil
 }
 
-// doRequest executes an HTTP request against the Discord API. If the response is
-// 429 Too Many Requests, it honours the Retry-After value and retries up to twice
-// (3 total attempts). For nil payload (GET requests), the body is set to http.NoBody.
-// Returns the final *http.Response on success or an error.
+// doRequest executes an HTTP request against the Discord API. It first acquires a
+// proactive rate-limit token (1 req/sec globally) before sending. If the response is
+// 429 Too Many Requests, it honours the Retry-After value and retries up to 9 more
+// times (10 total attempts). For nil payload (GET requests), the body is set to
+// http.NoBody. Returns the final *http.Response on success or an error.
 func (c *DiscordBotClient) doRequest(ctx context.Context, req *http.Request, payload []byte) (*http.Response, error) {
-	const maxRetries = 3
+	const maxRetries = 10
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Proactively throttle: wait for a rate-limit token before each attempt.
+		// The package-level token bucket allows at most 1 Discord API call per second
+		// across all client instances, preventing 429 floods during bulk backfills.
+		if err := acquireDiscordToken(ctx); err != nil {
+			return nil, err
+		}
+
 		if payload != nil {
 			req.Body = io.NopCloser(bytes.NewReader(payload))
 			req.ContentLength = int64(len(payload))
@@ -263,7 +368,9 @@ func (c *DiscordBotClient) doRequest(ctx context.Context, req *http.Request, pay
 		if delay <= 0 {
 			delay = 5 * time.Second
 		}
-		if delay > 30*time.Second {
+		// Discord global rate limits can reach several minutes; cap at 10 minutes
+		// before giving up so workers are not blocked indefinitely.
+		if delay > 10*time.Minute {
 			return nil, fmt.Errorf("notifier: discord: rate limited, retry_after %s exceeds cap", delay)
 		}
 
@@ -334,22 +441,6 @@ func stripFirstJSONObject(text string) string {
 		}
 	}
 	return text
-}
-
-// threadNameFromText derives a Forum thread name from the rendered message text.
-// Strips any embedded JSON object first, trims whitespace, returns the first 100 runes.
-// Falls back to "notification" when the result is empty.
-func threadNameFromText(text string) string {
-	stripped := stripFirstJSONObject(text)
-	stripped = strings.TrimSpace(stripped)
-	if stripped == "" {
-		return "notification"
-	}
-	runes := []rune(stripped)
-	if len(runes) > 100 {
-		runes = runes[:100]
-	}
-	return string(runes)
 }
 
 // Ensure DiscordBotClient satisfies notifier.Provider at compile time.
