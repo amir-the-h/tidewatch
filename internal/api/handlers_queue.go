@@ -10,7 +10,7 @@ import (
 func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 	var pendingTasks, pendingOllama int64
 	if s.sizer != nil {
-		pendingTasks, _ = s.sizer.TotalTaskLen(r.Context())
+		total, _ := s.sizer.TotalTaskLen(r.Context())
 		// Compute pending_ollama by summing LLen for all Ollama action queues.
 		if s.actionCache != nil {
 			for _, entry := range s.actionCache.All() {
@@ -20,6 +20,9 @@ func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// pending_tasks shows only non-Ollama tasks so the two counts are
+		// complementary (non-Ollama + Ollama = total), matching the old UX.
+		pendingTasks = total - pendingOllama
 	}
 
 	var workers any = []any{}
