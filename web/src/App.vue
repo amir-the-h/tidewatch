@@ -8,6 +8,7 @@ import { useQueuesStore } from './stores/queues'
 import { useFailuresStore } from './stores/failures'
 import { disconnect as wsDisconnect, resetAndConnect } from './composables/useWebSocket'
 import { WifiOutline, LogOutOutline } from '@vicons/ionicons5'
+import { formatEta } from './utils/format'
 
 const route  = useRoute()
 const router = useRouter()
@@ -70,6 +71,16 @@ const failedCount     = computed(() => failures.total)
 const totalWorkers    = computed(() => queues.workers.length)
 const activeWorkerCnt = computed(() => queues.workers.filter(w => w.status === 'active').length)
 
+// Show the larger of the two ETAs in the header (both queues need to drain).
+const headerEta = computed(() => {
+  const t = queues.etaTasks
+  const o = queues.etaOllama
+  if (t === null && o === null) return null
+  if (t === null) return o
+  if (o === null) return t
+  return Math.max(t, o)
+})
+
 // ── WS lifecycle ─────────────────────────────────────────────────────────────
 
 onMounted(() => {
@@ -127,6 +138,7 @@ watch(() => auth.isAuthenticated, (authenticated) => {
           <span>
             Q:
             <span :style="{ color: totalPending > 0 ? '#f9e2af' : '#a6adc8' }">{{ totalPending }}</span>
+            <span v-if="headerEta !== null" style="color: #585b70"> {{ formatEta(headerEta) }}</span>
             <span style="color: #585b70"> / </span>
             <span :style="{ color: failedCount > 0 ? '#f38ba8' : '#a6adc8' }">{{ failedCount }}</span>
           </span>
