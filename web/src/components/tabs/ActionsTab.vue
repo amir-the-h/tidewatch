@@ -78,9 +78,15 @@ const formMapCoordinateType = ref('array_of_pairs')
 const formMapPopupTemplate  = ref('')
 
 // discord_tag_thread-specific
-const formDiscordTagBotToken       = ref('')
-const formDiscordTagForumChannelID = ref('')
-const formDiscordTagNamesKey       = ref('discord_tag_names')
+const formDiscordTagChannelId = ref<number | null>(null)
+const formDiscordTagNamesKey  = ref('discord_tag_names')
+
+const discordChannelOptions = computed(() => {
+  const discordProviderIds = new Set(providers.value.filter(p => p.type === 'discord').map(p => p.id))
+  return channels.value
+    .filter(c => discordProviderIds.has(c.provider_id))
+    .map(c => ({ label: c.name, value: c.id }))
+})
 
 // entity_discovery-specific
 const formDiscoveryMinConfidence      = ref(0.75)
@@ -140,6 +146,7 @@ const providers = ref<NotificationProvider[]>([])
 const channelOptions = computed(() => channels.value.map(c => ({ label: c.name, value: c.id })))
 const formChannelId = ref<number | null>(null)
 const formMessageTemplate = ref('')
+const formThreadNameTemplate = ref('')
 
 // Pushover delivery
 const formPushPriority = ref(0)
@@ -243,6 +250,7 @@ function resetActionForm() {
   formTransformers.value = []
   formChannelId.value = null
   formMessageTemplate.value = '${tweet}'
+  formThreadNameTemplate.value = ''
   formPushPriority.value = 0; formPushTitle.value = null; formPushSound.value = null
   formPushUrl.value = null; formPushUrlTitle.value = null; formPushTtl.value = null
   formPushHtml.value = false; formPushRetry.value = null; formPushExpire.value = null
@@ -251,9 +259,8 @@ function resetActionForm() {
   formMapCoordinateKey.value = ''
   formMapCoordinateType.value = 'array_of_pairs'
   formMapPopupTemplate.value = ''
-  formDiscordTagBotToken.value       = ''
-  formDiscordTagForumChannelID.value = ''
-  formDiscordTagNamesKey.value       = 'discord_tag_names'
+  formDiscordTagChannelId.value = null
+  formDiscordTagNamesKey.value  = 'discord_tag_names'
   formDiscoveryMinConfidence.value      = 0.75
   formDiscoveryMinFrequency.value       = 3
   formDiscoveryAutoPromoteTypes.value   = []
@@ -290,9 +297,8 @@ function openEditAction(row: Action) {
   }
   // Internal-specific
   formHandler.value = row.config?.handler ?? null
-  formDiscordTagBotToken.value       = row.config?.bot_token        ?? ''
-  formDiscordTagForumChannelID.value = row.config?.forum_channel_id ?? ''
-  formDiscordTagNamesKey.value       = row.config?.tag_names_key    ?? 'discord_tag_names'
+  formDiscordTagChannelId.value = row.config?.channel_id  ?? null
+  formDiscordTagNamesKey.value  = row.config?.tag_names_key ?? 'discord_tag_names'
   formDiscoveryMinConfidence.value      = row.config?.min_confidence      ?? 0.75
   formDiscoveryMinFrequency.value       = row.config?.min_frequency       ?? 3
   formDiscoveryAutoPromoteTypes.value   = Array.isArray(row.config?.auto_promote_types)   ? [...row.config.auto_promote_types]   : []
@@ -317,6 +323,7 @@ function openEditAction(row: Action) {
   // Notification-specific
   formChannelId.value = row.config?.channel_id ?? null
   formMessageTemplate.value = row.config?.message_template ?? '${tweet}'
+  formThreadNameTemplate.value = row.config?.thread_name_template ?? ''
   formPushPriority.value = row.config?.priority ?? 0
   formPushTitle.value = row.config?.title ?? null
   formPushSound.value = row.config?.sound ?? null
@@ -408,6 +415,12 @@ async function onSaveAction() {
       if (formTgDisablePreview.value)       config.disable_web_page_preview = true
       if (formTgDisableNotification.value)  config.disable_notification     = true
       if (formTgThreadId.value)             config.message_thread_id        = formTgThreadId.value
+    } else if (notifProviderType.value === 'discord') {
+      if (!formThreadNameTemplate.value.trim()) {
+        msg.error('Thread name template is required for Discord')
+        return
+      }
+      config.thread_name_template = formThreadNameTemplate.value.trim()
     }
   } else {
     try {
@@ -429,8 +442,11 @@ async function onSaveAction() {
       config.handler = formHandler.value
     }
     if (formType.value === 'internal' && formHandler.value === 'discord_tag_thread') {
-      config.bot_token        = formDiscordTagBotToken.value
-      config.forum_channel_id = formDiscordTagForumChannelID.value
+      if (!formDiscordTagChannelId.value) {
+        msg.error('Discord channel is required')
+        return
+      }
+      config.channel_id = formDiscordTagChannelId.value
       if (formDiscordTagNamesKey.value && formDiscordTagNamesKey.value !== 'discord_tag_names')
         config.tag_names_key = formDiscordTagNamesKey.value
     }
@@ -669,11 +685,14 @@ watch(formUsecase, (val) => {
 
     <!-- discord_tag_thread config -->
     <template v-if="formType === 'internal' && formHandler === 'discord_tag_thread'">
-      <n-form-item label="Bot Token" required>
-        <n-input v-model:value="formDiscordTagBotToken" placeholder="Bot MTxxxxx…" />
-      </n-form-item>
-      <n-form-item label="Forum Channel ID" required>
-        <n-input v-model:value="formDiscordTagForumChannelID" placeholder="1234567890123456789" />
+      <n-form-item label="Discord Channel" required>
+        <n-select
+          v-model:value="formDiscordTagChannelId"
+          :options="discordChannelOptions"
+          placeholder="Select a Discord notification channel…"
+          filterable
+          clearable
+        />
       </n-form-item>
       <n-form-item label="Tag Names Context Key">
         <n-flex vertical :size="4">
@@ -816,6 +835,19 @@ watch(formUsecase, (val) => {
       <n-text depth="3" style="font-size:12px; margin-top:-8px; display:block">
         Available vars: ${tweet}, ${author}, ${tweet_id}, ${tweet_url}, plus any action execution key.
       </n-text>
+
+      <template v-if="notifProviderType === 'discord'">
+        <n-form-item label="Thread Name Template">
+          <n-input
+            v-model:value="formThreadNameTemplate"
+            placeholder="e.g. [${category}] ${author}"
+            style="font-family: monospace; font-size: 12px"
+          />
+        </n-form-item>
+        <n-text depth="3" style="font-size:12px; margin-top:-8px; display:block">
+          Available vars: ${tweet}, ${author}, ${tweet_id}, plus any action execution key. Max 100 chars.
+        </n-text>
+      </template>
 
       <template v-if="notifProviderType === 'pushover'">
         <n-divider>Pushover delivery options</n-divider>
