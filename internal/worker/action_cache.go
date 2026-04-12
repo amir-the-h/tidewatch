@@ -271,6 +271,9 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 			return nil, fmt.Errorf("action cache: discord channel missing forum_channel_id")
 		}
 		notifProvider = notifier.NewDiscordBotClient(provCreds.BotToken, forumChannelID)
+		if threadNameTemplate == "" {
+			return nil, fmt.Errorf("action cache: discord notification action missing thread_name_template")
+		}
 	default:
 		return nil, fmt.Errorf("action cache: unknown notification provider type %q", provider.Type)
 	}
