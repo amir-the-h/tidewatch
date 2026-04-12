@@ -60,6 +60,8 @@ ZCard(ctx context.Context, key string) *redis.IntCmd
 
 `BZPopMin` blocks until the element with the lowest score is available across any of the provided keys, then returns `(key, []Z)`. The `PopTask` signature is unchanged to callers. The post-pop `LLen` call for the broadcast is replaced with `ZCard`.
 
+**Note:** `BZPopMin` accepts `timeout float64` (seconds), while `BRPop` accepts `time.Duration`. The implementation must convert: `timeout.Seconds()`.
+
 ### `Len` / `TotalTaskLen`
 
 `LLen` → `ZCard` for keys matching `iran-watcher:tasks:*`. The dead-letter queue (`iran-watcher:failed`) continues to use `LLen`.
