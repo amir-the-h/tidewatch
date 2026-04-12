@@ -3,7 +3,7 @@
 import { h, ref, computed, onMounted } from 'vue'
 import { useFailuresStore } from '../stores/failures'
 import { useQueuesStore } from '../stores/queues'
-import { useMessage, NButton, NSpace, NTag, NIcon, NTooltip } from 'naive-ui'
+import { useMessage, NButton, NSpace, NTag, NIcon } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
 import type { WorkerInfo } from '../api/queue'
