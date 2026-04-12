@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -521,14 +522,41 @@ func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ str
 // ---------------------------------------------------------------------------
 
 type mockProducer struct {
+	mu     sync.Mutex
 	pushed []*queue.Task
 }
 
 func (m *mockProducer) PushTask(_ context.Context, t *queue.Task) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.pushed = append(m.pushed, t)
 	return nil
 }
 func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTweet) error { return nil }
+
+// waitForPushes polls until mp.pushed has at least n entries or deadline is exceeded.
+func (m *mockProducer) waitForPushes(t *testing.T, n int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		got := len(m.pushed)
+		m.mu.Unlock()
+		if got >= n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// pushedSnapshot returns a snapshot of pushed tasks under the lock.
+func (m *mockProducer) pushedSnapshot() []*queue.Task {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*queue.Task, len(m.pushed))
+	copy(out, m.pushed)
+	return out
+}
 
 // ---------------------------------------------------------------------------
 // mockRuleManager
@@ -583,6 +611,7 @@ func TestCreateSource(t *testing.T) {
 	body := `{"type":"account","value":"testuser"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/sources", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -615,6 +644,7 @@ func TestDeleteSource(t *testing.T) {
 	_ = ms.SaveSource(context.Background(), src)
 
 	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/sources/%d", src.ID), nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -639,6 +669,7 @@ func TestListTweets_Pagination(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tweets?page=2&per_page=10", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -646,7 +677,10 @@ func TestListTweets_Pagination(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var result []*model.Tweet
+	var result struct {
+		Tweets []*model.Tweet `json:"tweets"`
+		Total  int64          `json:"total"`
+	}
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -663,6 +697,7 @@ func TestGetTweet_ReturnsDetail(t *testing.T) {
 	_ = ms.SaveTweet(context.Background(), tw)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tweets/t1", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -692,9 +727,11 @@ func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 	_ = ms.SaveTweet(context.Background(), tw1)
 	_ = ms.SaveTweet(context.Background(), tw2)
 
-	body := `{"tweet_ids":["t1","t2"]}`
+	// Use targeted action_ids dispatch to bypass the pipeline/trigger system.
+	body := `{"tweet_ids":["t1","t2"],"action_ids":[42]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/tweets/reprocess", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -711,8 +748,8 @@ func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 	if result.Requeued != 2 {
 		t.Errorf("expected requeued=2, got %d", result.Requeued)
 	}
-	if len(mp.pushed) != 2 {
-		t.Errorf("expected 2 pushed tweets, got %d", len(mp.pushed))
+	if len(mp.pushedSnapshot()) != 2 {
+		t.Errorf("expected 2 pushed tweets, got %d", len(mp.pushedSnapshot()))
 	}
 }
 
@@ -734,6 +771,7 @@ func TestGetHealth(t *testing.T) {
 	srv, _, _, _ := newTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
 
@@ -822,17 +860,13 @@ func TestRunPipeline_QueuesTweets(t *testing.T) {
 		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var result map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
+	// Dispatch is async — response always has queued=0; wait for background goroutine.
+	mp.waitForPushes(t, 2, 2*time.Second)
+	pushed := mp.pushedSnapshot()
+	if len(pushed) != 2 {
+		t.Fatalf("expected 2 pushed tasks, got %d", len(pushed))
 	}
-	if result["queued"] != float64(2) {
-		t.Errorf("expected queued=2, got %v", result["queued"])
-	}
-	if len(mp.pushed) != 2 {
-		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
-	}
-	for _, task := range mp.pushed {
+	for _, task := range pushed {
 		if task.PipelineID != 1 {
 			t.Errorf("expected PipelineID=1, got %d", task.PipelineID)
 		}
@@ -880,16 +914,14 @@ func TestRunPipeline_NewOnly(t *testing.T) {
 		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var result map[string]any
-	_ = json.NewDecoder(w.Body).Decode(&result)
-	if result["queued"] != float64(1) {
-		t.Errorf("expected queued=1, got %v", result["queued"])
+	// Dispatch is async — wait for the background goroutine to push the task.
+	mp.waitForPushes(t, 1, 2*time.Second)
+	pushed := mp.pushedSnapshot()
+	if len(pushed) != 1 {
+		t.Fatalf("expected 1 pushed task, got %d", len(pushed))
 	}
-	if len(mp.pushed) != 1 {
-		t.Fatalf("expected 1 pushed task, got %d", len(mp.pushed))
-	}
-	if mp.pushed[0].ActionID != 5 {
-		t.Errorf("expected ActionID=5, got %d", mp.pushed[0].ActionID)
+	if pushed[0].ActionID != 5 {
+		t.Errorf("expected ActionID=5, got %d", pushed[0].ActionID)
 	}
 }
 
@@ -924,13 +956,12 @@ func TestRunPipeline_EntityMatched(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
 	}
-	var result map[string]any
-	_ = json.NewDecoder(w.Body).Decode(&result)
-	if result["queued"] != float64(2) {
-		t.Errorf("expected queued=2 (only entity-tracked tweets), got %v", result["queued"])
-	}
-	if len(mp.pushed) != 2 {
-		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
+
+	// Dispatch is async — wait for the background goroutine to push tasks.
+	mp.waitForPushes(t, 2, 2*time.Second)
+	pushed := mp.pushedSnapshot()
+	if len(pushed) != 2 {
+		t.Fatalf("expected 2 pushed tasks, got %d", len(pushed))
 	}
 }
 
@@ -992,16 +1023,17 @@ func TestRunPipeline_StartNodeIdDispatchesFromNode(t *testing.T) {
 	}
 
 	// Handler dispatches in a background goroutine; wait for it.
-	time.Sleep(100 * time.Millisecond)
+	mp.waitForPushes(t, 1, 2*time.Second)
+	pushed := mp.pushedSnapshot()
 
-	if len(mp.pushed) != 1 {
-		t.Fatalf("expected 1 pushed task (only node 11), got %d", len(mp.pushed))
+	if len(pushed) != 1 {
+		t.Fatalf("expected 1 pushed task (only node 11), got %d", len(pushed))
 	}
-	if mp.pushed[0].PipelineNodeID != 11 {
-		t.Errorf("expected PipelineNodeID=11, got %d", mp.pushed[0].PipelineNodeID)
+	if pushed[0].PipelineNodeID != 11 {
+		t.Errorf("expected PipelineNodeID=11, got %d", pushed[0].PipelineNodeID)
 	}
-	if mp.pushed[0].ActionID != 6 {
-		t.Errorf("expected ActionID=6, got %d", mp.pushed[0].ActionID)
+	if pushed[0].ActionID != 6 {
+		t.Errorf("expected ActionID=6, got %d", pushed[0].ActionID)
 	}
 }
 
@@ -1046,14 +1078,15 @@ func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
 	}
 
 	// Handler dispatches in a background goroutine; wait for it.
-	time.Sleep(100 * time.Millisecond)
+	mp.waitForPushes(t, 1, 2*time.Second)
+	pushed := mp.pushedSnapshot()
 
 	// Only t2 should be queued: t1 already ran action 6, t2 only ran action 5.
-	if len(mp.pushed) != 1 {
-		t.Fatalf("expected 1 pushed task, got %d", len(mp.pushed))
+	if len(pushed) != 1 {
+		t.Fatalf("expected 1 pushed task, got %d", len(pushed))
 	}
 	tweetIDs := make(map[string]bool)
-	for _, task := range mp.pushed {
+	for _, task := range pushed {
 		var ev struct{ TweetID string `json:"tweet_id"` }
 		_ = json.Unmarshal(task.Event, &ev)
 		tweetIDs[ev.TweetID] = true
@@ -1100,13 +1133,14 @@ func TestRunPipeline_AscOrder(t *testing.T) {
 	}
 
 	// Handler dispatches in a background goroutine; wait for it.
-	time.Sleep(100 * time.Millisecond)
+	mp.waitForPushes(t, 2, 2*time.Second)
+	pushed := mp.pushedSnapshot()
 
-	if len(mp.pushed) != 2 {
-		t.Fatalf("expected 2 pushed tasks, got %d", len(mp.pushed))
+	if len(pushed) != 2 {
+		t.Fatalf("expected 2 pushed tasks, got %d", len(pushed))
 	}
 	var ev0 struct{ TweetID string `json:"tweet_id"` }
-	_ = json.Unmarshal(mp.pushed[0].Event, &ev0)
+	_ = json.Unmarshal(pushed[0].Event, &ev0)
 	if ev0.TweetID != "t_old" {
 		t.Errorf("expected first task for t_old (oldest), got %s", ev0.TweetID)
 	}

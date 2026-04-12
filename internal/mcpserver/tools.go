@@ -487,7 +487,24 @@ func AllTools() []ToolDef {
 			Path:        "/api/pipelines/{id}/graph",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
 			Body: &BodyDef{
-				Description: "Object with fields: nodes (array of PipelineNodeRequest), edges (array of PipelineEdgeRequest).",
+				Description: `Object with fields: nodes (array of PipelineNodeRequest), edges (array of PipelineEdgeRequest).
+
+IMPORTANT — node identity uses client_id strings, NOT database IDs:
+  Node fields:
+    client_id      string   (required) — caller-chosen stable identifier, e.g. "start", "cond", "ext"; used by edges to reference this node
+    type           string   — "start" | "action" | "condition" | "pipeline"
+    label          string
+    pos_x, pos_y   float
+    action_id      int      (action nodes only)
+    sub_pipeline_id int     (pipeline nodes only)
+    conditions     array    (condition nodes only) — [{key, op, value}]
+
+  Edge fields:
+    source_client_id  string  — client_id of the source node
+    source_handle     string  — "default" | "pass" | "fail"
+    target_client_id  string  — client_id of the target node
+
+Do NOT use database node IDs (id field) in edges — the server always assigns new IDs on save. Always reference nodes via client_id / source_client_id / target_client_id.`,
 			},
 		},
 		{
@@ -768,7 +785,7 @@ func AllTools() []ToolDef {
 		// ── Queue ────────────────────────────────────────────────────────────
 		{
 			Name:        "queue_get",
-			Description: "Get per-action queue depths.",
+			Description: "Get global queue status: pending task count and per-worker status (id, status, action, pipeline, tweet, depth, duration, backend).",
 			Method:      "GET",
 			Path:        "/api/queue",
 		},
