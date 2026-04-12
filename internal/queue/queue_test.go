@@ -120,7 +120,8 @@ func TestTask_JSONRoundTrip(t *testing.T) {
 // Test 3: PopTask returns (nil, nil) on timeout (redis.Nil error from BRPop)
 // ---------------------------------------------------------------------------
 
-// fakeRedisClient is a minimal redisClient implementation for testing.
+// fakeRedisClient implements redisClient for unit tests.
+// BZPopMin returns redis.Nil (timeout) by default — override in derived fakes for success paths.
 type fakeRedisClient struct {
 	brpopErr    error
 	brpopResult []string
@@ -143,6 +144,20 @@ func (f *fakeRedisClient) LRange(_ context.Context, _ string, _, _ int64) *redis
 }
 
 func (f *fakeRedisClient) Del(_ context.Context, _ ...string) *redis.IntCmd {
+	return redis.NewIntResult(0, nil)
+}
+
+func (f *fakeRedisClient) ZAdd(_ context.Context, _ string, _ ...redis.Z) *redis.IntCmd {
+	return redis.NewIntResult(1, nil)
+}
+
+func (f *fakeRedisClient) BZPopMin(ctx context.Context, _ time.Duration, _ ...string) *redis.ZWithKeyCmd {
+	cmd := redis.NewZWithKeyCmd(ctx, "bzpopmin")
+	cmd.SetErr(redis.Nil) // default: no item available (timeout)
+	return cmd
+}
+
+func (f *fakeRedisClient) ZCard(_ context.Context, _ string) *redis.IntCmd {
 	return redis.NewIntResult(0, nil)
 }
 
@@ -208,18 +223,24 @@ func TestPopTask_EmptyKeys_ReturnsNil(t *testing.T) {
 
 type pushCaptureFakeClient struct {
 	fakeRedisClient
-	pushedKey string
-	pushedVal string
+	pushedKey    string
+	pushedScore  float64
+	pushedMember string
 }
 
-func (f *pushCaptureFakeClient) LPush(_ context.Context, key string, values ...interface{}) *redis.IntCmd {
+func (f *pushCaptureFakeClient) ZAdd(_ context.Context, key string, members ...redis.Z) *redis.IntCmd {
 	f.pushedKey = key
-	if len(values) > 0 {
-		if b, ok := values[0].([]byte); ok {
-			f.pushedVal = string(b)
+	if len(members) > 0 {
+		f.pushedScore = members[0].Score
+		if s, ok := members[0].Member.(string); ok {
+			f.pushedMember = s
 		}
 	}
 	return redis.NewIntResult(1, nil)
+}
+
+func (f *pushCaptureFakeClient) ZCard(_ context.Context, _ string) *redis.IntCmd {
+	return redis.NewIntResult(1, nil) // returns 1 for broadcast assertions
 }
 
 func TestPushTask_RoutesToActionKey(t *testing.T) {
@@ -244,25 +265,23 @@ func TestPushTask_RoutesToActionKey(t *testing.T) {
 // scanFakeClient — extends fakeRedisClient with Scan for TotalTaskLen/FlushQueue
 // ---------------------------------------------------------------------------
 
-// scanFakeClient extends fakeRedisClient with a Scan implementation for testing
-// TotalTaskLen and FlushQueue.
+// scanFakeClient extends fakeRedisClient with Scan and ZCard for TotalTaskLen/FlushQueue tests.
 type scanFakeClient struct {
 	fakeRedisClient
-	scanKeys []string         // keys returned by Scan
-	lenByKey map[string]int64 // key → LLEN result
-	deleted  []string         // keys passed to Del
+	scanKeys   []string         // keys returned by Scan
+	zcardByKey map[string]int64 // key → ZCARD result
+	deleted    []string         // keys passed to Del
 }
 
 func (f *scanFakeClient) Scan(_ context.Context, cursor uint64, _ string, _ int64) *redis.ScanCmd {
-	// Return all keys on the first call (cursor 0), then signal done (next=0).
 	if cursor == 0 {
 		return redis.NewScanCmdResult(f.scanKeys, 0, nil)
 	}
 	return redis.NewScanCmdResult(nil, 0, nil)
 }
 
-func (f *scanFakeClient) LLen(_ context.Context, key string) *redis.IntCmd {
-	n := f.lenByKey[key]
+func (f *scanFakeClient) ZCard(_ context.Context, key string) *redis.IntCmd {
+	n := f.zcardByKey[key]
 	return redis.NewIntResult(n, nil)
 }
 
@@ -274,7 +293,7 @@ func (f *scanFakeClient) Del(_ context.Context, keys ...string) *redis.IntCmd {
 func TestTotalTaskLen_SumsAllActionQueues(t *testing.T) {
 	fake := &scanFakeClient{
 		scanKeys: []string{"iran-watcher:tasks:1", "iran-watcher:tasks:2"},
-		lenByKey: map[string]int64{
+		zcardByKey: map[string]int64{
 			"iran-watcher:tasks:1": 3,
 			"iran-watcher:tasks:2": 5,
 		},
@@ -333,20 +352,22 @@ func (b *captureBroadcaster) Broadcast(e hub.Event) {
 	b.events = append(b.events, e)
 }
 
-// brpopSuccessFakeClient returns a successful BRPOP result with a configurable LLEN.
-type brpopSuccessFakeClient struct {
+// bzpopSuccessFakeClient simulates a successful BZPopMin result for PopTask tests.
+type bzpopSuccessFakeClient struct {
 	fakeRedisClient
-	brpopKey   string
-	brpopVal   string
-	llenResult int64
+	popKey    string
+	popMember string
+	zcardN    int64
 }
 
-func (f *brpopSuccessFakeClient) BRPop(_ context.Context, _ time.Duration, _ ...string) *redis.StringSliceCmd {
-	return redis.NewStringSliceResult([]string{f.brpopKey, f.brpopVal}, nil)
+func (f *bzpopSuccessFakeClient) BZPopMin(ctx context.Context, _ time.Duration, _ ...string) *redis.ZWithKeyCmd {
+	cmd := redis.NewZWithKeyCmd(ctx, "bzpopmin")
+	cmd.SetVal(&redis.ZWithKey{Key: f.popKey, Z: redis.Z{Score: 0, Member: f.popMember}})
+	return cmd
 }
 
-func (f *brpopSuccessFakeClient) LLen(_ context.Context, _ string) *redis.IntCmd {
-	return redis.NewIntResult(f.llenResult, nil)
+func (f *bzpopSuccessFakeClient) ZCard(_ context.Context, _ string) *redis.IntCmd {
+	return redis.NewIntResult(f.zcardN, nil)
 }
 
 func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
@@ -357,10 +378,10 @@ func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
 		Event:       json.RawMessage(ev),
 		Context:     map[string]any{},
 	})
-	fake := &brpopSuccessFakeClient{
-		brpopKey:   "iran-watcher:tasks:7",
-		brpopVal:   string(taskJSON),
-		llenResult: 5,
+	fake := &bzpopSuccessFakeClient{
+		popKey:    "iran-watcher:tasks:7",
+		popMember: string(taskJSON),
+		zcardN:    5,
 	}
 	bc := &captureBroadcaster{}
 	q := &RedisQueue{client: fake, broadcaster: bc}
@@ -393,7 +414,7 @@ func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
 func TestPopTask_NoBroadcastWhenNoBroadcaster(t *testing.T) {
 	ev, _ := json.Marshal(TweetEvent{TweetID: "2", Text: "x", AuthorHandle: "u"})
 	taskJSON, _ := json.Marshal(&Task{TriggerType: "new_tweet", ActionID: 3, Event: json.RawMessage(ev), Context: map[string]any{}})
-	fake := &brpopSuccessFakeClient{brpopKey: "iran-watcher:tasks:3", brpopVal: string(taskJSON), llenResult: 0}
+	fake := &bzpopSuccessFakeClient{popKey: "iran-watcher:tasks:3", popMember: string(taskJSON), zcardN: 0}
 	q := &RedisQueue{client: fake} // no broadcaster
 
 	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:3")

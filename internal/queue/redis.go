@@ -14,11 +14,17 @@ import (
 // redisClient is the narrow subset of redis.Client methods used by RedisQueue.
 // Defining it as an interface allows injection of test doubles.
 type redisClient interface {
+	// List operations — dead-letter queue and legacy Len/TotalTaskLen (LLen removed in Task 5).
 	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	BRPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd
-	LLen(ctx context.Context, key string) *redis.IntCmd
+	LLen(ctx context.Context, key string) *redis.IntCmd // keep until Task 5
 	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
+
+	// Sorted-set operations — per-action task queues.
+	ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd
+	BZPopMin(ctx context.Context, timeout time.Duration, keys ...string) *redis.ZWithKeyCmd
+	ZCard(ctx context.Context, key string) *redis.IntCmd
 }
 
 // scanner is implemented by redis clients that support SCAN (e.g. *redis.Client).
