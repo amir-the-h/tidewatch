@@ -14,10 +14,9 @@ import (
 // redisClient is the narrow subset of redis.Client methods used by RedisQueue.
 // Defining it as an interface allows injection of test doubles.
 type redisClient interface {
-	// List operations — dead-letter queue and legacy Len/TotalTaskLen (LLen removed in Task 5).
+	// List operations — dead-letter queue only.
 	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	BRPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd
-	LLen(ctx context.Context, key string) *redis.IntCmd // keep until Task 5
 	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 
@@ -83,28 +82,33 @@ func (q *RedisQueue) PushTask(ctx context.Context, task *Task) error {
 	return nil
 }
 
-// PopTask blocks until a Task is available on one of the given keys or the
-// timeout elapses. Returns (nil, nil) on timeout or when no keys are provided.
+// PopTask blocks until a Task is available on one of the given sorted-set keys
+// or the timeout elapses. Returns the task with the lowest Depth (score) first.
+// Returns (nil, nil) on timeout or when no keys are provided.
 func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration, keys ...string) (*Task, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
-	res, err := q.client.BRPop(ctx, timeout, keys...).Result()
+	zwk, err := q.client.BZPopMin(ctx, timeout, keys...).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("queue: pop task: %w", err)
 	}
-	if len(res) < 2 {
+	if zwk == nil || zwk.Key == "" {
 		return nil, nil
 	}
+	member, ok := zwk.Z.Member.(string)
+	if !ok {
+		return nil, fmt.Errorf("queue: pop task: member is not a string")
+	}
 	var t Task
-	if err := json.Unmarshal([]byte(res[1]), &t); err != nil {
+	if err := json.Unmarshal([]byte(member), &t); err != nil {
 		return nil, fmt.Errorf("queue: pop task: unmarshal: %w", err)
 	}
 	if q.broadcaster != nil {
-		pending, _ := q.client.LLen(ctx, res[0]).Result()
+		pending, _ := q.client.ZCard(ctx, zwk.Key).Result()
 		q.broadcaster.Broadcast(hub.Event{
 			Type: "queue_update",
 			Payload: map[string]int64{
@@ -155,9 +159,9 @@ func (q *RedisQueue) PopFailed(ctx context.Context, timeout time.Duration) (*Fai
 	return &ft, nil
 }
 
-// Len returns the number of items currently in the named queue.
+// Len returns the number of items currently in the named task queue (sorted set).
 func (q *RedisQueue) Len(ctx context.Context, queue string) (int64, error) {
-	n, err := q.client.LLen(ctx, queue).Result()
+	n, err := q.client.ZCard(ctx, queue).Result()
 	if err != nil {
 		return 0, fmt.Errorf("queue: len: %w", err)
 	}

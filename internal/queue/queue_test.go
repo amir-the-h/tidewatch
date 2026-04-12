@@ -135,10 +135,6 @@ func (f *fakeRedisClient) BRPop(_ context.Context, _ time.Duration, _ ...string)
 	return redis.NewStringSliceResult(f.brpopResult, f.brpopErr)
 }
 
-func (f *fakeRedisClient) LLen(_ context.Context, _ string) *redis.IntCmd {
-	return redis.NewIntResult(0, nil)
-}
-
 func (f *fakeRedisClient) LRange(_ context.Context, _ string, _, _ int64) *redis.StringSliceCmd {
 	return redis.NewStringSliceResult(nil, nil)
 }
@@ -190,23 +186,6 @@ func TestPopFailed_ReturnsNilOnTimeout(t *testing.T) {
 	}
 	if ft != nil {
 		t.Fatalf("expected nil FailedTweet on timeout, got: %+v", ft)
-	}
-}
-
-func TestPopTask_ReturnsNilOnEmptyResult(t *testing.T) {
-	// BRPop can also return an empty slice with no error in some edge cases.
-	fake := &fakeRedisClient{
-		brpopErr:    nil,
-		brpopResult: []string{}, // empty — fewer than 2 elements
-	}
-	q := &RedisQueue{client: fake}
-
-	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:1")
-	if err != nil {
-		t.Fatalf("expected nil error on empty result, got: %v", err)
-	}
-	if task != nil {
-		t.Fatalf("expected nil task on empty result, got: %+v", task)
 	}
 }
 
