@@ -8,10 +8,21 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
+
+// isOllamaAction reports whether the action identified by actionID uses an
+// Ollama pipeline. Returns false when cache is nil or the action is not found.
+func isOllamaAction(cache *ActionCache, actionID int64) bool {
+	if cache == nil {
+		return false
+	}
+	entry := cache.Get(actionID)
+	return entry != nil && entry.Pipeline.Type() == inference.PipelineTypeOllama
+}
 
 // PushInitialPipelineTasks dispatches tasks for all active pipelines linked to
 // triggerType. Called by the stream listener and search client when a new tweet
@@ -252,6 +263,7 @@ func dispatchInitialNode(
 			RootPipelineID: rootPipelineID,
 			Depth:          depth,
 			Context:        map[string]any{},
+			IsOllama:       isOllamaAction(cache, *node.ActionID),
 		}
 		if pushTrackedTask(ctx, st, producer, task, logger) {
 			pushed++
@@ -309,6 +321,7 @@ func dispatchInitialNode(
 				SubPipelineEntryNodeID: &entryNodeID,
 				Depth:                  depth + 1,
 				Context:                map[string]any{},
+				IsOllama:               isOllamaAction(cache, *subActionNode.ActionID),
 			}
 			if pushTrackedTask(ctx, st, producer, subTask, logger) {
 				pushed++
@@ -504,7 +517,7 @@ func PushContinuationTasks(
 					"node_id", targetNode.ID,
 				)
 			}
-			if pushContinuationTask(ctx, st, producer, task, targetNode, mergedCtx, logger) {
+			if pushContinuationTask(ctx, st, producer, cache, task, targetNode, mergedCtx, logger) {
 				pushed++
 			}
 
@@ -567,7 +580,7 @@ func PushContinuationTasks(
 							"node_id", nextNode.ID,
 						)
 					}
-					if pushContinuationTask(ctx, st, producer, task, nextNode, mergedCtx, logger) {
+					if pushContinuationTask(ctx, st, producer, cache, task, nextNode, mergedCtx, logger) {
 						pushed++
 					}
 				case model.PipelineNodeTypePipeline:
@@ -615,6 +628,7 @@ func PushContinuationTasks(
 							SubPipelineEntryNodeID: &entryNodeID,
 							Depth:                  task.Depth + 1,
 							Context:                copyContext(mergedCtx),
+							IsOllama:               isOllamaAction(cache, *subActionNode.ActionID),
 						}
 						if pushTrackedTask(ctx, st, producer, subTask, logger) {
 							pushed++
@@ -676,6 +690,7 @@ func PushContinuationTasks(
 					SubPipelineEntryNodeID: &entryNodeID,
 					Depth:                  task.Depth + 1,
 					Context:                copyContext(mergedCtx),
+					IsOllama:               isOllamaAction(cache, *subActionNode.ActionID),
 				}
 				if pushTrackedTask(ctx, st, producer, subTask, logger) {
 					pushed++
@@ -728,6 +743,7 @@ func pushContinuationTask(
 	ctx context.Context,
 	st store.Store,
 	producer queue.Producer,
+	cache *ActionCache,
 	parent *queue.Task,
 	node *model.PipelineNode,
 	mergedCtx map[string]any,
@@ -744,6 +760,7 @@ func pushContinuationTask(
 		SubPipelineEntryNodeID: parent.SubPipelineEntryNodeID,
 		Depth:                  parent.Depth + 1,
 		Context:                copyContext(mergedCtx),
+		IsOllama:               isOllamaAction(cache, *node.ActionID),
 	}
 	return pushTrackedTask(ctx, st, producer, task, logger)
 }
