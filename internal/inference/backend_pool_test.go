@@ -215,3 +215,42 @@ func TestBackendPool_WaitForAvailability_RespectsTimeout(t *testing.T) {
 		t.Errorf("returned too slow: %v (want ≤400ms)", elapsed)
 	}
 }
+
+func TestBackendPool_TotalCapacity(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+
+	// Empty pool: capacity is 0.
+	if got := p.TotalCapacity(); got != 0 {
+		t.Errorf("empty pool TotalCapacity = %d, want 0", got)
+	}
+
+	p.Load([]BackendRecord{
+		{ID: 1, Name: "a", URL: "http://a:11434", Enabled: true, MaxConcurrent: 2},
+		{ID: 2, Name: "b", URL: "http://b:11434", Enabled: true, MaxConcurrent: 3},
+		{ID: 3, Name: "c", URL: "http://c:11434", Enabled: false, MaxConcurrent: 5}, // disabled: excluded
+	})
+
+	if got := p.TotalCapacity(); got != 5 {
+		t.Errorf("TotalCapacity = %d, want 5 (2+3, disabled excluded)", got)
+	}
+}
+
+func TestBackendPool_TotalCapacity_UnhealthyExcluded(t *testing.T) {
+	p := NewBackendPool()
+	defer p.Close()
+
+	p.Load([]BackendRecord{
+		{ID: 1, Name: "healthy", URL: "http://a:11434", Enabled: true, MaxConcurrent: 4},
+		{ID: 2, Name: "unhealthy", URL: "http://b:11434", Enabled: true, MaxConcurrent: 2},
+	})
+
+	// Mark backend 2 unhealthy.
+	p.mu.Lock()
+	p.backends[2].healthy = false
+	p.mu.Unlock()
+
+	if got := p.TotalCapacity(); got != 4 {
+		t.Errorf("TotalCapacity = %d, want 4 (unhealthy backend excluded)", got)
+	}
+}

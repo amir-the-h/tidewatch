@@ -257,6 +257,21 @@ func (p *BackendPool) IsAnyAvailable(assignedIDs []int64) bool {
 	return p.isAnyAvailable(assignedIDs)
 }
 
+// TotalCapacity returns the sum of max_concurrent for all healthy, enabled backends.
+// Returns 0 if the pool is empty or all backends are disabled/unhealthy.
+// Called by the worker on every loop iteration to cap Ollama in-flight tasks.
+func (p *BackendPool) TotalCapacity() int32 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var total int32
+	for _, b := range p.backends {
+		if b.enabled && b.healthy {
+			total += int32(b.concurrencyLimit())
+		}
+	}
+	return total
+}
+
 // WaitForAvailability blocks until a backend matching assignedIDs is
 // available, the timeout elapses, or ctx is cancelled.
 // Empty/nil assignedIDs waits for any backend in the full pool.
