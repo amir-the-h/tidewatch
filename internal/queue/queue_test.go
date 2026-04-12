@@ -101,7 +101,7 @@ func TestFailedTweet_JSONRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 3: Task JSON round-trip (no Depth or IsOllama fields)
+// Test 3: Task JSON round-trip (Depth and IsOllama are intentionally absent — per-action routing supersedes them)
 // ---------------------------------------------------------------------------
 
 func TestTask_JSONRoundTrip(t *testing.T) {

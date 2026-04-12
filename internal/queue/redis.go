@@ -94,6 +94,7 @@ func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration, keys ..
 	}
 	if q.broadcaster != nil {
 		pending, _ := q.client.LLen(ctx, res[0]).Result()
+		// t.ActionID and res[0] always agree: QueueTasksKey(t.ActionID) == res[0].
 		q.broadcaster.Broadcast(hub.Event{
 			Type: "queue_update",
 			Payload: map[string]int64{
@@ -156,6 +157,9 @@ func (q *RedisQueue) Len(ctx context.Context, queue string) (int64, error) {
 // ListFailed returns up to limit FailedTweet entries starting at offset
 // without consuming them from the queue.
 func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTweet, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
 	stop := offset + limit - 1
 	items, err := q.client.LRange(ctx, QueueFailed, offset, stop).Result()
 	if err != nil {
@@ -186,9 +190,10 @@ func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 	return nil
 }
 
-// TotalTaskLen sums the lengths of all per-action task queues by scanning for
-// keys matching iran-watcher:tasks:*. Returns 0 if the underlying client does
-// not support SCAN (e.g. test fakes).
+// TotalTaskLen returns a non-atomic estimate of the total pending task count
+// across all per-action queues by scanning keys matching iran-watcher:tasks:*.
+// Keys created or deleted between SCAN pages may be missed or double-counted.
+// Returns 0 if the underlying client does not support SCAN (e.g. test fakes).
 func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
 	s, ok := q.client.(scanner)
 	if !ok {
@@ -216,9 +221,9 @@ func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
 	return total, nil
 }
 
-// FlushQueue deletes all per-action task queues by scanning for
-// keys matching iran-watcher:tasks:* and deleting them in batches.
-// Returns nil if the client does not support SCAN.
+// FlushQueue deletes per-action task queues by scanning for keys matching
+// iran-watcher:tasks:* and deleting them in batches. Tasks pushed between
+// SCAN pages may survive the flush. Returns nil if the client does not support SCAN.
 func (q *RedisQueue) FlushQueue(ctx context.Context) error {
 	s, ok := q.client.(scanner)
 	if !ok {
