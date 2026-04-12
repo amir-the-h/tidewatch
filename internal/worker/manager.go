@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +29,7 @@ type Manager struct {
 	broadcaster   hub.Broadcaster
 	logger        *slog.Logger
 	active        atomic.Int32
+	ollamaActive  atomic.Int32
 	workerActions sync.Map // key: int (worker ID), value: WorkerInfo
 	workerCancels sync.Map // key: int (worker ID), value: context.CancelFunc
 }
@@ -136,6 +136,34 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
+// buildReadyKeys returns the Redis queue keys for all active actions whose
+// pipeline is currently acquirable. ONNX, internal, and notification
+// pipelines are always included. Ollama pipelines are included only when
+// at least one assigned (or pool-wide) backend is healthy and enabled,
+// AND the global ollamaActive count is below the pool's total capacity.
+func (m *Manager) buildReadyKeys() []string {
+	entries := m.cache.All()
+	pool := m.cache.Pool()
+	var cap int32
+	if pool != nil {
+		cap = pool.TotalCapacity()
+	}
+	keys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if av, ok := e.Pipeline.(inference.AvailabilityChecker); ok {
+			// Ollama pipeline: gated by both backend-level availability and the
+			// global in-flight count not exceeding total backend capacity.
+			if av.IsAvailable() && m.ollamaActive.Load() < cap {
+				keys = append(keys, queue.QueueTasksKey(e.Action.ID))
+			}
+		} else {
+			// No AvailabilityChecker → always available (ONNX, internal, notification).
+			keys = append(keys, queue.QueueTasksKey(e.Action.ID))
+		}
+	}
+	return keys
+}
+
 func (m *Manager) runWorker(ctx context.Context, id int) {
 	for {
 		select {
@@ -144,60 +172,33 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		default:
 		}
 
-		// Peek minimum depths across both queues to find the globally lowest-depth
-		// runnable task. Non-Ollama tasks are always immediately runnable;
-		// Ollama tasks are only considered when backend capacity exists.
-		d1, hasD1 := m.consumer.PeekMinDepth(ctx, queue.QueueTasksKey)
-		if !hasD1 {
-			d1 = math.MaxFloat64
+		keys := m.buildReadyKeys()
+		if len(keys) == 0 {
+			// No active actions, or all Ollama backends are busy.
+			// Block until a backend becomes available or timeout fires, then re-evaluate.
+			if pool := m.cache.Pool(); pool != nil {
+				pool.WaitForAvailability(ctx, 1*time.Second, nil)
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+			continue
 		}
 
-		d2 := math.MaxFloat64
-		ollamaPool := m.cache.Pool()
-		// IsAnyAvailable(nil) is a coarse pool-wide gate — if no backend has any
-		// capacity at all, skip the Ollama peek entirely. Per-pipeline assigned-ID
-		// checking (which is finer-grained) happens in the safety-net below.
-		ollamaAvailable := ollamaPool != nil && ollamaPool.IsAnyAvailable(nil)
-		if ollamaAvailable {
-			if depth, ok := m.consumer.PeekMinDepth(ctx, queue.QueueOllamaTasksKey); ok {
-				d2 = depth
+		task, err := m.consumer.PopTask(ctx, 1*time.Second, keys...)
+		if err != nil {
+			if m.logger != nil {
+				m.logger.Error("worker: pop task", "worker_id", id, "error", err)
 			}
+			continue
 		}
-
-		var task *queue.Task
-		var popErr error
-
-		switch {
-		case d1 == math.MaxFloat64 && d2 == math.MaxFloat64:
-			// Both queues empty (or Ollama capacity unavailable): block on the non-Ollama
-			// queue with a 250 ms timeout. This acts as a capacity re-check interval —
-			// when Ollama capacity becomes free, the next iteration will observe it
-			// within at most 250 ms. Blocking on the non-Ollama key means a newly
-			// arriving non-Ollama task unblocks immediately; new Ollama tasks are
-			// observed only on the next peek cycle.
-			task, popErr = m.consumer.PopTask(ctx, 250*time.Millisecond)
-			if popErr != nil && m.logger != nil {
-				m.logger.Error("worker: pop task", "worker_id", id, "error", popErr)
-			}
-		case d1 <= d2:
-			// Non-Ollama queue has equal or lower depth — pop from it.
-			task, popErr = m.consumer.TryPopTask(ctx)
-			if popErr != nil && m.logger != nil {
-				m.logger.Error("worker: try pop task", "worker_id", id, "error", popErr)
-			}
-		default:
-			// Ollama queue has strictly lower depth and capacity is available — pop from it.
-			task, popErr = m.consumer.TryPopOllamaTask(ctx)
-			if popErr != nil && m.logger != nil {
-				m.logger.Error("worker: try pop ollama task", "worker_id", id, "error", popErr)
-			}
-		}
-
 		if task == nil {
 			continue
 		}
 
-		// Post-pop: discard if action no longer exists in cache.
 		entry := m.cache.Get(task.ActionID)
 		if entry == nil {
 			if m.logger != nil {
@@ -207,19 +208,13 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 			continue
 		}
 
-		// Safety net for Ollama tasks: re-check availability after pop to close the
-		// race between PeekMinDepth and AcquireForPipeline inside the pipeline.
-		// If the race occurred, re-queue the task (IsOllama is preserved so it routes
-		// back to iran-watcher:tasks:ollama) and continue without sleeping —
-		// the loop will block naturally in the empty-queues branch above.
-		if task.IsOllama {
-			if av, ok := entry.Pipeline.(inference.AvailabilityChecker); ok && !av.IsAvailable() {
-				if pushErr := m.producer.PushTask(ctx, task); pushErr != nil && m.logger != nil {
-					m.logger.Error("worker: re-queue Ollama task failed — Ollama task dropped (race + push failure)",
-						"worker_id", id, "action_id", task.ActionID, "error", pushErr)
-				}
-				continue
-			}
+		// Track Ollama concurrency: increment before execution, decrement after.
+		// BackendPool.Release() already calls cond.Broadcast() when the pipeline
+		// returns its backend slot, waking workers in WaitForAvailability.
+		isOllama := false
+		if _, ok := entry.Pipeline.(inference.AvailabilityChecker); ok {
+			isOllama = true
+			m.ollamaActive.Add(1)
 		}
 
 		func() {
@@ -231,6 +226,10 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 			}()
 			m.processTask(taskCtx, id, task)
 		}()
+
+		if isOllama {
+			m.ollamaActive.Add(-1)
+		}
 	}
 }
 
@@ -272,7 +271,6 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		Action:    entry.Action.Name,
 		Pipeline:  entry.Pipeline.Name(),
 		TweetID:   ev.TweetID,
-		Depth:     task.Depth,
 		StartedAt: startedAt,
 	}
 	m.workerActions.Store(workerID, info)
@@ -336,7 +334,6 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			Action:      entry.Action.Name,
 			Pipeline:    entry.Pipeline.Name(),
 			TweetID:     ev.TweetID,
-			Depth:       task.Depth,
 			StartedAt:   startedAt,
 			BackendName: backend,
 		})
@@ -477,7 +474,6 @@ func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *que
 		ActionID:  task.ActionID,
 		Action:    entry.Action.Name,
 		Pipeline:  entry.Pipeline.Name(),
-		Depth:     task.Depth,
 		StartedAt: startedAt,
 	}
 	m.workerActions.Store(workerID, info)
@@ -525,7 +521,6 @@ func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *que
 			ActionID:    task.ActionID,
 			Action:      entry.Action.Name,
 			Pipeline:    entry.Pipeline.Name(),
-			Depth:       task.Depth,
 			StartedAt:   startedAt,
 			BackendName: backend,
 		})
@@ -613,7 +608,7 @@ func (m *Manager) emitDigestEvent(job *model.DigestJob, pipelineName string) {
 }
 
 // Flush cancels the context of every worker that is currently executing a task.
-// Workers blocked in BZPopMin (idle) are unaffected. Returns the count of interrupted tasks.
+// Workers blocked in BRPOP (idle) are unaffected. Returns the count of interrupted tasks.
 func (m *Manager) Flush() int {
 	n := 0
 	m.workerCancels.Range(func(_, v any) bool {
