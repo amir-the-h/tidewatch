@@ -159,7 +159,7 @@ func PushInitialTasksForGraph(
 			continue
 		}
 		pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, logger)
+			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, 0, logger)
 	}
 
 	return pushed
@@ -197,7 +197,7 @@ func PushTasksFromNode(
 		}
 	}
 	return dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-		pipelineID, triggerType, eventPayload, tweetID, startNode, initCtx, logger)
+		pipelineID, triggerType, eventPayload, tweetID, startNode, initCtx, 0, logger)
 }
 
 // FindNodeInGraph returns the node with the given ID, or nil if not found.
@@ -222,6 +222,7 @@ func dispatchInitialNode(
 	tweetID string,
 	node *model.PipelineNode,
 	initCtx map[string]any,
+	depth int,
 	logger *slog.Logger,
 ) int {
 	pushed := 0
@@ -249,6 +250,7 @@ func dispatchInitialNode(
 			PipelineNodeID: node.ID,
 			PipelineID:     pipelineID,
 			RootPipelineID: rootPipelineID,
+			Depth:          depth,
 			Context:        map[string]any{},
 		}
 		if pushTrackedTask(ctx, st, producer, task, logger) {
@@ -284,7 +286,7 @@ func dispatchInitialNode(
 			return 0
 		}
 		parentNodeID := node.ID
-		for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
+		for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, initCtx, *node.SubPipelineID, logger) {
 			if subActionNode.ActionID == nil {
 				continue
 			}
@@ -305,6 +307,7 @@ func dispatchInitialNode(
 				RootPipelineID:         rootPipelineID,
 				ParentPipelineNodeID:   &parentNodeID,
 				SubPipelineEntryNodeID: &entryNodeID,
+				Depth:                  depth + 1,
 				Context:                map[string]any{},
 			}
 			if pushTrackedTask(ctx, st, producer, subTask, logger) {
@@ -346,7 +349,7 @@ func dispatchInitialNode(
 			}
 			// Recurse: handles Action, Pipeline, and nested Condition nodes.
 			pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-				rootPipelineID, triggerType, eventPayload, tweetID, nextNode, initCtx, logger)
+				rootPipelineID, triggerType, eventPayload, tweetID, nextNode, initCtx, depth, logger)
 		}
 	}
 	return pushed
@@ -438,6 +441,7 @@ func PushContinuationTasks(
 					PipelineNodeID: *task.ParentPipelineNodeID,
 					PipelineID:     parentPipelineID,
 					RootPipelineID: task.RootPipelineID,
+					Depth:          task.Depth,
 				}
 				PushContinuationTasks(ctx, st, producer, cache, parentTask, freshCtx, logger)
 			}
@@ -588,7 +592,7 @@ func PushContinuationTasks(
 					}
 					parentNodeID := nextNode.ID
 					tweetID := extractTweetID(task)
-					for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
+					for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, mergedCtx, *nextNode.SubPipelineID, logger) {
 						if subActionNode.ActionID == nil {
 							continue
 						}
@@ -609,6 +613,7 @@ func PushContinuationTasks(
 							RootPipelineID:         task.RootPipelineID,
 							ParentPipelineNodeID:   &parentNodeID,
 							SubPipelineEntryNodeID: &entryNodeID,
+							Depth:                  task.Depth + 1,
 							Context:                copyContext(mergedCtx),
 						}
 						if pushTrackedTask(ctx, st, producer, subTask, logger) {
@@ -648,7 +653,7 @@ func PushContinuationTasks(
 			}
 			parentNodeID := targetNode.ID
 			tweetID := extractTweetID(task)
-			for _, subActionNode := range directActionTargets(subGraph, subStartNode.ID) {
+			for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, mergedCtx, *targetNode.SubPipelineID, logger) {
 				if subActionNode.ActionID == nil {
 					continue
 				}
@@ -669,6 +674,7 @@ func PushContinuationTasks(
 					RootPipelineID:         task.RootPipelineID,
 					ParentPipelineNodeID:   &parentNodeID,
 					SubPipelineEntryNodeID: &entryNodeID,
+					Depth:                  task.Depth + 1,
 					Context:                copyContext(mergedCtx),
 				}
 				if pushTrackedTask(ctx, st, producer, subTask, logger) {
@@ -736,6 +742,7 @@ func pushContinuationTask(
 		RootPipelineID:         parent.RootPipelineID,
 		ParentPipelineNodeID:   parent.ParentPipelineNodeID,
 		SubPipelineEntryNodeID: parent.SubPipelineEntryNodeID,
+		Depth:                  parent.Depth + 1,
 		Context:                copyContext(mergedCtx),
 	}
 	return pushTrackedTask(ctx, st, producer, task, logger)
@@ -904,6 +911,54 @@ func directActionTargets(g *model.PipelineGraph, nodeID int64) []*model.Pipeline
 		}
 	}
 	return out
+}
+
+// resolveSubPipelineEntryNodes returns the first reachable action nodes from the
+// outgoing edges of fromNodeID, traversing through condition nodes by evaluating
+// them against condCtx. Unlike directActionTargets, this correctly handles
+// sub-pipelines that begin with condition nodes (e.g. a sequential check chain).
+func resolveSubPipelineEntryNodes(g *model.PipelineGraph, fromNodeID int64, condCtx map[string]any, subPipelineID int64, logger *slog.Logger) []*model.PipelineNode {
+	var out []*model.PipelineNode
+	for _, e := range outgoingEdges(g, fromNodeID) {
+		n := findNode(g, e.TargetNodeID)
+		if n == nil {
+			continue
+		}
+		out = append(out, resolveEntryFromNode(g, n, condCtx, subPipelineID, logger)...)
+	}
+	return out
+}
+
+// resolveEntryFromNode returns the first reachable action nodes starting from node,
+// traversing through condition nodes by evaluating them against condCtx.
+func resolveEntryFromNode(g *model.PipelineGraph, node *model.PipelineNode, condCtx map[string]any, pipelineID int64, logger *slog.Logger) []*model.PipelineNode {
+	switch node.Type {
+	case model.PipelineNodeTypeAction:
+		return []*model.PipelineNode{node}
+	case model.PipelineNodeTypeCondition:
+		passed := evaluateConditionsVerbose(node.Conditions, condCtx, pipelineID, node.ID, logger)
+		wantHandle := "pass"
+		if !passed {
+			wantHandle = "fail"
+		}
+		var out []*model.PipelineNode
+		for _, condEdge := range outgoingEdges(g, node.ID) {
+			h := condEdge.SourceHandle
+			if h == "" {
+				h = "pass"
+			}
+			if h != wantHandle {
+				continue
+			}
+			next := findNode(g, condEdge.TargetNodeID)
+			if next == nil {
+				continue
+			}
+			out = append(out, resolveEntryFromNode(g, next, condCtx, pipelineID, logger)...)
+		}
+		return out
+	}
+	return nil
 }
 
 // findTerminalNodeIDs returns IDs of nodes with no outgoing edges (excluding start nodes).

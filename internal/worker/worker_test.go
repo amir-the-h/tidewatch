@@ -391,7 +391,11 @@ func (m *mockStore) BulkDeleteTriggerPipelineLinks(_ context.Context, _ store.Bu
 func (m *mockStore) BulkDeleteOllamaBackends(_ context.Context, _ store.BulkDeleteOllamaBackendsFilter) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) Close() error { return nil }
+func (m *mockStore) GetGeocodeCache(_ context.Context, _, _ float64) (string, bool, error) {
+	return "", false, nil
+}
+func (m *mockStore) SetGeocodeCache(_ context.Context, _, _ float64, _ string) error { return nil }
+func (m *mockStore) Close() error                                                     { return nil }
 
 // --- stubPipeline ---
 
