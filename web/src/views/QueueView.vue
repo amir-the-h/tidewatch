@@ -6,53 +6,39 @@ import { useQueuesStore } from '../stores/queues'
 import { useMessage, NButton, NSpace, NTag, NIcon, NTooltip } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
+import type { WorkerInfo } from '../api/queue'
 import { getQueue, flushQueue, flushWorkerBuffer } from '../api/queue'
-import { apiFetch } from '../api/client'
-import type { QueueEntry } from '../stores/queues'
 import { formatDateTime } from '../utils/format'
 import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline, StopCircleOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
 
-function fmtEta(secs: number): string {
-  if (secs < 60) return `~${secs}s`
-  const m = Math.floor(secs / 60), s = secs % 60
-  if (m < 60) return s > 0 ? `~${m}m ${s}s` : `~${m}m`
-  const hr = Math.floor(m / 60), rm = m % 60
-  return rm > 0 ? `~${hr}h ${rm}m` : `~${hr}h`
-}
-
-function perActionEta(entry: QueueEntry): string | null {
-  if (entry.throughput === 0 || entry.pending === 0) return null
-  return fmtEta(Math.ceil(entry.pending / entry.throughput))
+function formatDuration(ms: number): string {
+  if (ms < 1000) return '0.0s'
+  const secs = ms / 1000
+  if (secs < 60) return `${secs.toFixed(1)}s`
+  const m = Math.floor(secs / 60)
+  const s = Math.round(secs % 60)
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
 }
 
 const store       = useFailuresStore()
 const queuesStore = useQueuesStore()
 const msg         = useMessage()
 
-// ── Stats ─────────────────────────────────────────────────────────────────────
+// ── Data fetching ──────────────────────────────────────────────────────────────
 
-async function fetchStats() {
-  try {
-    const health = await apiFetch<any>('/api/health')
-    if (health.workers) {
-      queuesStore.setWorkerStats(health.workers)
-    }
-  } catch { /* ignore */ }
-}
-
-async function fetchQueues() {
+async function fetchQueue() {
   try {
     const data = await getQueue()
-    queuesStore.setQueues(data.queues)
+    queuesStore.setFromResponse(data.pending, data.workers)
   } catch { /* ignore */ }
 }
 
-const drainEta = computed<string | null>(() => {
-  const totalThroughput = queuesStore.queues.reduce((s, q) => s + q.throughput, 0)
-  if (totalThroughput === 0 || queuesStore.totalPending === 0) return null
-  return fmtEta(Math.ceil(queuesStore.totalPending / totalThroughput))
-})
+// ── Computed stats ─────────────────────────────────────────────────────────────
+
+const totalWorkers  = computed(() => queuesStore.workers.length)
+const activeWorkers = computed(() => queuesStore.workers.filter(w => w.status === 'active').length)
+const idleWorkers   = computed(() => queuesStore.workers.filter(w => w.status === 'idle').length)
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -73,7 +59,6 @@ async function onClear() {
   try {
     await store.clear()
     msg.success('Dead-letter queue cleared')
-    await fetchStats()
   } catch (e: any) { msg.error(e.message) }
   finally { clearing.value = false }
 }
@@ -83,7 +68,7 @@ async function onFlush() {
   try {
     await flushQueue()
     msg.success('Pending queue flushed')
-    await Promise.all([store.fetch(), fetchStats(), fetchQueues()])
+    await Promise.all([store.fetch(), fetchQueue()])
   } catch (e: any) { msg.error(e.message) }
   finally { flushing.value = false }
 }
@@ -94,12 +79,12 @@ async function onStopWorkers() {
     await flushWorkerBuffer()
     await flushQueue()
     msg.success('Workers stopped and queue flushed')
-    await Promise.all([store.fetch(), fetchStats(), fetchQueues()])
+    await Promise.all([store.fetch(), fetchQueue()])
   } catch (e: any) { msg.error(e.message) }
   finally { stopping.value = false }
 }
 
-// ── Queue table ───────────────────────────────────────────────────────────────
+// ── Worker table ──────────────────────────────────────────────────────────────
 
 const pipelineTagType: Record<string, 'info' | 'success' | 'default' | 'warning'> = {
   onnx: 'info',
@@ -108,95 +93,85 @@ const pipelineTagType: Record<string, 'info' | 'success' | 'default' | 'warning'
   notification: 'warning',
 }
 
-const queueColumns = [
+const workerColumns: DataTableColumns<WorkerInfo> = [
+  {
+    title: '#',
+    key: 'id',
+    width: 50,
+    render: (row) => h('span', { style: { color: '#585b70', fontVariantNumeric: 'tabular-nums' } }, String(row.id)),
+  },
+  {
+    title: 'Status',
+    key: 'status',
+    width: 90,
+    render: (row) => {
+      const isActive = row.status === 'active'
+      return h('span', {
+        style: { color: isActive ? '#a6e3a1' : '#585b70' },
+      }, isActive ? '● active' : '○ idle')
+    },
+  },
   {
     title: 'Action',
-    key: 'action_name',
-    render: (row: QueueEntry) =>
-      h('span', { style: { color: '#cdd6f4' } }, row.action_name),
+    key: 'action',
+    render: (row) =>
+      row.status === 'active'
+        ? h('span', { style: { color: '#cdd6f4' } }, row.action)
+        : h('span', { style: { color: '#313244' } }, '—'),
   },
   {
-    title: 'Pipeline',
-    key: 'pipeline_name',
-    render: (row: QueueEntry) =>
-      h(NSpace, { size: 6, align: 'center' }, {
-        default: () => [
-          h('span', { style: { color: '#a6adc8' } }, row.pipeline_name),
-          h(NTag, {
-            type: pipelineTagType[row.pipeline_type] ?? 'default',
-            size: 'small',
-            round: true,
-          }, { default: () => row.pipeline_type }),
-        ],
-      }),
-  },
-  {
-    title: 'Pending',
-    key: 'pending',
-    width: 100,
-    render: (row: QueueEntry) =>
-      h('span', {
-        style: {
-          color: row.pending > 0 ? '#f9e2af' : '#585b70',
-          fontVariantNumeric: 'tabular-nums',
-        },
-      }, row.pending > 0 ? String(row.pending) : '—'),
-  },
-  {
-    title: 'ETA',
-    key: 'eta',
+    title: 'Type',
+    key: 'pipeline',
     width: 130,
-    render: (row: QueueEntry) => {
-      const eta = perActionEta(row)
-      const rate = row.throughput > 0
-        ? h('span', { style: { color: '#585b70', fontSize: '11px', marginLeft: '6px' } },
-            `(${row.throughput < 0.01 ? row.throughput.toFixed(3) : row.throughput < 1 ? row.throughput.toFixed(2) : row.throughput.toFixed(1)}/s)`)
-        : null
-      if (!eta) {
-        return h('span', { style: { color: '#585b70' } }, '—')
+    render: (row) => {
+      if (row.status !== 'active' || !row.pipeline) {
+        return h('span', { style: { color: '#313244' } }, '—')
       }
-      return h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, [
-        h('span', { style: { color: '#cba6f7' } }, eta),
-        rate,
-      ])
+      return h(NTag, {
+        type: pipelineTagType[row.pipeline] ?? 'default',
+        size: 'small',
+        round: true,
+      }, { default: () => row.pipeline })
     },
   },
   {
-    title: 'Worker',
-    key: 'workers',
-    width: 220,
-    render: (row: QueueEntry) => {
-      const workers = row.workers ?? []
-      if (workers.length === 0) return h('span', { style: { color: '#585b70' } }, '—')
-
-      function workerLabel(w: { id: number; backend: string }) {
-        if (w.backend === 'waiting') return `#${w.id} · waiting…`
-        if (w.backend) return `#${w.id} · ${w.backend.replace(/^https?:\/\//, '')}`
-        return `#${w.id}`
-      }
-
-      if (workers.length === 1) {
-        return h('span', {
-          style: { color: '#a6e3a1', fontVariantNumeric: 'tabular-nums' },
-        }, workerLabel(workers[0]))
-      }
-
-      // Multiple workers: count badge with tooltip listing each one.
-      return h(NTooltip, { trigger: 'hover' }, {
-        trigger: () => h('span', {
-          style: { color: '#a6e3a1', fontVariantNumeric: 'tabular-nums', cursor: 'default' },
-        }, `${workers.length} workers`),
-        default: () => h('div', {}, workers.map(w =>
-          h('div', { style: { whiteSpace: 'nowrap', lineHeight: '1.6' } }, workerLabel(w))
-        )),
-      })
-    },
+    title: 'Tweet',
+    key: 'tweet_id',
+    width: 130,
+    render: (row) =>
+      row.tweet_id
+        ? h('span', { style: { color: '#a6adc8', fontVariantNumeric: 'tabular-nums', fontFamily: 'monospace' } },
+            row.tweet_id.slice(0, 12) + (row.tweet_id.length > 12 ? '…' : ''))
+        : h('span', { style: { color: '#313244' } }, '—'),
+  },
+  {
+    title: 'Depth',
+    key: 'depth',
+    width: 70,
+    render: (row) =>
+      row.status === 'active'
+        ? h('span', { style: { color: '#cba6f7', fontVariantNumeric: 'tabular-nums' } }, String(row.depth))
+        : h('span', { style: { color: '#313244' } }, '—'),
+  },
+  {
+    title: 'Duration',
+    key: 'duration_ms',
+    width: 100,
+    render: (row) =>
+      row.status === 'active'
+        ? h('span', { style: { color: '#f9e2af', fontVariantNumeric: 'tabular-nums' } }, formatDuration(row.duration_ms))
+        : h('span', { style: { color: '#313244' } }, '—'),
+  },
+  {
+    title: 'Backend',
+    key: 'backend_name',
+    width: 130,
+    render: (row) =>
+      row.backend_name
+        ? h('span', { style: { color: '#89dceb' } }, row.backend_name)
+        : h('span', { style: { color: '#313244' } }, '—'),
   },
 ]
-
-// Split active (pending or workers) from idle rows.
-const activeQueues   = computed(() => queuesStore.queues.filter(q => q.pending > 0 || q.workers.length > 0))
-const inactiveQueues = computed(() => queuesStore.queues.filter(q => q.pending === 0 && q.workers.length === 0))
 
 // ── Failures table ────────────────────────────────────────────────────────────
 
@@ -260,8 +235,7 @@ const pagination = computed(() => ({
 
 onMounted(() => {
   store.fetch()
-  fetchStats()
-  fetchQueues()
+  fetchQueue()
 })
 </script>
 
@@ -274,7 +248,7 @@ onMounted(() => {
       <n-space size="small">
         <n-tooltip trigger="hover">
           <template #trigger>
-            <n-button @click="() => { store.fetch(); fetchStats(); fetchQueues() }" :loading="store.loading">
+            <n-button @click="() => { store.fetch(); fetchQueue() }" :loading="store.loading">
               <template #icon><n-icon><RefreshOutline /></n-icon></template>
             </n-button>
           </template>
@@ -304,7 +278,7 @@ onMounted(() => {
               Flush Pending
             </n-tooltip>
           </template>
-          Drop all pending tasks from all action queues?
+          Drop all pending tasks from the queue?
         </n-popconfirm>
         <n-popconfirm @positive-click="onClear">
           <template #trigger>
@@ -326,15 +300,10 @@ onMounted(() => {
     <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
       <n-gi span="3 s:1">
         <n-card size="small" embedded>
-          <n-statistic label="Redis Pending">
+          <n-statistic label="Pending">
             <template #default>
-              <span :style="{ color: queuesStore.totalPending > 0 ? '#f9e2af' : '#cdd6f4' }">
-                {{ queuesStore.totalPending }}
-              </span>
-            </template>
-            <template #suffix>
-              <span v-if="drainEta" style="color: #585b70; font-size: 12px; margin-left: 8px;">
-                {{ drainEta }}
+              <span :style="{ color: queuesStore.pending > 0 ? '#f9e2af' : '#cdd6f4' }">
+                {{ queuesStore.pending }}
               </span>
             </template>
           </n-statistic>
@@ -355,22 +324,22 @@ onMounted(() => {
         <n-card size="small" embedded>
           <n-statistic label="Workers">
             <template #default>
-              <span :style="{ color: (queuesStore.workerStats?.active ?? 0) > 0 ? '#a6e3a1' : '#cdd6f4' }">
-                {{ queuesStore.workerStats?.active ?? '—' }}
+              <span :style="{ color: activeWorkers > 0 ? '#a6e3a1' : '#cdd6f4' }">
+                {{ totalWorkers > 0 ? activeWorkers : '—' }}
               </span>
-              <span style="color: #585b70; font-size: 14px;"> / {{ queuesStore.workerStats?.total ?? '—' }}</span>
+              <span v-if="totalWorkers > 0" style="color: #585b70; font-size: 14px;"> / {{ totalWorkers }}</span>
             </template>
             <template #suffix>
-              <span v-if="queuesStore.workerStats" style="color: #585b70; font-size: 12px; margin-left: 8px;">
-                {{ queuesStore.workerStats.idle }} idle
+              <span v-if="totalWorkers > 0" style="color: #585b70; font-size: 12px; margin-left: 8px;">
+                {{ idleWorkers }} idle
               </span>
             </template>
           </n-statistic>
-          <div v-if="queuesStore.workerStats" style="margin-top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
+          <div v-if="totalWorkers > 0" style="margin-top: 8px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
             <div :style="{
               height: '100%',
-              width: queuesStore.workerStats.total > 0 ? (queuesStore.workerStats.active / queuesStore.workerStats.total * 100) + '%' : '0%',
-              background: queuesStore.workerStats.active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
+              width: totalWorkers > 0 ? (activeWorkers / totalWorkers * 100) + '%' : '0%',
+              background: activeWorkers > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
               transition: 'width 0.5s ease',
             }" />
           </div>
@@ -378,41 +347,21 @@ onMounted(() => {
       </n-gi>
     </n-grid>
 
-    <!-- Per-action queues table -->
-    <n-card size="small" title="Action Queues">
+    <!-- Workers table -->
+    <n-card size="small" title="Workers">
       <n-empty
-        v-if="queuesStore.queues.length === 0"
-        description="No active actions"
+        v-if="queuesStore.workers.length === 0"
+        description="No worker data"
         style="padding: 16px 0;"
       />
-      <template v-else>
-        <!-- Active rows (pending > 0 or workers assigned) -->
-        <n-empty
-          v-if="activeQueues.length === 0"
-          description="All queues idle"
-          style="padding: 12px 0 4px;"
-        />
-        <n-data-table
-          v-else
-          :columns="queueColumns"
-          :data="activeQueues"
-          :pagination="false"
-          size="small"
-        />
-
-        <!-- Inactive rows — collapsed by default -->
-        <n-collapse v-if="inactiveQueues.length > 0" style="margin-top: 8px;">
-          <n-collapse-item :title="`${inactiveQueues.length} inactive`" name="inactive">
-            <n-data-table
-              :columns="queueColumns"
-              :data="inactiveQueues"
-              :pagination="false"
-              size="small"
-              :row-props="() => ({ style: 'opacity: 0.5;' })"
-            />
-          </n-collapse-item>
-        </n-collapse>
-      </template>
+      <n-data-table
+        v-else
+        :columns="workerColumns"
+        :data="queuesStore.workers"
+        :pagination="false"
+        size="small"
+        :row-props="(row: WorkerInfo) => ({ style: row.status === 'idle' ? 'opacity: 0.4;' : '' })"
+      />
     </n-card>
 
     <!-- Dead-letter failures -->

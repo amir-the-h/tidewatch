@@ -1,22 +1,21 @@
 import { apiFetch } from './client'
 
-export interface WorkerRef {
+export interface WorkerInfo {
   id: number
-  backend?: string
-}
-
-export interface QueueEntry {
+  status: 'active' | 'idle'
   action_id: number
-  action_name: string
-  pipeline_name: string
-  pipeline_type: 'onnx' | 'ollama' | 'internal' | 'notification'
-  pending: number
-  workers: WorkerRef[]
-  throughput?: number
+  action: string
+  pipeline: string
+  tweet_id: string
+  depth: number
+  started_at: string
+  duration_ms: number
+  backend_name: string
 }
 
 export interface QueueResponse {
-  queues: QueueEntry[]
+  pending: number
+  workers: WorkerInfo[]
 }
 
 export const getQueue = () => apiFetch<QueueResponse>('/api/queue')

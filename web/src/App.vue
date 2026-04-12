@@ -65,9 +65,10 @@ async function disconnectStream() {
 
 // ── Stats from stores (populated via WebSocket events) ───────────────────────
 
-const workerStats = computed(() => queues.workerStats)
-const totalPending = computed(() => queues.totalPending)
-const failedCount  = computed(() => failures.total)
+const totalPending    = computed(() => queues.pending)
+const failedCount     = computed(() => failures.total)
+const totalWorkers    = computed(() => queues.workers.length)
+const activeWorkerCnt = computed(() => queues.workers.filter(w => w.status === 'active').length)
 
 // ── WS lifecycle ─────────────────────────────────────────────────────────────
 
@@ -129,8 +130,8 @@ watch(() => auth.isAuthenticated, (authenticated) => {
             <span style="color: #585b70"> / </span>
             <span :style="{ color: failedCount > 0 ? '#f38ba8' : '#a6adc8' }">{{ failedCount }}</span>
           </span>
-          <span v-if="workerStats">
-            W: {{ workerStats.active }}/{{ workerStats.total }}
+          <span v-if="totalWorkers > 0">
+            W: {{ activeWorkerCnt }}/{{ totalWorkers }}
           </span>
         </div>
 
@@ -212,22 +213,22 @@ watch(() => auth.isAuthenticated, (authenticated) => {
               <div>Pending: <span :style="{ color: totalPending > 0 ? '#f9e2af' : '#a6adc8' }">{{ totalPending }}</span></div>
               <div>Failed: <span :style="{ color: failedCount > 0 ? '#f38ba8' : '#a6adc8' }">{{ failedCount }}</span></div>
             </div>
-            <div v-if="workerStats" style="margin-top: 8px;">
+            <div v-if="totalWorkers > 0" style="margin-top: 8px;">
               <div style="color: #89dceb; font-weight: 600; margin-bottom: 2px;">Workers</div>
-              <div>{{ workerStats.active }} / {{ workerStats.total }} active</div>
+              <div>{{ activeWorkerCnt }} / {{ totalWorkers }} active</div>
               <div style="margin-top: 5px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); overflow: hidden;">
                 <div :style="{
                   height: '100%',
-                  width: workerStats.total > 0 ? (workerStats.active / workerStats.total * 100) + '%' : '0%',
-                  background: workerStats.active > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
+                  width: totalWorkers > 0 ? (activeWorkerCnt / totalWorkers * 100) + '%' : '0%',
+                  background: activeWorkerCnt > 0 ? '#a6e3a1' : 'rgba(255,255,255,0.15)',
                   transition: 'width 0.5s ease',
                 }" />
               </div>
             </div>
-            <div v-if="workerStats && workerStats.active_workers && workerStats.active_workers.length > 0" style="margin-top: 8px;">
+            <div v-if="queues.workers.filter(w => w.status === 'active').length > 0" style="margin-top: 8px;">
               <div style="color: #89dceb; font-weight: 600; margin-bottom: 4px;">Active Workers</div>
               <div style="display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: center;">
-                <template v-for="w in workerStats.active_workers" :key="w.id">
+                <template v-for="w in queues.workers.filter(w => w.status === 'active')" :key="w.id">
                   <span style="color: #a6e3a1;">#{{ w.id }}</span>
                   <span style="color: #6c7086; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ w.action }}</span>
                 </template>

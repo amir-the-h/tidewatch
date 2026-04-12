@@ -47,8 +47,8 @@ function buildHandlers() {
   return {
     pong:                   (_: any) => { /* timestamp updated in onmessage */ },
     new_tweet:              (p: any) => tweetsStore.prependTweet(p),
-    worker_stats:           (p: any) => queuesStore.setWorkerStats(p),
-    queue_update:           (p: any) => queuesStore.setQueueEntry(p),
+    worker_stats:           (p: any) => queuesStore.setWorkers(p.workers ?? []),
+    queue_update:           (p: any) => queuesStore.setQueuePending(p.pending ?? 0),
     failed_count:           (p: any) => failuresStore.setTotal(p.count),
     stream_status:          (p: any) => streamStore.setConnected(p.connected),
     ollama_backends:        (p: any) => ollamaStore.setBackends(p),

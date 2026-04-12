@@ -1,67 +1,29 @@
 // web/src/stores/queues.ts
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { QueueEntry as ApiQueueEntry } from '../api/queue'
+import { ref } from 'vue'
+import type { WorkerInfo } from '../api/queue'
 
-export interface QueueEntry {
-  action_id: number
-  action_name: string
-  pipeline_name: string
-  pipeline_type: string
-  pending: number
-  workers: Array<{ id: number; backend: string }>
-  throughput: number  // items/sec; 0 = not yet established
-}
-
-export interface WorkerStats {
-  total: number
-  active: number
-  idle: number
-  active_workers: Array<{ id: number; action: string; pipeline: string; backend: string }>
-  action_throughput?: Record<number, number>
-}
+export type { WorkerInfo }
 
 export const useQueuesStore = defineStore('queues', () => {
-  const queues = ref<QueueEntry[]>([])
-  const workerStats = ref<WorkerStats | null>(null)
+  const pending = ref(0)
+  const workers = ref<WorkerInfo[]>([])
 
-  // Set the full list from the initial HTTP fetch (onMounted in QueueView).
-  function setQueues(entries: ApiQueueEntry[]) {
-    queues.value = entries.map(e => ({
-      ...e,
-      workers: (e.workers ?? []).map(w => ({ id: w.id, backend: w.backend ?? '' })),
-      throughput: e.throughput ?? 0,
-    }))
+  // Called on initial HTTP fetch (onMounted in QueueView).
+  function setFromResponse(p: number, w: WorkerInfo[]) {
+    pending.value = p
+    workers.value = w
   }
 
-  // Update a single action's pending count from a WS queue_update event.
-  function setQueueEntry(payload: { action_id: number; pending: number }) {
-    const entry = queues.value.find(q => q.action_id === payload.action_id)
-    if (entry) {
-      entry.pending = payload.pending
-    }
+  // Called on queue_update WebSocket event.
+  function setQueuePending(p: number) {
+    pending.value = p
   }
 
-  // Update pool-level stats and cross-update the workers + throughput fields on
-  // each queue entry so both columns stay live without a full page refresh.
-  function setWorkerStats(stats: WorkerStats) {
-    workerStats.value = stats
-    const activeWorkers = stats.active_workers ?? []
-    const throughputMap = stats.action_throughput ?? {}
-    for (const entry of queues.value) {
-      entry.workers = activeWorkers
-        .filter(w => w.action === entry.action_name)
-        .map(w => ({ id: w.id, backend: w.backend ?? '' }))
-      // Only update throughput if the WS event includes the map (avoids zeroing on old events).
-      if (stats.action_throughput !== undefined) {
-        entry.throughput = throughputMap[entry.action_id] ?? 0
-      }
-    }
+  // Called on worker_stats WebSocket event.
+  function setWorkers(w: WorkerInfo[]) {
+    workers.value = w
   }
 
-  const totalPending = computed(() =>
-    queues.value.reduce((sum, q) => sum + q.pending, 0)
-  )
-
-  return { queues, workerStats, totalPending, setQueues, setQueueEntry, setWorkerStats }
+  return { pending, workers, setFromResponse, setQueuePending, setWorkers }
 })
