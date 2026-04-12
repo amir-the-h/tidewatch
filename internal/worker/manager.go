@@ -154,6 +154,9 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 
 		d2 := math.MaxFloat64
 		ollamaPool := m.cache.Pool()
+		// IsAnyAvailable(nil) is a coarse pool-wide gate — if no backend has any
+		// capacity at all, skip the Ollama peek entirely. Per-pipeline assigned-ID
+		// checking (which is finer-grained) happens in the safety-net below.
 		ollamaAvailable := ollamaPool != nil && ollamaPool.IsAnyAvailable(nil)
 		if ollamaAvailable {
 			if depth, ok := m.consumer.PeekMinDepth(ctx, queue.QueueOllamaTasksKey); ok {
@@ -166,8 +169,12 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 
 		switch {
 		case d1 == math.MaxFloat64 && d2 == math.MaxFloat64:
-			// Both queues empty (or no Ollama capacity): block on non-Ollama queue
-			// with a short timeout so we periodically re-check Ollama capacity.
+			// Both queues empty (or Ollama capacity unavailable): block on the non-Ollama
+			// queue with a 250 ms timeout. This acts as a capacity re-check interval —
+			// when Ollama capacity becomes free, the next iteration will observe it
+			// within at most 250 ms. Blocking on the non-Ollama key means a newly
+			// arriving non-Ollama task unblocks immediately; new Ollama tasks are
+			// observed only on the next peek cycle.
 			task, popErr = m.consumer.PopTask(ctx, 250*time.Millisecond)
 			if popErr != nil && m.logger != nil {
 				m.logger.Error("worker: pop task", "worker_id", id, "error", popErr)
@@ -208,7 +215,7 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		if task.IsOllama {
 			if av, ok := entry.Pipeline.(inference.AvailabilityChecker); ok && !av.IsAvailable() {
 				if pushErr := m.producer.PushTask(ctx, task); pushErr != nil && m.logger != nil {
-					m.logger.Warn("worker: re-queue Ollama task — no backend after pop (race)",
+					m.logger.Error("worker: re-queue Ollama task failed — Ollama task dropped (race + push failure)",
 						"worker_id", id, "action_id", task.ActionID, "error", pushErr)
 				}
 				continue
