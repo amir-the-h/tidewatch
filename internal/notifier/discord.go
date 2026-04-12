@@ -120,6 +120,9 @@ func (c *DiscordBotClient) deliverRoot(ctx context.Context, text string, applied
 	msgBody := extractEmbedBody(text)
 
 	threadName, _ := config["thread_name"].(string)
+	if threadName == "" {
+		threadName = "notification"
+	}
 
 	reqBody := map[string]any{
 		"name":    threadName,
