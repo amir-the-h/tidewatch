@@ -20,7 +20,7 @@ type mockConsumer struct {
 	idx   int
 }
 
-func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration, _ ...string) (*queue.Task, error) {
+func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration) (*queue.Task, error) {
 	if m.idx >= len(m.tasks) {
 		return nil, nil
 	}
@@ -608,14 +608,20 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 	if stats.Active != 1 {
 		t.Errorf("expected 1 active worker, got %d", stats.Active)
 	}
-	if len(stats.ActiveWorkers) != 1 {
-		t.Fatalf("expected 1 entry in ActiveWorkers, got %d", len(stats.ActiveWorkers))
+	activeWorkers := make([]WorkerInfo, 0)
+	for _, w := range stats.Workers {
+		if w.Status == "active" {
+			activeWorkers = append(activeWorkers, w)
+		}
 	}
-	if stats.ActiveWorkers[0].Action != "slow-action" {
-		t.Errorf("expected action 'slow-action', got %q", stats.ActiveWorkers[0].Action)
+	if len(activeWorkers) != 1 {
+		t.Fatalf("expected 1 entry in active Workers, got %d", len(activeWorkers))
 	}
-	if stats.ActiveWorkers[0].Pipeline != "slow-action" {
-		t.Errorf("expected pipeline 'slow-action', got %q", stats.ActiveWorkers[0].Pipeline)
+	if activeWorkers[0].Action != "slow-action" {
+		t.Errorf("expected action 'slow-action', got %q", activeWorkers[0].Action)
+	}
+	if activeWorkers[0].Pipeline != "slow-action" {
+		t.Errorf("expected pipeline 'slow-action', got %q", activeWorkers[0].Pipeline)
 	}
 
 	// Unblock and verify workers clear.
@@ -629,33 +635,14 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	stats = mgr.Stats()
-	if len(stats.ActiveWorkers) != 0 {
-		t.Errorf("expected 0 active workers after completion, got %d", len(stats.ActiveWorkers))
+	activeAfter := 0
+	for _, w := range stats.Workers {
+		if w.Status == "active" {
+			activeAfter++
+		}
 	}
-}
-
-func TestManager_Throughput_PopulatedAfterCompletions(t *testing.T) {
-	pipe := &stubPipeline{name: "tp", pType: inference.PipelineTypeONNX}
-	action := &model.Action{ID: 7, Name: "tp", Active: true}
-	cache := buildCacheWithEntries(map[int64]*CacheEntry{
-		7: {Action: action, Pipeline: pipe},
-	})
-
-	tasks := []*queue.Task{
-		makeTask(7, "tw-1"),
-		makeTask(7, "tw-2"),
-		makeTask(7, "tw-3"),
-	}
-	consumer := &mockConsumer{tasks: tasks}
-	producer := &mockProducer{}
-	storeImpl := &mockStore{}
-
-	mgr := NewManager(2, consumer, producer, storeImpl, cache, nil)
-	runManagerUntilDrained(t, mgr, consumer)
-
-	throughput := mgr.throughputPerAction()
-	if throughput[7] <= 0 {
-		t.Errorf("expected throughput > 0 for action 7 after 3 completions, got %f", throughput[7])
+	if activeAfter != 0 {
+		t.Errorf("expected 0 active workers after completion, got %d", activeAfter)
 	}
 }
 

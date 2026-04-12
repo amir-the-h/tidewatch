@@ -20,18 +20,17 @@ import (
 
 // Manager launches N worker goroutines that pop Tasks from Redis.
 type Manager struct {
-	totalWorkers       int
-	consumer           queue.Consumer
-	producer           queue.Producer
-	store              store.Store
-	cache              *ActionCache
-	dispatcher         notifier.EventEmitter
-	broadcaster        hub.Broadcaster
-	logger             *slog.Logger
-	active             atomic.Int32
-	workerActions      sync.Map // key: int (worker ID), value: WorkerInfo
-	workerCancels      sync.Map // key: int (worker ID), value: context.CancelFunc
-	completionTrackers sync.Map // key: int64 (action_id), value: *rateTracker
+	totalWorkers  int
+	consumer      queue.Consumer
+	producer      queue.Producer
+	store         store.Store
+	cache         *ActionCache
+	dispatcher    notifier.EventEmitter
+	broadcaster   hub.Broadcaster
+	logger        *slog.Logger
+	active        atomic.Int32
+	workerActions sync.Map // key: int (worker ID), value: WorkerInfo
+	workerCancels sync.Map // key: int (worker ID), value: context.CancelFunc
 }
 
 // WithDispatcher sets an optional event emitter used to fire digest_done/digest_failed events.
@@ -55,11 +54,10 @@ func (m *Manager) broadcastWorkerStats() {
 	m.broadcaster.Broadcast(hub.Event{
 		Type: "worker_stats",
 		Payload: map[string]any{
-			"total":             s.Total,
-			"active":            s.Active,
-			"idle":              s.Idle,
-			"active_workers":    s.ActiveWorkers,
-			"action_throughput": s.ActionThroughput,
+			"total":   s.Total,
+			"active":  s.Active,
+			"idle":    s.Idle,
+			"workers": s.Workers,
 		},
 	})
 }
@@ -82,7 +80,9 @@ func NewManager(
 	}
 }
 
-// Stats returns a snapshot of worker pool activity.
+// Stats returns a snapshot of worker pool activity, including all N worker slots.
+// Active workers appear first (ordered by ID), followed by idle workers.
+// DurationMS is computed at snapshot time from StartedAt.
 func (m *Manager) Stats() PoolStats {
 	active := int(m.active.Load())
 	idle := m.totalWorkers - active
@@ -90,37 +90,35 @@ func (m *Manager) Stats() PoolStats {
 		idle = 0
 	}
 
-	var activeWorkers []WorkerInfo
-	m.workerActions.Range(func(_, v any) bool {
-		activeWorkers = append(activeWorkers, v.(WorkerInfo))
+	// Collect active worker info from the sync.Map.
+	activeMap := make(map[int]WorkerInfo, active)
+	m.workerActions.Range(func(k, v any) bool {
+		wi := v.(WorkerInfo)
+		wi.DurationMS = time.Since(wi.StartedAt).Milliseconds()
+		activeMap[k.(int)] = wi
 		return true
 	})
+
+	workers := make([]WorkerInfo, 0, m.totalWorkers)
+	// Active workers first (ascending ID order).
+	for i := 1; i <= m.totalWorkers; i++ {
+		if wi, ok := activeMap[i]; ok {
+			workers = append(workers, wi)
+		}
+	}
+	// Idle workers after (ascending ID order).
+	for i := 1; i <= m.totalWorkers; i++ {
+		if _, ok := activeMap[i]; !ok {
+			workers = append(workers, WorkerInfo{ID: i, Status: "idle"})
+		}
+	}
 
 	return PoolStats{
-		Total:            m.totalWorkers,
-		Active:           active,
-		Idle:             idle,
-		ActiveWorkers:    activeWorkers,
-		ActionThroughput: m.throughputPerAction(),
+		Total:   m.totalWorkers,
+		Active:  active,
+		Idle:    idle,
+		Workers: workers,
 	}
-}
-
-// recordCompletion appends a completion timestamp for actionID.
-// Called after every task completes (success or error).
-func (m *Manager) recordCompletion(actionID int64) {
-	v, _ := m.completionTrackers.LoadOrStore(actionID, &rateTracker{})
-	v.(*rateTracker).record()
-}
-
-// throughputPerAction returns current estimated throughput (tasks/sec) per action ID.
-// Actions with fewer than 2 completions or a stale window return 0.
-func (m *Manager) throughputPerAction() map[int64]float64 {
-	result := make(map[int64]float64)
-	m.completionTrackers.Range(func(k, v any) bool {
-		result[k.(int64)] = v.(*rateTracker).rate()
-		return true
-	})
-	return result
 }
 
 // Start launches N worker goroutines. Blocks until ctx is cancelled.
@@ -145,24 +143,7 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		default:
 		}
 
-		keys := m.buildReadyKeys()
-		if len(keys) == 0 {
-			// No active actions, or all Ollama backends are busy.
-			// Wait until a backend becomes available or the timeout fires,
-			// then re-evaluate. Nil pool guard handles test environments.
-			if pool := m.cache.Pool(); pool != nil {
-				pool.WaitForAvailability(ctx, 1*time.Second, nil)
-			} else {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(100 * time.Millisecond):
-				}
-			}
-			continue
-		}
-
-		task, err := m.consumer.PopTask(ctx, 1*time.Second, keys...)
+		task, err := m.consumer.PopTask(ctx, 1*time.Second)
 		if err != nil {
 			if m.logger != nil {
 				m.logger.Error("worker: pop task", "worker_id", id, "error", err)
@@ -172,6 +153,26 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 		if task == nil {
 			continue
 		}
+
+		// Post-pop: discard if action no longer exists in cache.
+		entry := m.cache.Get(task.ActionID)
+		if entry == nil {
+			if m.logger != nil {
+				m.logger.Warn("worker: discarding task for unknown action_id — action inactive or deleted",
+					"worker_id", id, "action_id", task.ActionID)
+			}
+			continue
+		}
+
+		// Post-pop: if Ollama and no backend available, re-queue and sleep to avoid spin.
+		if av, ok := entry.Pipeline.(inference.AvailabilityChecker); ok && !av.IsAvailable() {
+			if pushErr := m.producer.PushTask(ctx, task); pushErr != nil && m.logger != nil {
+				m.logger.Warn("worker: re-queue Ollama task — no backend available", "error", pushErr)
+			}
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
 		func() {
 			taskCtx, taskCancel := context.WithCancel(ctx)
 			m.workerCancels.Store(id, taskCancel)
@@ -182,26 +183,6 @@ func (m *Manager) runWorker(ctx context.Context, id int) {
 			m.processTask(taskCtx, id, task)
 		}()
 	}
-}
-
-// buildReadyKeys returns the Redis queue keys for all active actions whose
-// pipeline is currently acquirable. ONNX, internal, and notification
-// pipelines are always included. Ollama pipelines are included only when
-// at least one assigned (or pool-wide) backend is healthy, enabled, and idle.
-func (m *Manager) buildReadyKeys() []string {
-	entries := m.cache.All()
-	keys := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if av, ok := e.Pipeline.(inference.AvailabilityChecker); ok {
-			if av.IsAvailable() {
-				keys = append(keys, queue.QueueTasksKey(e.Action.ID))
-			}
-		} else {
-			// No AvailabilityChecker → always available (ONNX, internal, notification).
-			keys = append(keys, queue.QueueTasksKey(e.Action.ID))
-		}
-	}
-	return keys
 }
 
 func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Task) {
@@ -226,27 +207,29 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	}
 
 	if task.TriggerType == "digest_requested" {
-		// Digest tasks are excluded from the throughput tracker — they are long-running
-		// one-offs with a different completion profile and would skew per-action rate estimates.
 		m.processDigestTask(ctx, workerID, task, entry)
 		return
 	}
 
-	// Track which action this worker is executing.
+	// Unmarshal the tweet event before storing WorkerInfo so TweetID is available.
+	var ev queue.TweetEvent
+	_ = json.Unmarshal(task.Event, &ev)
+
+	startedAt := time.Now()
 	info := WorkerInfo{
-		ID:       workerID,
-		Action:   entry.Action.Name,
-		Pipeline: entry.Pipeline.Name(),
+		ID:        workerID,
+		Status:    "active",
+		ActionID:  task.ActionID,
+		Action:    entry.Action.Name,
+		Pipeline:  entry.Pipeline.Name(),
+		TweetID:   ev.TweetID,
+		Depth:     task.Depth,
+		StartedAt: startedAt,
 	}
 	m.workerActions.Store(workerID, info)
 	defer m.workerActions.Delete(workerID)
 
-	var ev queue.TweetEvent
-	_ = json.Unmarshal(task.Event, &ev)
-
-	// Decrement the pipeline run tracking counter when this task is done.
-	// The defer fires AFTER PushContinuationTasks (at end of function or early return),
-	// so all downstream task increments happen before this -1.
+	// Decrement pipeline run tracking when this task is done.
 	if task.RootPipelineID != 0 {
 		defer func() {
 			done, err := m.store.DecrementPipelineRunTracking(ctx, task.RootPipelineID, ev.TweetID)
@@ -260,30 +243,17 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		}()
 	}
 
-	// Load execution metadata for this tweet across all prior actions so that
-	// notification pipelines can reference ONNX/Ollama outputs even when not
-	// triggered via a pipeline (e.g. ${label}, ${score}, ${summary}, ${entity_list}).
 	allMeta, _ := m.store.MergeAllTweetExecutionMetadata(ctx, ev.TweetID)
-
-	// Load metadata from prior executions of THIS action on the same tweet
-	// (e.g. telegram_message_id for edit-vs-send logic). Overrides allMeta on conflict.
 	prevMeta, _ := m.store.MergeActionExecutionMetadata(ctx, task.ActionID, ev.TweetID)
 
 	mergedCtx := make(map[string]any, len(task.Context)+len(allMeta)+len(prevMeta)+6)
-	// Inject in ascending priority order: all-tweet meta → this-action meta → pipeline context → well-known fields.
 	for k, v := range allMeta {
 		mergedCtx[k] = decodeMetaValue(v)
 	}
-	// telegram_message_id must be scoped to the same action to prevent different
-	// notification actions from editing each other's messages. Remove it from
-	// allMeta's contribution; prevMeta (action-scoped) will supply the correct value.
 	delete(mergedCtx, "telegram_message_id")
 	for k, v := range prevMeta {
 		mergedCtx[k] = decodeMetaValue(v)
 	}
-	// If this action has no prior telegram_message_id of its own (first send),
-	// expose the last known notification message ID as last_telegram_message_id
-	// so the notification pipeline can reply to it and form a Telegram reply thread.
 	if _, hasOwn := mergedCtx["telegram_message_id"]; !hasOwn {
 		if lastID, ok := allMeta["telegram_message_id"]; ok {
 			mergedCtx["last_telegram_message_id"] = decodeMetaValue(lastID)
@@ -298,9 +268,8 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	mergedCtx["tweet"] = ev.Text
 	mergedCtx["tweet_short"] = truncateText(ev.Text, 280)
 	mergedCtx["tweet_url"] = "https://x.com/" + ev.AuthorHandle + "/status/" + ev.TweetID
-	mergedCtx["rule_ids"] = ev.RuleIDs // []int64 — used by rule_matches condition operator
+	mergedCtx["rule_ids"] = ev.RuleIDs
 
-	// Derive convenience vars from common ONNX/Ollama output shapes.
 	enrichContext(mergedCtx)
 
 	input := inference.PipelineInput{
@@ -312,10 +281,15 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	// Inject backend callback so Ollama pipelines can report which backend they acquire.
 	inferenceCtx := inference.WithBackendNotify(ctx, func(backend string) {
 		m.workerActions.Store(workerID, WorkerInfo{
-			ID:       workerID,
-			Action:   entry.Action.Name,
-			Pipeline: entry.Pipeline.Name(),
-			Backend:  backend,
+			ID:          workerID,
+			Status:      "active",
+			ActionID:    task.ActionID,
+			Action:      entry.Action.Name,
+			Pipeline:    entry.Pipeline.Name(),
+			TweetID:     ev.TweetID,
+			Depth:       task.Depth,
+			StartedAt:   startedAt,
+			BackendName: backend,
 		})
 	})
 
@@ -359,8 +333,6 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			Payload: exec,
 		})
 	}
-
-	m.recordCompletion(task.ActionID)
 
 	if runErr != nil {
 		return
@@ -416,7 +388,6 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		)
 	}
 
-	// Continue pipeline: push tasks for downstream action nodes whose conditions pass.
 	PushContinuationTasks(ctx, m.store, m.producer, m.cache, task, mergedCtx, m.logger)
 }
 
@@ -450,10 +421,15 @@ func (m *Manager) firePipelineFinished(ctx context.Context, pipelineID int64, tw
 }
 
 func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *queue.Task, entry *CacheEntry) {
+	startedAt := time.Now()
 	info := WorkerInfo{
-		ID:       workerID,
-		Action:   entry.Action.Name,
-		Pipeline: entry.Pipeline.Name(),
+		ID:        workerID,
+		Status:    "active",
+		ActionID:  task.ActionID,
+		Action:    entry.Action.Name,
+		Pipeline:  entry.Pipeline.Name(),
+		Depth:     task.Depth,
+		StartedAt: startedAt,
 	}
 	m.workerActions.Store(workerID, info)
 	defer m.workerActions.Delete(workerID)
@@ -495,10 +471,14 @@ func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *que
 
 	inferenceCtx := inference.WithBackendNotify(ctx, func(backend string) {
 		m.workerActions.Store(workerID, WorkerInfo{
-			ID:       workerID,
-			Action:   entry.Action.Name,
-			Pipeline: entry.Pipeline.Name(),
-			Backend:  backend,
+			ID:          workerID,
+			Status:      "active",
+			ActionID:    task.ActionID,
+			Action:      entry.Action.Name,
+			Pipeline:    entry.Pipeline.Name(),
+			Depth:       task.Depth,
+			StartedAt:   startedAt,
+			BackendName: backend,
 		})
 	})
 
@@ -583,9 +563,8 @@ func (m *Manager) emitDigestEvent(job *model.DigestJob, pipelineName string) {
 	})
 }
 
-// Flush cancels the context of every worker that is currently executing a
-// task. Workers blocked in BRPOP (idle) are unaffected. Returns the number
-// of in-flight tasks that were cancelled.
+// Flush cancels the context of every worker that is currently executing a task.
+// Workers blocked in BZPopMin (idle) are unaffected. Returns the count of interrupted tasks.
 func (m *Manager) Flush() int {
 	n := 0
 	m.workerCancels.Range(func(_, v any) bool {
@@ -600,10 +579,6 @@ func (m *Manager) Flush() int {
 
 func (m *Manager) FlushPipeline(_ string) int { return 0 }
 
-// decodeMetaValue JSON-decodes a DB-stored metadata value so it can be used
-// cleanly in template substitution. String values lose their JSON quotes;
-// numbers become float64; arrays and objects become []interface{}/map[string]any.
-// Falls back to the raw string if the value is not valid JSON.
 func truncateText(s string, max int) string {
 	runes := []rune(s)
 	if len(runes) <= max {
@@ -620,11 +595,7 @@ func decodeMetaValue(s string) any {
 	return v
 }
 
-// enrichContext derives convenience template vars from common ONNX/Ollama output
-// shapes. It never overwrites a key that is already present in ctx.
 func enrichContext(ctx map[string]any) {
-	// Zero-shot classification: {"labels": [...], "scores": [...]}
-	// → top_label (string), top_score (float64)
 	if _, ok := ctx["top_label"]; !ok {
 		if labels, ok := ctx["labels"].([]any); ok && len(labels) > 0 {
 			ctx["top_label"] = labels[0]
@@ -634,8 +605,6 @@ func enrichContext(ctx map[string]any) {
 		}
 	}
 
-	// NER: {"entities": [{"word": "...", "label": "...", "score": ...}, ...]}
-	// → entity_list: "word (LABEL), ..." human-readable summary
 	if _, ok := ctx["entity_list"]; !ok {
 		if entities, ok := ctx["entities"].([]any); ok && len(entities) > 0 {
 			var parts []string

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/amir-the-h/iran-watcher/internal/inference"
 	"github.com/amir-the-h/iran-watcher/internal/notifier"
@@ -12,21 +13,27 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/store"
 )
 
-// WorkerInfo describes a single worker currently processing a task.
+// WorkerInfo describes a single worker slot.
+// Idle workers have Status="idle" and zero values for all other fields.
 type WorkerInfo struct {
-	ID       int    `json:"id"`
-	Action   string `json:"action"`
-	Pipeline string `json:"pipeline"`
-	Backend  string `json:"backend,omitempty"` // empty for non-Ollama; "waiting" or backend name for Ollama
+	ID          int       `json:"id"`
+	Status      string    `json:"status"`       // "active" | "idle"
+	ActionID    int64     `json:"action_id"`
+	Action      string    `json:"action"`
+	Pipeline    string    `json:"pipeline"`
+	TweetID     string    `json:"tweet_id"`
+	Depth       int       `json:"depth"`
+	StartedAt   time.Time `json:"started_at"`
+	DurationMS  int64     `json:"duration_ms"`  // computed at snapshot time
+	BackendName string    `json:"backend_name"` // display name; empty for non-Ollama
 }
 
 // PoolStats holds a snapshot of worker pool activity.
 type PoolStats struct {
-	Total            int               `json:"total"`
-	Active           int               `json:"active"`
-	Idle             int               `json:"idle"`
-	ActiveWorkers    []WorkerInfo      `json:"active_workers"`
-	ActionThroughput map[int64]float64 `json:"action_throughput"` // items/sec keyed by action_id; 0 = insufficient data
+	Total   int          `json:"total"`
+	Active  int          `json:"active"`
+	Idle    int          `json:"idle"`
+	Workers []WorkerInfo `json:"workers"` // all workers: active first, then idle
 }
 
 // Pool manages N worker goroutines that process tweets from the queue.
@@ -42,7 +49,7 @@ type Pool struct {
 }
 
 // Stats returns a snapshot of current worker pool activity.
-// Note: ActiveWorkers is always empty for Pool. Use Manager for per-worker tracking.
+// Note: Workers slice is always empty for Pool. Use Manager for per-worker tracking.
 func (p *Pool) Stats() PoolStats {
 	active := int(p.active.Load())
 	return PoolStats{Total: p.count, Active: active, Idle: p.count - active}
