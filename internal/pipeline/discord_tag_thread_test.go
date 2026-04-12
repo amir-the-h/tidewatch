@@ -13,6 +13,8 @@ import (
 type mockDiscordTagger struct {
 	tags            []notifier.ForumTag
 	tagsErr         error
+	addForumTagErr  error
+	addedTagNames   []string
 	patchedThreadID string
 	patchedTagIDs   []string
 	patchErr        error
@@ -20,6 +22,16 @@ type mockDiscordTagger struct {
 
 func (m *mockDiscordTagger) GetAvailableTags(_ context.Context) ([]notifier.ForumTag, error) {
 	return m.tags, m.tagsErr
+}
+
+func (m *mockDiscordTagger) AddForumTag(_ context.Context, name string) (notifier.ForumTag, error) {
+	if m.addForumTagErr != nil {
+		return notifier.ForumTag{}, m.addForumTagErr
+	}
+	m.addedTagNames = append(m.addedTagNames, name)
+	tag := notifier.ForumTag{ID: "new-" + name, Name: name}
+	m.tags = append(m.tags, tag)
+	return tag, nil
 }
 
 func (m *mockDiscordTagger) PatchThreadTags(_ context.Context, threadID string, tagIDs []string) error {
@@ -110,6 +122,9 @@ func TestDiscordTagThreadPipeline_UnknownTagsSkipped(t *testing.T) {
 		tags: []notifier.ForumTag{
 			{ID: "111", Name: "military"},
 		},
+		// Simulate a forum channel that refuses tag creation (e.g. 403 or tag limit reached).
+		// AddForumTag errors are non-fatal; the unknown tag should be silently skipped.
+		addForumTagErr: errors.New("tag creation refused"),
 	}
 	p := &DiscordTagThreadPipeline{name: "test", client: mock, tagNamesKey: "discord_tag_names"}
 
@@ -208,8 +223,12 @@ func TestDiscordTagThreadPipeline_TypeAndName(t *testing.T) {
 	}
 }
 
+// The factory receives pre-injected credentials (resolved by action_cache from
+// the linked notification channel + provider). These tests simulate that injection.
+
 func TestNewDiscordTagThreadFactory_MissingBotToken_Errors(t *testing.T) {
 	f := NewDiscordTagThreadFactory()
+	// Simulate action_cache failing to inject bot_token (channel missing bot_token).
 	_, err := f("test", map[string]any{"forum_channel_id": "123"})
 	if err == nil {
 		t.Fatal("expected error for missing bot_token")
@@ -218,6 +237,7 @@ func TestNewDiscordTagThreadFactory_MissingBotToken_Errors(t *testing.T) {
 
 func TestNewDiscordTagThreadFactory_MissingForumChannelID_Errors(t *testing.T) {
 	f := NewDiscordTagThreadFactory()
+	// Simulate action_cache failing to inject forum_channel_id (channel missing it).
 	_, err := f("test", map[string]any{"bot_token": "Bot abc"})
 	if err == nil {
 		t.Fatal("expected error for missing forum_channel_id")
@@ -226,6 +246,7 @@ func TestNewDiscordTagThreadFactory_MissingForumChannelID_Errors(t *testing.T) {
 
 func TestNewDiscordTagThreadFactory_DefaultTagNamesKey(t *testing.T) {
 	f := NewDiscordTagThreadFactory()
+	// Simulate pre-injected credentials from action_cache.
 	p, err := f("test", map[string]any{"bot_token": "Bot abc", "forum_channel_id": "123"})
 	if err != nil {
 		t.Fatalf("factory: %v", err)

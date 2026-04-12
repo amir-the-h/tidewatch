@@ -33,15 +33,14 @@ interface ProviderForm {
   // telegram
   telegram_bot_token: string
   // discord
-  discord_bot_token:       string
-  discord_forum_channel_id: string
+  discord_bot_token: string
 }
 
 const defaultProviderForm = (): ProviderForm => ({
   name: '', type: 'pushover',
   pushover_app_token: '', pushover_user_key: '',
   telegram_bot_token: '',
-  discord_bot_token: '', discord_forum_channel_id: '',
+  discord_bot_token: '',
 })
 const providerForm = ref<ProviderForm>(defaultProviderForm())
 
@@ -63,15 +62,14 @@ function openEditProvider(p: NotificationProvider) {
     pushover_app_token:  p.type === 'pushover' ? (p.config.app_token   ?? '') : '',
     pushover_user_key:   p.type === 'pushover' ? (p.config.user_key    ?? '') : '',
     telegram_bot_token:  p.type === 'telegram' ? (p.config.bot_token   ?? '') : '',
-    discord_bot_token:        p.type === 'discord' ? (p.config.bot_token        ?? '') : '',
-    discord_forum_channel_id: p.type === 'discord' ? (p.config.forum_channel_id ?? '') : '',
+    discord_bot_token: p.type === 'discord' ? (p.config.bot_token ?? '') : '',
   }
   showProviderDrawer.value = true
 }
 
 function buildProviderConfig(f: ProviderForm): Record<string, any> {
   if (f.type === 'pushover') return { app_token: f.pushover_app_token, user_key: f.pushover_user_key }
-  if (f.type === 'discord')  return { bot_token: f.discord_bot_token, forum_channel_id: f.discord_forum_channel_id }
+  if (f.type === 'discord')  return { bot_token: f.discord_bot_token }
   return { bot_token: f.telegram_bot_token }
 }
 
@@ -84,8 +82,8 @@ async function onSaveProvider() {
   if (f.type === 'telegram' && !f.telegram_bot_token) {
     msg.error('Bot token is required'); return
   }
-  if (f.type === 'discord' && (!f.discord_bot_token || !f.discord_forum_channel_id)) {
-    msg.error('Bot token and Forum Channel ID are required'); return
+  if (f.type === 'discord' && !f.discord_bot_token) {
+    msg.error('Bot token is required'); return
   }
   savingProvider.value = true
   try {
@@ -137,11 +135,14 @@ interface ChannelForm {
   tg_chat_id:  string
   // Pushover routing (optional: target a specific device)
   push_device: string | null
+  // Discord routing
+  discord_forum_channel_id: string
 }
 
 const defaultChannelForm = (): ChannelForm => ({
   name: '', provider_id: null,
   tg_chat_id: '', push_device: null,
+  discord_forum_channel_id: '',
 })
 const channelForm = ref<ChannelForm>(defaultChannelForm())
 
@@ -150,6 +151,7 @@ const selectedChannelProvider = computed(() =>
 )
 const isPushoverChannel = computed(() => selectedChannelProvider.value?.type === 'pushover')
 const isTelegramChannel = computed(() => selectedChannelProvider.value?.type === 'telegram')
+const isDiscordChannel  = computed(() => selectedChannelProvider.value?.type === 'discord')
 
 function openCreateChannel() {
   editingChannel.value  = null
@@ -161,10 +163,11 @@ function openEditChannel(c: NotificationChannel) {
   editingChannel.value = c
   const cfg = c.config ?? {}
   channelForm.value = {
-    name:        c.name,
-    provider_id: c.provider_id,
-    tg_chat_id:  cfg.chat_id ?? '',
-    push_device: cfg.device  ?? null,
+    name:                    c.name,
+    provider_id:             c.provider_id,
+    tg_chat_id:              cfg.chat_id          ?? '',
+    push_device:             cfg.device           ?? null,
+    discord_forum_channel_id: cfg.forum_channel_id ?? '',
   }
   showChannelDrawer.value = true
 }
@@ -173,6 +176,7 @@ function buildChannelConfig(f: ChannelForm): Record<string, any> {
   const provider = store.providers.find(p => p.id === f.provider_id)
   if (!provider) return {}
   if (provider.type === 'telegram') return { chat_id: f.tg_chat_id }
+  if (provider.type === 'discord')  return { forum_channel_id: f.discord_forum_channel_id }
   // pushover: device is optional routing
   const cfg: Record<string, any> = {}
   if (f.push_device) cfg.device = f.push_device
@@ -185,6 +189,9 @@ async function onSaveChannel() {
   if (!f.provider_id) { msg.error('Provider is required'); return }
   if (isTelegramChannel.value && !f.tg_chat_id) {
     msg.error('Chat ID is required'); return
+  }
+  if (isDiscordChannel.value && !f.discord_forum_channel_id) {
+    msg.error('Forum Channel ID is required'); return
   }
   savingChannel.value = true
   try {
@@ -274,9 +281,6 @@ const channelColumns: DataTableColumns<NotificationChannel> = [
             <n-form-item label="Bot Token">
               <n-input v-model:value="providerForm.discord_bot_token" placeholder="Bot MTxxxxx…" />
             </n-form-item>
-            <n-form-item label="Forum Channel ID">
-              <n-input v-model:value="providerForm.discord_forum_channel_id" placeholder="1234567890123456789" />
-            </n-form-item>
           </template>
         </FormDrawer>
       </n-tab-pane>
@@ -315,6 +319,11 @@ const channelColumns: DataTableColumns<NotificationChannel> = [
           <!-- Pushover: optional device routing -->
           <n-form-item v-if="isPushoverChannel" label="Device (optional)">
             <n-input v-model:value="channelForm.push_device" clearable placeholder="Leave blank to send to all devices" />
+          </n-form-item>
+
+          <!-- Discord: required forum channel ID -->
+          <n-form-item v-if="isDiscordChannel" label="Forum Channel ID" required>
+            <n-input v-model:value="channelForm.discord_forum_channel_id" placeholder="1234567890123456789" />
           </n-form-item>
 
           <n-text v-if="selectedChannelProvider" depth="3" style="font-size:12px; display:block">
