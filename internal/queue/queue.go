@@ -37,8 +37,11 @@ type Task struct {
 	// into a sub-pipeline. It is used as the leaf-tracking key in
 	// pipeline_node_executions so that any termination of that branch
 	// (structural or via condition-fail) can signal the parent pipeline.
-	SubPipelineEntryNodeID *int64         `json:"sub_pipeline_entry_node_id,omitempty"`
-	Context                map[string]any `json:"context"`
+	SubPipelineEntryNodeID *int64 `json:"sub_pipeline_entry_node_id,omitempty"`
+	// Depth is the number of action-hops from the pipeline's Start node.
+	// Lower depth = higher priority. Zero value = highest priority (backwards-compatible).
+	Depth   int            `json:"depth,omitempty"`
+	Context map[string]any `json:"context"`
 }
 
 // TweetEvent is the Event payload for trigger_type=new_tweet.

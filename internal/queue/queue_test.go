@@ -78,6 +78,7 @@ func TestTask_JSONRoundTrip(t *testing.T) {
 		TriggerType: "new_tweet",
 		Event:       json.RawMessage(ev),
 		ActionID:    7,
+		Depth:       3,
 		Context: map[string]any{
 			"created_at": now.Format(time.RFC3339),
 		},
@@ -98,6 +99,9 @@ func TestTask_JSONRoundTrip(t *testing.T) {
 	}
 	if got.TriggerType != original.TriggerType {
 		t.Errorf("TriggerType: got %q, want %q", got.TriggerType, original.TriggerType)
+	}
+	if got.Depth != 3 {
+		t.Errorf("Depth: got %d, want 3", got.Depth)
 	}
 
 	var gotEv TweetEvent
