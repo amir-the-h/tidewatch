@@ -237,7 +237,6 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 					TriggerType: "new_tweet",
 					Event:       evBytes,
 					ActionID:    actionID,
-					IsOllama:    worker.IsOllamaAction(s.actionCache, actionID),
 					Context:     map[string]any{},
 				}
 				if err := s.producer.PushTask(r.Context(), task); err != nil {

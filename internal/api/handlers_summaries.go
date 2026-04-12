@@ -14,7 +14,6 @@ import (
 	"github.com/amir-the-h/iran-watcher/internal/model"
 	"github.com/amir-the-h/iran-watcher/internal/queue"
 	"github.com/amir-the-h/iran-watcher/internal/store"
-	"github.com/amir-the-h/iran-watcher/internal/worker"
 )
 
 // handleListSummaries returns paginated tweet+summary pairs for tweets that
@@ -149,7 +148,6 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 				TriggerType: "new_tweet",
 				Event:       ev,
 				ActionID:    actionID,
-				IsOllama:    worker.IsOllamaAction(s.actionCache, actionID),
 				Context:     map[string]any{},
 			}
 			if err := s.producer.PushTask(r.Context(), task); err != nil {
@@ -270,7 +268,6 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 			TriggerType: "digest_requested",
 			Event:       ev,
 			ActionID:    t.actionID,
-			IsOllama:    worker.IsOllamaAction(s.actionCache, t.actionID),
 			Context:     map[string]any{"digest_job_id": job.ID},
 		}
 		if err := s.producer.PushTask(r.Context(), task); err != nil {
