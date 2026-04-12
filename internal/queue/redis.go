@@ -33,8 +33,9 @@ type scanner interface {
 	Scan(context.Context, uint64, string, int64) *redis.ScanCmd
 }
 
-// RedisQueue implements both Producer and Consumer using Redis lists.
-// PushTask uses LPUSH; PopTask uses BRPOP (blocking right-pop from a left-push queue).
+// RedisQueue implements both Producer and Consumer.
+// Per-action task queues use Redis sorted sets (ZAdd/BZPopMin) for depth-priority ordering.
+// The dead-letter queue uses a plain list (LPush/BRPop).
 type RedisQueue struct {
 	client      redisClient
 	broadcaster hub.Broadcaster
@@ -55,22 +56,27 @@ func NewRedisQueue(addr, password string, db int) *RedisQueue {
 	return &RedisQueue{client: client}
 }
 
-// PushTask serializes a Task to JSON and LPUSHes it onto the per-action tasks queue.
+// PushTask serializes a Task to JSON and ZAdds it to the per-action sorted set.
+// Score = task.Depth so lower-depth (higher-priority) tasks are popped first.
 func (q *RedisQueue) PushTask(ctx context.Context, task *Task) error {
 	b, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("queue: marshal task: %w", err)
 	}
-	cmd := q.client.LPush(ctx, QueueTasksKey(task.ActionID), b)
-	if err := cmd.Err(); err != nil {
+	key := QueueTasksKey(task.ActionID)
+	if err := q.client.ZAdd(ctx, key, redis.Z{
+		Score:  float64(task.Depth),
+		Member: string(b),
+	}).Err(); err != nil {
 		return fmt.Errorf("queue: push task: %w", err)
 	}
 	if q.broadcaster != nil {
+		pending, _ := q.client.ZCard(ctx, key).Result()
 		q.broadcaster.Broadcast(hub.Event{
 			Type: "queue_update",
 			Payload: map[string]int64{
 				"action_id": task.ActionID,
-				"pending":   cmd.Val(),
+				"pending":   pending,
 			},
 		})
 	}
@@ -207,12 +213,12 @@ func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
 			return 0, fmt.Errorf("queue: total task len: scan: %w", err)
 		}
 		for _, key := range keys {
-			n, err := q.client.LLen(ctx, key).Result()
+			n, err := q.client.ZCard(ctx, key).Result()
 			if err != nil {
 				if errors.Is(err, redis.Nil) {
 					continue
 				}
-				return 0, fmt.Errorf("queue: total task len: llen %s: %w", key, err)
+				return 0, fmt.Errorf("queue: total task len: zcard %s: %w", key, err)
 			}
 			total += n
 		}

@@ -243,21 +243,57 @@ func (f *pushCaptureFakeClient) ZCard(_ context.Context, _ string) *redis.IntCmd
 	return redis.NewIntResult(1, nil) // returns 1 for broadcast assertions
 }
 
-func TestPushTask_RoutesToActionKey(t *testing.T) {
+func TestPushTask_RoutesToCorrectKey(t *testing.T) {
 	fake := &pushCaptureFakeClient{}
 	q := &RedisQueue{client: fake}
 
-	task := &Task{
-		TriggerType: "new_tweet",
-		ActionID:    7,
-		Context:     map[string]any{},
-	}
+	task := &Task{TriggerType: "new_tweet", ActionID: 7, Depth: 2, Context: map[string]any{}}
 	if err := q.PushTask(context.Background(), task); err != nil {
 		t.Fatalf("PushTask: %v", err)
 	}
 	want := "iran-watcher:tasks:7"
 	if fake.pushedKey != want {
 		t.Errorf("pushed to key %q, want %q", fake.pushedKey, want)
+	}
+}
+
+func TestPushTask_UsesDepthAsScore(t *testing.T) {
+	fake := &pushCaptureFakeClient{}
+	q := &RedisQueue{client: fake}
+
+	task := &Task{TriggerType: "new_tweet", ActionID: 7, Depth: 3, Context: map[string]any{}}
+	if err := q.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	if fake.pushedScore != 3 {
+		t.Errorf("ZAdd score = %v, want 3", fake.pushedScore)
+	}
+}
+
+func TestPushTask_BroadcastsQueueUpdate(t *testing.T) {
+	fake := &pushCaptureFakeClient{}
+	bc := &captureBroadcaster{}
+	q := &RedisQueue{client: fake, broadcaster: bc}
+
+	task := &Task{TriggerType: "new_tweet", ActionID: 7, Depth: 0, Context: map[string]any{}}
+	if err := q.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	if len(bc.events) != 1 {
+		t.Fatalf("expected 1 broadcast, got %d", len(bc.events))
+	}
+	if bc.events[0].Type != "queue_update" {
+		t.Errorf("event type: got %q, want queue_update", bc.events[0].Type)
+	}
+	payload, ok := bc.events[0].Payload.(map[string]int64)
+	if !ok {
+		t.Fatalf("unexpected payload type %T", bc.events[0].Payload)
+	}
+	if payload["action_id"] != 7 {
+		t.Errorf("action_id: got %d, want 7", payload["action_id"])
+	}
+	if payload["pending"] != 1 { // pushCaptureFakeClient.ZCard returns 1
+		t.Errorf("pending: got %d, want 1", payload["pending"])
 	}
 }
 
