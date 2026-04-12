@@ -16,6 +16,9 @@ export function formatEta(ms: number | null): string {
   if (ms < 60_000) return `~${Math.round(ms / 1000)}s`
   const m = Math.floor(ms / 60_000)
   const s = Math.round((ms % 60_000) / 1000)
-  if (ms < 3_600_000) return s > 0 ? `~${m}m ${s}s` : `~${m}m`
+  if (ms < 3_600_000) {
+    if (s >= 60) return `~${m + 1}m`
+    return s > 0 ? `~${m}m ${s}s` : `~${m}m`
+  }
   return '>1h'
 }
