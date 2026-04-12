@@ -12,21 +12,24 @@ import (
 )
 
 // redisClient is the narrow subset of redis.Client methods used by RedisQueue.
+// Defining it as an interface allows injection of test doubles.
 type redisClient interface {
+	// List operations — task queues and dead-letter queue.
 	LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd
 	BRPop(ctx context.Context, timeout time.Duration, keys ...string) *redis.StringSliceCmd
+	LLen(ctx context.Context, key string) *redis.IntCmd
 	LRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
-	ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd
-	BZPopMin(ctx context.Context, timeout time.Duration, keys ...string) *redis.ZWithKeyCmd
-	ZPopMin(ctx context.Context, key string, count ...int64) *redis.ZSliceCmd
-	ZRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd
-	ZCard(ctx context.Context, key string) *redis.IntCmd
 }
 
-// RedisQueue implements both Producer and Consumer.
-// Non-Ollama tasks go into iran-watcher:tasks; Ollama tasks into iran-watcher:tasks:ollama.
-// The dead-letter queue uses a plain list (LPush/BRPop).
+// scanner is implemented by redis clients that support SCAN (e.g. *redis.Client).
+// Test fakes that omit this interface cause TotalTaskLen and FlushQueue to no-op.
+type scanner interface {
+	Scan(context.Context, uint64, string, int64) *redis.ScanCmd
+}
+
+// RedisQueue implements both Producer and Consumer using Redis lists.
+// PushTask uses LPUSH; PopTask uses BRPOP (blocking right-pop from a left-push queue).
 type RedisQueue struct {
 	client      redisClient
 	broadcaster hub.Broadcaster
@@ -47,112 +50,59 @@ func NewRedisQueue(addr, password string, db int) *RedisQueue {
 	return &RedisQueue{client: client}
 }
 
-// broadcastQueueUpdate emits current pending counts for both queues.
-func (q *RedisQueue) broadcastQueueUpdate(ctx context.Context) {
-	if q.broadcaster == nil {
-		return
-	}
-	pendingTasks, _ := q.client.ZCard(ctx, QueueTasksKey).Result()
-	pendingOllama, _ := q.client.ZCard(ctx, QueueOllamaTasksKey).Result()
-	q.broadcaster.Broadcast(hub.Event{
-		Type: "queue_update",
-		Payload: map[string]int64{
-			"pending_tasks":  pendingTasks,
-			"pending_ollama": pendingOllama,
-		},
-	})
-}
-
-// PushTask serializes a Task to JSON and ZAdds it to the appropriate sorted set.
-// IsOllama=true → QueueOllamaTasksKey; otherwise → QueueTasksKey.
-// Score = task.Depth. Sorted sets deduplicate by member so re-queuing is idempotent.
+// PushTask serializes a Task to JSON and LPUSHes it onto the per-action tasks queue.
 func (q *RedisQueue) PushTask(ctx context.Context, task *Task) error {
 	b, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("queue: marshal task: %w", err)
 	}
-	key := QueueTasksKey
-	if task.IsOllama {
-		key = QueueOllamaTasksKey
-	}
-	if err := q.client.ZAdd(ctx, key, redis.Z{
-		Score:  float64(task.Depth),
-		Member: string(b),
-	}).Err(); err != nil {
+	cmd := q.client.LPush(ctx, QueueTasksKey(task.ActionID), b)
+	if err := cmd.Err(); err != nil {
 		return fmt.Errorf("queue: push task: %w", err)
 	}
-	q.broadcastQueueUpdate(ctx)
+	if q.broadcaster != nil {
+		q.broadcaster.Broadcast(hub.Event{
+			Type: "queue_update",
+			Payload: map[string]int64{
+				"action_id": task.ActionID,
+				"pending":   cmd.Val(),
+			},
+		})
+	}
 	return nil
 }
 
-// PopTask blocks until a Task is available on iran-watcher:tasks or the timeout elapses.
-// Returns (nil, nil) on timeout.
-func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration) (*Task, error) {
-	zwk, err := q.client.BZPopMin(ctx, timeout, QueueTasksKey).Result()
+// PopTask blocks until a Task is available on one of the given keys or the
+// timeout elapses. Returns (nil, nil) on timeout or when no keys are provided.
+func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration, keys ...string) (*Task, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	res, err := q.client.BRPop(ctx, timeout, keys...).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("queue: pop task: %w", err)
 	}
-	if zwk == nil || zwk.Key == "" {
+	if len(res) < 2 {
 		return nil, nil
 	}
-	member, ok := zwk.Z.Member.(string)
-	if !ok {
-		return nil, fmt.Errorf("queue: pop task: member is not a string")
-	}
 	var t Task
-	if err := json.Unmarshal([]byte(member), &t); err != nil {
+	if err := json.Unmarshal([]byte(res[1]), &t); err != nil {
 		return nil, fmt.Errorf("queue: pop task: unmarshal: %w", err)
 	}
-	q.broadcastQueueUpdate(ctx)
+	if q.broadcaster != nil {
+		pending, _ := q.client.LLen(ctx, res[0]).Result()
+		q.broadcaster.Broadcast(hub.Event{
+			Type: "queue_update",
+			Payload: map[string]int64{
+				"action_id": t.ActionID,
+				"pending":   pending,
+			},
+		})
+	}
 	return &t, nil
-}
-
-// TryPopTask is a non-blocking pop from iran-watcher:tasks.
-// Returns (nil, nil) if the queue is empty.
-func (q *RedisQueue) TryPopTask(ctx context.Context) (*Task, error) {
-	return q.zpopmin(ctx, QueueTasksKey)
-}
-
-// TryPopOllamaTask is a non-blocking pop from iran-watcher:tasks:ollama.
-// Returns (nil, nil) if the queue is empty.
-func (q *RedisQueue) TryPopOllamaTask(ctx context.Context) (*Task, error) {
-	return q.zpopmin(ctx, QueueOllamaTasksKey)
-}
-
-func (q *RedisQueue) zpopmin(ctx context.Context, key string) (*Task, error) {
-	results, err := q.client.ZPopMin(ctx, key, 1).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("queue: zpopmin %s: %w", key, err)
-	}
-	if len(results) == 0 {
-		return nil, nil
-	}
-	member, ok := results[0].Member.(string)
-	if !ok {
-		return nil, fmt.Errorf("queue: zpopmin: member is not a string")
-	}
-	var t Task
-	if err := json.Unmarshal([]byte(member), &t); err != nil {
-		return nil, fmt.Errorf("queue: zpopmin: unmarshal: %w", err)
-	}
-	q.broadcastQueueUpdate(ctx)
-	return &t, nil
-}
-
-// PeekMinDepth returns the score of the lowest-scored member in key without consuming it.
-// Returns (0, false) if the key is empty.
-func (q *RedisQueue) PeekMinDepth(ctx context.Context, key string) (float64, bool) {
-	results, err := q.client.ZRangeWithScores(ctx, key, 0, 0).Result()
-	if err != nil || len(results) == 0 {
-		return 0, false
-	}
-	return results[0].Score, true
 }
 
 // PushFailed pushes a FailedTweet to the dead-letter queue.
@@ -174,7 +124,8 @@ func (q *RedisQueue) PushFailed(ctx context.Context, ft *FailedTweet) error {
 	return nil
 }
 
-// PopFailed pops a FailedTweet from the dead-letter queue. Returns (nil, nil) on timeout.
+// PopFailed pops a FailedTweet from the dead-letter queue.
+// Returns (nil, nil) on timeout.
 func (q *RedisQueue) PopFailed(ctx context.Context, timeout time.Duration) (*FailedTweet, error) {
 	result, err := q.client.BRPop(ctx, timeout, QueueFailed).Result()
 	if err != nil {
@@ -195,14 +146,15 @@ func (q *RedisQueue) PopFailed(ctx context.Context, timeout time.Duration) (*Fai
 
 // Len returns the number of items currently in the named queue.
 func (q *RedisQueue) Len(ctx context.Context, queue string) (int64, error) {
-	n, err := q.client.ZCard(ctx, queue).Result()
+	n, err := q.client.LLen(ctx, queue).Result()
 	if err != nil {
 		return 0, fmt.Errorf("queue: len: %w", err)
 	}
 	return n, nil
 }
 
-// ListFailed returns up to limit FailedTweet entries starting at offset.
+// ListFailed returns up to limit FailedTweet entries starting at offset
+// without consuming them from the queue.
 func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTweet, error) {
 	stop := offset + limit - 1
 	items, err := q.client.LRange(ctx, QueueFailed, offset, stop).Result()
@@ -213,7 +165,7 @@ func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*Fa
 	for _, item := range items {
 		var ft FailedTweet
 		if err := json.Unmarshal([]byte(item), &ft); err != nil {
-			continue
+			continue // skip malformed entries
 		}
 		result = append(result, &ft)
 	}
@@ -234,23 +186,59 @@ func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 	return nil
 }
 
-// TotalTaskLen returns the total number of pending tasks across both task queues.
+// TotalTaskLen sums the lengths of all per-action task queues by scanning for
+// keys matching iran-watcher:tasks:*. Returns 0 if the underlying client does
+// not support SCAN (e.g. test fakes).
 func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
-	tasks, err := q.Len(ctx, QueueTasksKey)
-	if err != nil {
-		return 0, err
+	s, ok := q.client.(scanner)
+	if !ok {
+		return 0, nil
 	}
-	ollama, err := q.Len(ctx, QueueOllamaTasksKey)
-	if err != nil {
-		return 0, err
+	var total int64
+	var cursor uint64
+	for {
+		keys, next, err := s.Scan(ctx, cursor, QueueTasksPrefix+"*", 100).Result()
+		if err != nil {
+			return 0, fmt.Errorf("queue: total task len: scan: %w", err)
+		}
+		for _, key := range keys {
+			n, err := q.client.LLen(ctx, key).Result()
+			if err != nil {
+				continue
+			}
+			total += n
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
 	}
-	return tasks + ollama, nil
+	return total, nil
 }
 
-// FlushQueue deletes both task queues.
+// FlushQueue deletes all per-action task queues by scanning for
+// keys matching iran-watcher:tasks:* and deleting them in batches.
+// Returns nil if the client does not support SCAN.
 func (q *RedisQueue) FlushQueue(ctx context.Context) error {
-	if err := q.client.Del(ctx, QueueTasksKey, QueueOllamaTasksKey).Err(); err != nil {
-		return fmt.Errorf("queue: flush: %w", err)
+	s, ok := q.client.(scanner)
+	if !ok {
+		return nil
+	}
+	var cursor uint64
+	for {
+		keys, next, err := s.Scan(ctx, cursor, QueueTasksPrefix+"*", 100).Result()
+		if err != nil {
+			return fmt.Errorf("queue: flush: scan: %w", err)
+		}
+		if len(keys) > 0 {
+			if err := q.client.Del(ctx, keys...).Err(); err != nil {
+				return fmt.Errorf("queue: flush: del: %w", err)
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
 	}
 	return nil
 }
