@@ -7,7 +7,6 @@ export interface WorkerInfo {
   action: string
   pipeline: string
   tweet_id: string
-  depth: number
   started_at: string
   duration_ms: number
   backend_name: string

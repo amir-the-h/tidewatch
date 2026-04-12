@@ -151,8 +151,12 @@ func (m *Manager) buildReadyKeys() []string {
 	keys := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if av, ok := e.Pipeline.(inference.AvailabilityChecker); ok {
-			// Ollama pipeline: gated by both backend-level availability and the
-			// global in-flight count not exceeding total backend capacity.
+			// Ollama pipeline: gated by both backend-level availability and a soft
+			// in-flight count check. ollamaActive is a best-effort pre-filter —
+			// multiple workers can pass this check simultaneously before any increments,
+			// causing transient over-subscription. AcquireForPipeline provides the
+			// authoritative serialization point; workers that exceed backend capacity
+			// will block there until a slot is released.
 			if av.IsAvailable() && m.ollamaActive.Load() < cap {
 				keys = append(keys, queue.QueueTasksKey(e.Action.ID))
 			}

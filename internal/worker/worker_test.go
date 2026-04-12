@@ -837,17 +837,3 @@ func TestManager_Flush_CancelsActiveWorkers(t *testing.T) {
 	}
 }
 
-func TestRunWorker_UsesIsOllamaForRequeue(t *testing.T) {
-	// This test verifies that when a task has IsOllama=true and the re-queue
-	// safety net fires, PushTask is called with a task that still has IsOllama=true.
-	prod := &mockProducer{}
-	// Build a task with IsOllama=true.
-	task := &queue.Task{ActionID: 1, IsOllama: true}
-	// Verify IsOllama is preserved across a PushTask call (the router reads it).
-	if err := prod.PushTask(context.Background(), task); err != nil {
-		t.Fatalf("PushTask: %v", err)
-	}
-	if len(prod.pushed) != 1 || !prod.pushed[0].IsOllama {
-		t.Error("expected re-queued task to have IsOllama=true")
-	}
-}
