@@ -40,23 +40,25 @@ var internalMetaKeys = map[string]bool{
 // It performs ${key} substitution on messageTemplate using the input context map,
 // then calls provider.Deliver with the merged deliveryConfig (channel routing + pipeline options).
 type NotificationPipeline struct {
-	name            string
-	messageTemplate string
-	deliveryConfig  map[string]any
-	provider        notifier.Provider
-	loadActions     ActionSummaryLoader // nil = ${actions} expansion disabled
+	name               string
+	messageTemplate    string
+	threadNameTemplate string
+	deliveryConfig     map[string]any
+	provider           notifier.Provider
+	loadActions        ActionSummaryLoader // nil = ${actions} expansion disabled
 }
 
 // NewNotificationPipeline constructs a NotificationPipeline.
 // deliveryConfig is the merged map of channel routing keys and pipeline delivery options.
 // loadActions may be nil; if non-nil it is called to expand ${actions} in the template.
-func NewNotificationPipeline(name, messageTemplate string, deliveryConfig map[string]any, provider notifier.Provider, loadActions ActionSummaryLoader) *NotificationPipeline {
+func NewNotificationPipeline(name, messageTemplate, threadNameTemplate string, deliveryConfig map[string]any, provider notifier.Provider, loadActions ActionSummaryLoader) *NotificationPipeline {
 	return &NotificationPipeline{
-		name:            name,
-		messageTemplate: messageTemplate,
-		deliveryConfig:  deliveryConfig,
-		provider:        provider,
-		loadActions:     loadActions,
+		name:               name,
+		messageTemplate:    messageTemplate,
+		threadNameTemplate: threadNameTemplate,
+		deliveryConfig:     deliveryConfig,
+		provider:           provider,
+		loadActions:        loadActions,
 	}
 }
 
@@ -126,6 +128,15 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 
 	if v, ok := input.Context["discord_thread_id"]; ok {
 		cfg["discord_thread_id"] = v
+	}
+
+	if p.threadNameTemplate != "" {
+		rendered := substituteVars(p.threadNameTemplate, input.Context, nil) // thread name is always plain text
+		runes := []rune(rendered)
+		if len(runes) > 100 {
+			runes = runes[:100]
+		}
+		cfg["thread_name"] = string(runes)
 	}
 
 	providerMeta, err := p.provider.Deliver(ctx, text, cfg)

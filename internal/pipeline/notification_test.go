@@ -26,7 +26,7 @@ func (m *mockProvider) Deliver(_ context.Context, text string, config map[string
 
 func TestNotificationPipeline_SubstitutesVars(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "Hello ${author}, tweet: ${tweet}", map[string]any{"priority": 1}, mp, nil)
+	p := NewNotificationPipeline("test", "Hello ${author}, tweet: ${tweet}", "", map[string]any{"priority": 1}, mp, nil)
 
 	input := inference.PipelineInput{
 		Context: map[string]any{
@@ -49,7 +49,7 @@ func TestNotificationPipeline_SubstitutesVars(t *testing.T) {
 
 func TestNotificationPipeline_UnknownVarsLeftAsIs(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "${unknown} and ${author}", nil, mp, nil)
+	p := NewNotificationPipeline("test", "${unknown} and ${author}", "", nil, mp, nil)
 
 	input := inference.PipelineInput{
 		Context: map[string]any{"author": "me"},
@@ -65,7 +65,7 @@ func TestNotificationPipeline_UnknownVarsLeftAsIs(t *testing.T) {
 
 func TestNotificationPipeline_OutputContainsProviderType(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("pushover-test", "msg", nil, mp, nil)
+	p := NewNotificationPipeline("pushover-test", "msg", "", nil, mp, nil)
 
 	out, err := p.Run(context.Background(), inference.PipelineInput{})
 	if err != nil {
@@ -78,7 +78,7 @@ func TestNotificationPipeline_OutputContainsProviderType(t *testing.T) {
 
 func TestNotificationPipeline_ProviderErrorPropagates(t *testing.T) {
 	mp := &mockProvider{err: errors.New("network timeout")}
-	p := NewNotificationPipeline("test", "msg", nil, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", nil, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{})
 	if err == nil {
@@ -89,7 +89,7 @@ func TestNotificationPipeline_ProviderErrorPropagates(t *testing.T) {
 func TestNotificationPipeline_DeliveryConfigPassedThrough(t *testing.T) {
 	mp := &mockProvider{}
 	cfg := map[string]any{"chat_id": "-1001234", "parse_mode": "HTML"}
-	p := NewNotificationPipeline("test", "msg", cfg, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", cfg, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{})
 	if err != nil {
@@ -102,7 +102,7 @@ func TestNotificationPipeline_DeliveryConfigPassedThrough(t *testing.T) {
 
 func TestNotificationPipeline_TypeReturnsNotification(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "msg", nil, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", nil, mp, nil)
 	if p.Type() != inference.PipelineTypeNotification {
 		t.Errorf("Type: got %q, want %q", p.Type(), inference.PipelineTypeNotification)
 	}
@@ -110,7 +110,7 @@ func TestNotificationPipeline_TypeReturnsNotification(t *testing.T) {
 
 func TestNotificationPipeline_Close(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "msg", nil, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", nil, mp, nil)
 	if err := p.Close(); err != nil {
 		t.Errorf("Close: expected nil, got %v", err)
 	}
@@ -120,7 +120,7 @@ func TestNotificationPipeline_MarkdownV2EscapesValues(t *testing.T) {
 	mp := &mockProvider{}
 	cfg := map[string]any{"parse_mode": "MarkdownV2"}
 	// Template has intentional bold; the tweet value contains special chars.
-	p := NewNotificationPipeline("test", "*Tweet:* ${tweet}", cfg, mp, nil)
+	p := NewNotificationPipeline("test", "*Tweet:* ${tweet}", "", cfg, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"tweet": "Hello_World! (breaking.news)"},
@@ -138,7 +138,7 @@ func TestNotificationPipeline_MarkdownV2EscapesValues(t *testing.T) {
 func TestNotificationPipeline_HTMLEscapesValues(t *testing.T) {
 	mp := &mockProvider{}
 	cfg := map[string]any{"parse_mode": "HTML"}
-	p := NewNotificationPipeline("test", "<b>Tweet:</b> ${tweet}", cfg, mp, nil)
+	p := NewNotificationPipeline("test", "<b>Tweet:</b> ${tweet}", "", cfg, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"tweet": "<script>alert('xss')</script> & more"},
@@ -154,7 +154,7 @@ func TestNotificationPipeline_HTMLEscapesValues(t *testing.T) {
 
 func TestNotificationPipeline_NoParseModeLeavesValuesRaw(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "${tweet}", nil, mp, nil)
+	p := NewNotificationPipeline("test", "${tweet}", "", nil, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"tweet": "raw_text*here"},
@@ -229,7 +229,7 @@ func TestTelegramEscapeHTML(t *testing.T) {
 
 func TestNotificationPipeline_ForwardsMessageIDToProvider(t *testing.T) {
 	mp := &mockProvider{meta: map[string]any{"telegram_message_id": int64(42)}}
-	p := NewNotificationPipeline("test", "msg", map[string]any{"chat_id": "-100"}, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", map[string]any{"chat_id": "-100"}, mp, nil)
 
 	// Simulate a second run where the previous execution stored a message_id.
 	_, err := p.Run(context.Background(), inference.PipelineInput{
@@ -245,7 +245,7 @@ func TestNotificationPipeline_ForwardsMessageIDToProvider(t *testing.T) {
 
 func TestNotificationPipeline_ForwardsDiscordThreadID(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "msg", map[string]any{}, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", map[string]any{}, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"discord_thread_id": "thread456"},
@@ -260,7 +260,7 @@ func TestNotificationPipeline_ForwardsDiscordThreadID(t *testing.T) {
 
 func TestNotificationPipeline_ProviderMetaMergedIntoOutput(t *testing.T) {
 	mp := &mockProvider{meta: map[string]any{"telegram_message_id": int64(123)}}
-	p := NewNotificationPipeline("test", "msg", nil, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", nil, mp, nil)
 
 	out, err := p.Run(context.Background(), inference.PipelineInput{})
 	if err != nil {
@@ -276,7 +276,7 @@ func TestNotificationPipeline_ProviderMetaMergedIntoOutput(t *testing.T) {
 
 func TestNotificationPipeline_NoMessageIDForwardedWhenAbsent(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "msg", map[string]any{"chat_id": "-100"}, mp, nil)
+	p := NewNotificationPipeline("test", "msg", "", map[string]any{"chat_id": "-100"}, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{})
 	if err != nil {
@@ -312,7 +312,7 @@ func TestNotificationPipeline_ActionsExpanded(t *testing.T) {
 			{ActionName: "Classify", Metadata: map[string]any{"label": "political", "score": float64(0.95)}},
 		}, nil
 	}
-	p := NewNotificationPipeline("test", "Tweet: ${tweet}\n${actions}", nil, mp, loader)
+	p := NewNotificationPipeline("test", "Tweet: ${tweet}\n${actions}", "", nil, mp, loader)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"tweet": "hello", "tweet_id": "123"},
@@ -330,7 +330,7 @@ func TestNotificationPipeline_ActionsExpanded(t *testing.T) {
 
 func TestNotificationPipeline_ActionsSkippedWithoutLoader(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "${actions}", nil, mp, nil)
+	p := NewNotificationPipeline("test", "${actions}", "", nil, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"tweet_id": "123"},
@@ -349,7 +349,7 @@ func TestNotificationPipeline_ActionsEmptyWhenNoSummaries(t *testing.T) {
 	loader := func(_ context.Context, _ string) ([]ActionSummary, error) {
 		return nil, nil // no actions ran yet
 	}
-	p := NewNotificationPipeline("test", "tweet\n${actions}", nil, mp, loader)
+	p := NewNotificationPipeline("test", "tweet\n${actions}", "", nil, mp, loader)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{"tweet_id": "123"},
@@ -517,5 +517,74 @@ func TestSubstituteVars_HTMLWrappedLabelDroppedWhenEmpty(t *testing.T) {
 	}
 	if !strings.Contains(got, "Header") || !strings.Contains(got, "Footer") {
 		t.Errorf("surrounding lines should be preserved, got: %q", got)
+	}
+}
+
+func TestNotificationPipeline_ThreadNameTemplate_RenderedAndInjected(t *testing.T) {
+	mp := &mockProvider{}
+	p := NewNotificationPipeline("test", "body ${tweet}", "[${category}] ${author}", nil, mp, nil)
+	input := inference.PipelineInput{
+		Context: map[string]any{
+			"tweet":    "Iran protests",
+			"author":   "reporter1",
+			"category": "protest",
+		},
+	}
+	_, err := p.Run(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, ok := mp.lastConfig["thread_name"]
+	if !ok {
+		t.Fatal("expected thread_name in delivery config")
+	}
+	if got != "[protest] reporter1" {
+		t.Errorf("thread_name: got %q, want %q", got, "[protest] reporter1")
+	}
+}
+
+func TestNotificationPipeline_ThreadNameTemplate_TruncatedAt100Runes(t *testing.T) {
+	mp := &mockProvider{}
+	long := strings.Repeat("آ", 150) // 150 runes (multi-byte)
+	p := NewNotificationPipeline("test", "body", long, nil, mp, nil)
+	_, err := p.Run(context.Background(), inference.PipelineInput{Context: map[string]any{}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := mp.lastConfig["thread_name"].(string)
+	if len([]rune(got)) != 100 {
+		t.Errorf("expected 100 runes, got %d", len([]rune(got)))
+	}
+}
+
+func TestNotificationPipeline_ThreadNameTemplate_EmptyTemplate_NotInjected(t *testing.T) {
+	mp := &mockProvider{}
+	p := NewNotificationPipeline("test", "body", "", nil, mp, nil)
+	_, err := p.Run(context.Background(), inference.PipelineInput{Context: map[string]any{}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, ok := mp.lastConfig["thread_name"]; ok {
+		t.Error("expected thread_name absent when threadNameTemplate is empty")
+	}
+}
+
+func TestNotificationPipeline_ThreadNameTemplate_NotEscapedRegardlessOfParseMode(t *testing.T) {
+	mp := &mockProvider{}
+	cfg := map[string]any{"parse_mode": "MarkdownV2"}
+	p := NewNotificationPipeline("test", "body", "[${category}]_protest", cfg, mp, nil)
+	_, err := p.Run(context.Background(), inference.PipelineInput{
+		Context: map[string]any{"category": "political_event"},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := mp.lastConfig["thread_name"].(string)
+	if strings.Contains(got, `\_`) || strings.Contains(got, `\[`) || strings.Contains(got, `\]`) {
+		t.Errorf("thread_name should not be MarkdownV2-escaped, got %q", got)
+	}
+	want := "[political_event]_protest"
+	if got != want {
+		t.Errorf("thread_name: got %q, want %q", got, want)
 	}
 }

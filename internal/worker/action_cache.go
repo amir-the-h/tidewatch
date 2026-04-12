@@ -207,6 +207,7 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 		return nil, fmt.Errorf("action cache: notification pipeline missing channel_id")
 	}
 	messageTemplate, _ := pipelineCfg["message_template"].(string)
+	threadNameTemplate, _ := pipelineCfg["thread_name_template"].(string)
 
 	channel, err := st.GetNotificationChannel(ctx, int64(channelID))
 	if err != nil {
@@ -221,7 +222,7 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 	// Build delivery config: action options first, then overlay channel routing (chat_id, device).
 	deliveryConfig := make(map[string]any, len(pipelineCfg))
 	for k, v := range pipelineCfg {
-		if k == "channel_id" || k == "message_template" {
+		if k == "channel_id" || k == "message_template" || k == "thread_name_template" {
 			continue
 		}
 		deliveryConfig[k] = v
@@ -291,7 +292,7 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 		return out, nil
 	}
 
-	return pipeline.NewNotificationPipeline(a.Name, messageTemplate, deliveryConfig, notifProvider, loader), nil
+	return pipeline.NewNotificationPipeline(a.Name, messageTemplate, threadNameTemplate, deliveryConfig, notifProvider, loader), nil
 }
 
 // resolveDiscordTagThreadCreds looks up the notification channel and provider
