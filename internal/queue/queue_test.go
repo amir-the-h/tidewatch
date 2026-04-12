@@ -158,11 +158,8 @@ func (f *fakeRedisClient) ZCard(_ context.Context, _ string) *redis.IntCmd {
 }
 
 func TestPopTask_ReturnsNilOnTimeout(t *testing.T) {
-	fake := &fakeRedisClient{
-		brpopErr:    redis.Nil, // BRPop returns redis.Nil on timeout
-		brpopResult: nil,
-	}
-	q := &RedisQueue{client: fake}
+	// fakeRedisClient.BZPopMin returns redis.Nil (timeout) by default.
+	q := &RedisQueue{client: &fakeRedisClient{}}
 
 	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:1")
 	if err != nil {
