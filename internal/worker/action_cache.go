@@ -107,8 +107,6 @@ func (c *ActionCache) All() []*CacheEntry {
 }
 
 // Pool returns the BackendPool used by this cache.
-// Used by Manager to wait for Ollama backend availability when no ready
-// queue keys are available.
 func (c *ActionCache) Pool() *inference.BackendPool {
 	return c.pool
 }
@@ -169,6 +167,11 @@ func (c *ActionCache) resolveAction(ctx context.Context, a *model.Action, action
 		c.infReg.Register(p)
 
 	case model.ActionTypeInternal:
+		if h, _ := cfg["handler"].(string); h == "discord_tag_thread" {
+			if err = c.resolveDiscordTagThreadCreds(ctx, cfg); err != nil {
+				return nil, nil, err
+			}
+		}
 		p, err = c.pipeReg.Build(a.Name, cfg)
 		if err != nil {
 			return nil, nil, err
@@ -252,20 +255,21 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 		}
 		notifProvider = notifier.NewTelegramClient(creds.BotToken, logger)
 	case "discord":
-		var creds struct {
-			BotToken       string `json:"bot_token"`
-			ForumChannelID string `json:"forum_channel_id"`
+		var provCreds struct {
+			BotToken string `json:"bot_token"`
 		}
-		if err := json.Unmarshal(provider.Config, &creds); err != nil {
-			return nil, fmt.Errorf("action cache: parse discord config: %w", err)
+		if err := json.Unmarshal(provider.Config, &provCreds); err != nil {
+			return nil, fmt.Errorf("action cache: parse discord provider config: %w", err)
 		}
-		if creds.BotToken == "" {
+		if provCreds.BotToken == "" {
 			return nil, fmt.Errorf("action cache: discord provider missing bot_token")
 		}
-		if creds.ForumChannelID == "" {
-			return nil, fmt.Errorf("action cache: discord provider missing forum_channel_id")
+		// forum_channel_id lives in the notification channel config.
+		forumChannelID, _ := deliveryConfig["forum_channel_id"].(string)
+		if forumChannelID == "" {
+			return nil, fmt.Errorf("action cache: discord channel missing forum_channel_id")
 		}
-		notifProvider = notifier.NewDiscordBotClient(creds.BotToken, creds.ForumChannelID)
+		notifProvider = notifier.NewDiscordBotClient(provCreds.BotToken, forumChannelID)
 	default:
 		return nil, fmt.Errorf("action cache: unknown notification provider type %q", provider.Type)
 	}
@@ -288,6 +292,51 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 	}
 
 	return pipeline.NewNotificationPipeline(a.Name, messageTemplate, deliveryConfig, notifProvider, loader), nil
+}
+
+// resolveDiscordTagThreadCreds looks up the notification channel and provider
+// identified by cfg["channel_id"], extracts bot_token (from provider) and
+// forum_channel_id (from channel), and injects them into cfg so the
+// discord_tag_thread factory can consume them without needing store access.
+func (c *ActionCache) resolveDiscordTagThreadCreds(ctx context.Context, cfg map[string]any) error {
+	channelID, _ := cfg["channel_id"].(float64)
+	if channelID == 0 {
+		return fmt.Errorf("discord_tag_thread: channel_id missing from action config")
+	}
+	channel, err := c.store.GetNotificationChannel(ctx, int64(channelID))
+	if err != nil {
+		return fmt.Errorf("discord_tag_thread: load channel %d: %w", int64(channelID), err)
+	}
+	provider, err := c.store.GetNotificationProvider(ctx, channel.ProviderID)
+	if err != nil {
+		return fmt.Errorf("discord_tag_thread: load provider %d: %w", channel.ProviderID, err)
+	}
+	if provider.Type != "discord" {
+		return fmt.Errorf("discord_tag_thread: provider %d has type %q, expected discord", provider.ID, provider.Type)
+	}
+	var provCreds struct {
+		BotToken string `json:"bot_token"`
+	}
+	if err := json.Unmarshal(provider.Config, &provCreds); err != nil {
+		return fmt.Errorf("discord_tag_thread: parse provider config: %w", err)
+	}
+	if provCreds.BotToken == "" {
+		return fmt.Errorf("discord_tag_thread: provider missing bot_token")
+	}
+	var chanCreds struct {
+		ForumChannelID string `json:"forum_channel_id"`
+	}
+	if len(channel.Config) > 0 && string(channel.Config) != "null" {
+		if err := json.Unmarshal(channel.Config, &chanCreds); err != nil {
+			return fmt.Errorf("discord_tag_thread: parse channel config: %w", err)
+		}
+	}
+	if chanCreds.ForumChannelID == "" {
+		return fmt.Errorf("discord_tag_thread: channel missing forum_channel_id")
+	}
+	cfg["bot_token"] = provCreds.BotToken
+	cfg["forum_channel_id"] = chanCreds.ForumChannelID
+	return nil
 }
 
 // buildOllamaContextLoader returns a ContextSummaryLoader that fetches per-action

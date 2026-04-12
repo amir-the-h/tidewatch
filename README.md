@@ -9,12 +9,12 @@ X Filtered Stream (SSE)
         │
         ▼
   stream.Client          ← connects, normalizes, saves raw tweet to SQLite
-        │ LPUSH Task per matching action
+        │ ZAdd Task per matching action (score=Depth)
         ▼
-  Redis (iran-watcher:tasks:{action_id})
-        │ BRPOP
+  Redis (iran-watcher:tasks)   ← single global priority sorted set
+        │ BZPopMin
         ▼
-  worker.Manager         ← N goroutines, each independently BRPOP from ready action queues
+  worker.Manager         ← N goroutines, each independently BZPopMin from global queue
         │
         ├─► ActionCache  ← hot-reloadable in-memory map of action_id → (Action + Pipeline)
         │
@@ -390,7 +390,7 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 ### Queue & Failures
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/queue` | Per-action queue breakdown |
+| `GET` | `/api/queue` | Global queue status: pending count + per-worker details |
 | `DELETE` | `/api/queue` | Flush all pending task queues |
 | `DELETE` | `/api/workers/buffer` | Cancel actively-executing workers |
 | `GET` | `/api/failures` | List dead-letter queue items |
