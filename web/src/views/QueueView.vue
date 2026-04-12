@@ -8,7 +8,7 @@ import type { DataTableColumns } from 'naive-ui'
 import type { FailedTweet } from '../api/failures'
 import type { WorkerInfo } from '../api/queue'
 import { getQueue, flushQueue, flushWorkerBuffer } from '../api/queue'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatEta } from '../utils/format'
 import { InformationCircleOutline, RefreshOutline, TrashOutline, BanOutline, StopCircleOutline } from '@vicons/ionicons5'
 import { iconBtn } from '../utils/renderActions'
 
@@ -298,6 +298,9 @@ onMounted(() => {
               </span>
             </template>
           </n-statistic>
+          <div style="font-size: 12px; color: #585b70; margin-top: 4px;">
+            ETA {{ formatEta(queuesStore.etaTasks) }}
+          </div>
         </n-card>
       </n-gi>
       <n-gi span="4 s:1">
@@ -309,6 +312,9 @@ onMounted(() => {
               </span>
             </template>
           </n-statistic>
+          <div style="font-size: 12px; color: #585b70; margin-top: 4px;">
+            ETA {{ formatEta(queuesStore.etaOllama) }}
+          </div>
         </n-card>
       </n-gi>
       <n-gi span="4 s:1">
