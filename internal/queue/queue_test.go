@@ -164,6 +164,18 @@ func (f *fakeRedisClient) ZCard(_ context.Context, key string) *redis.IntCmd {
 	return cmd
 }
 
+func (f *fakeRedisClient) ZPopMin(_ context.Context, _ string, _ ...int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal(nil)
+	return cmd
+}
+
+func (f *fakeRedisClient) ZRangeWithScores(_ context.Context, _ string, _, _ int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal(nil)
+	return cmd
+}
+
 func TestPopTask_ReturnsNilOnTimeout(t *testing.T) {
 	// fakeRedisClient.BZPopMin returns redis.Nil (timeout) by default.
 	q := &RedisQueue{client: &fakeRedisClient{}}
@@ -215,6 +227,18 @@ func (f *pushCaptureFakeClient) ZCard(_ context.Context, _ string) *redis.IntCmd
 	return redis.NewIntResult(1, nil) // returns 1 for broadcast assertions
 }
 
+func (f *pushCaptureFakeClient) ZPopMin(_ context.Context, _ string, _ ...int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal(nil)
+	return cmd
+}
+
+func (f *pushCaptureFakeClient) ZRangeWithScores(_ context.Context, _ string, _, _ int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal(nil)
+	return cmd
+}
+
 func TestPushTask_RoutesToGlobalKey(t *testing.T) {
 	fake := &pushCaptureFakeClient{}
 	q := &RedisQueue{client: fake}
@@ -261,48 +285,25 @@ func TestPushTask_BroadcastsQueueUpdate(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected payload type %T", bc.events[0].Payload)
 	}
-	if payload["pending"] != 1 { // pushCaptureFakeClient.ZCard returns 1
-		t.Errorf("pending: got %d, want 1", payload["pending"])
+	if _, ok := payload["pending_tasks"]; !ok {
+		t.Error("broadcast payload missing 'pending_tasks'")
+	}
+	if _, ok := payload["pending_ollama"]; !ok {
+		t.Error("broadcast payload missing 'pending_ollama'")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Key constant test
+// Key constant tests
 // ---------------------------------------------------------------------------
 
-// TestQueueTasksKey_IsConstant verifies the global queue key constant.
-func TestQueueTasksKey_IsConstant(t *testing.T) {
+// TestQueueKeys_AreConstants verifies the queue key constants.
+func TestQueueKeys_AreConstants(t *testing.T) {
 	if QueueTasksKey != "iran-watcher:tasks" {
 		t.Errorf("QueueTasksKey = %q, want %q", QueueTasksKey, "iran-watcher:tasks")
 	}
-}
-
-// TestTotalTaskLen_SingleKey verifies TotalTaskLen uses ZCard on the global key.
-func TestTotalTaskLen_SingleKey(t *testing.T) {
-	fake := &fakeRedisClient{
-		zcard: map[string]int64{
-			"iran-watcher:tasks": 17,
-		},
-	}
-	q := &RedisQueue{client: fake}
-	total, err := q.TotalTaskLen(context.Background())
-	if err != nil {
-		t.Fatalf("TotalTaskLen: %v", err)
-	}
-	if total != 17 {
-		t.Errorf("TotalTaskLen = %d, want 17", total)
-	}
-}
-
-// TestFlushQueue_SingleDel verifies FlushQueue issues a single DEL on the global key.
-func TestFlushQueue_SingleDel(t *testing.T) {
-	fake := &fakeRedisClient{}
-	q := &RedisQueue{client: fake}
-	if err := q.FlushQueue(context.Background()); err != nil {
-		t.Fatalf("FlushQueue: %v", err)
-	}
-	if len(fake.deleted) != 1 || fake.deleted[0] != "iran-watcher:tasks" {
-		t.Errorf("deleted keys = %v, want [iran-watcher:tasks]", fake.deleted)
+	if QueueOllamaTasksKey != "iran-watcher:tasks:ollama" {
+		t.Errorf("QueueOllamaTasksKey = %q, want %q", QueueOllamaTasksKey, "iran-watcher:tasks:ollama")
 	}
 }
 
@@ -331,6 +332,18 @@ func (f *bzpopSuccessFakeClient) BZPopMin(ctx context.Context, _ time.Duration, 
 
 func (f *bzpopSuccessFakeClient) ZCard(_ context.Context, _ string) *redis.IntCmd {
 	return redis.NewIntResult(f.zcardN, nil)
+}
+
+func (f *bzpopSuccessFakeClient) ZPopMin(_ context.Context, _ string, _ ...int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal(nil)
+	return cmd
+}
+
+func (f *bzpopSuccessFakeClient) ZRangeWithScores(_ context.Context, _ string, _, _ int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal(nil)
+	return cmd
 }
 
 func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
@@ -366,8 +379,14 @@ func TestPopTask_BroadcastsQueueUpdateOnSuccess(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map[string]int64 payload, got %T", bc.events[0].Payload)
 	}
-	if payload["pending"] != 5 {
-		t.Errorf("pending: got %d, want 5", payload["pending"])
+	if _, ok := payload["pending_tasks"]; !ok {
+		t.Error("broadcast payload missing 'pending_tasks'")
+	}
+	if _, ok := payload["pending_ollama"]; !ok {
+		t.Error("broadcast payload missing 'pending_ollama'")
+	}
+	if _, hasOld := payload["pending"]; hasOld {
+		t.Error("broadcast payload must not contain legacy 'pending' key")
 	}
 }
 
@@ -385,4 +404,144 @@ func TestPopTask_NoBroadcastWhenNoBroadcaster(t *testing.T) {
 		t.Fatal("expected non-nil task")
 	}
 	// No panic = pass
+}
+
+// ---------------------------------------------------------------------------
+// Routing tests
+// ---------------------------------------------------------------------------
+
+func TestPushTask_OllamaRoutesToOllamaKey(t *testing.T) {
+	fake := &pushCaptureFakeClient{}
+	q := &RedisQueue{client: fake}
+	task := &Task{TriggerType: "new_tweet", ActionID: 7, Depth: 1, IsOllama: true, Context: map[string]any{}}
+	if err := q.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	if fake.pushedKey != QueueOllamaTasksKey {
+		t.Errorf("pushed to key %q, want %q", fake.pushedKey, QueueOllamaTasksKey)
+	}
+}
+
+func TestPushTask_NonOllamaRoutesToTasksKey(t *testing.T) {
+	fake := &pushCaptureFakeClient{}
+	q := &RedisQueue{client: fake}
+	task := &Task{TriggerType: "new_tweet", ActionID: 7, Depth: 1, IsOllama: false, Context: map[string]any{}}
+	if err := q.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	if fake.pushedKey != QueueTasksKey {
+		t.Errorf("pushed to key %q, want %q", fake.pushedKey, QueueTasksKey)
+	}
+}
+
+func TestPushTask_BroadcastsQueueUpdateShape(t *testing.T) {
+	fake := &pushCaptureFakeClient{}
+	bc := &captureBroadcaster{}
+	q := &RedisQueue{client: fake, broadcaster: bc}
+	task := &Task{TriggerType: "new_tweet", ActionID: 7, Depth: 0, IsOllama: false, Context: map[string]any{}}
+	if err := q.PushTask(context.Background(), task); err != nil {
+		t.Fatalf("PushTask: %v", err)
+	}
+	if len(bc.events) != 1 {
+		t.Fatalf("expected 1 broadcast, got %d", len(bc.events))
+	}
+	payload, ok := bc.events[0].Payload.(map[string]int64)
+	if !ok {
+		t.Fatalf("unexpected payload type %T", bc.events[0].Payload)
+	}
+	if _, hasPendingTasks := payload["pending_tasks"]; !hasPendingTasks {
+		t.Error("broadcast payload missing 'pending_tasks'")
+	}
+	if _, hasPendingOllama := payload["pending_ollama"]; !hasPendingOllama {
+		t.Error("broadcast payload missing 'pending_ollama'")
+	}
+	if _, hasOld := payload["pending"]; hasOld {
+		t.Error("broadcast payload must not contain legacy 'pending' key")
+	}
+}
+
+func TestFlushQueue_DeletesBothKeys(t *testing.T) {
+	fake := &fakeRedisClient{}
+	q := &RedisQueue{client: fake}
+	if err := q.FlushQueue(context.Background()); err != nil {
+		t.Fatalf("FlushQueue: %v", err)
+	}
+	wantKeys := map[string]bool{QueueTasksKey: true, QueueOllamaTasksKey: true}
+	for _, k := range fake.deleted {
+		delete(wantKeys, k)
+	}
+	if len(wantKeys) != 0 {
+		t.Errorf("missing deleted keys: %v", wantKeys)
+	}
+}
+
+func TestTotalTaskLen_SumsBothQueues(t *testing.T) {
+	fake := &fakeRedisClient{
+		zcard: map[string]int64{
+			QueueTasksKey:       10,
+			QueueOllamaTasksKey: 7,
+		},
+	}
+	q := &RedisQueue{client: fake}
+	total, err := q.TotalTaskLen(context.Background())
+	if err != nil {
+		t.Fatalf("TotalTaskLen: %v", err)
+	}
+	if total != 17 {
+		t.Errorf("TotalTaskLen = %d, want 17", total)
+	}
+}
+
+func TestTryPopTask_ReturnsNilWhenEmpty(t *testing.T) {
+	q := &RedisQueue{client: &fakeRedisClient{}}
+	task, err := q.TryPopTask(context.Background())
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if task != nil {
+		t.Fatalf("expected nil task, got: %+v", task)
+	}
+}
+
+func TestTryPopOllamaTask_ReturnsNilWhenEmpty(t *testing.T) {
+	q := &RedisQueue{client: &fakeRedisClient{}}
+	task, err := q.TryPopOllamaTask(context.Background())
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if task != nil {
+		t.Fatalf("expected nil task, got: %+v", task)
+	}
+}
+
+func TestPeekMinDepth_ReturnsFalseWhenEmpty(t *testing.T) {
+	q := &RedisQueue{client: &fakeRedisClient{}}
+	_, ok := q.PeekMinDepth(context.Background(), QueueTasksKey)
+	if ok {
+		t.Error("expected ok=false for empty queue")
+	}
+}
+
+func TestPeekMinDepth_ReturnsScoreWhenPresent(t *testing.T) {
+	fake := &peekFakeClient{score: 3.0}
+	q := &RedisQueue{client: fake}
+	depth, ok := q.PeekMinDepth(context.Background(), QueueTasksKey)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	if depth != 3.0 {
+		t.Errorf("depth = %v, want 3.0", depth)
+	}
+}
+
+// peekFakeClient returns a fixed score for ZRangeWithScores.
+type peekFakeClient struct {
+	fakeRedisClient
+	score float64
+}
+
+func (f *peekFakeClient) ZRangeWithScores(_ context.Context, _ string, _, _ int64) *redis.ZSliceCmd {
+	cmd := redis.NewZSliceCmd(context.Background())
+	cmd.SetVal([]redis.Z{{Score: f.score, Member: "x"}})
+	return cmd
 }
