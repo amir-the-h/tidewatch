@@ -100,16 +100,12 @@ func (m *Manager) Stats() PoolStats {
 		return true
 	})
 
+	// Fixed ascending ID order regardless of status.
 	workers := make([]WorkerInfo, 0, m.totalWorkers)
-	// Active workers first (ascending ID order).
 	for i := 1; i <= m.totalWorkers; i++ {
 		if wi, ok := activeMap[i]; ok {
 			workers = append(workers, wi)
-		}
-	}
-	// Idle workers after (ascending ID order).
-	for i := 1; i <= m.totalWorkers; i++ {
-		if _, ok := activeMap[i]; !ok {
+		} else {
 			workers = append(workers, WorkerInfo{ID: i, Status: "idle"})
 		}
 	}

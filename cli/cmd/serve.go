@@ -83,14 +83,25 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	q := queue.NewRedisQueue(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 	q.WithBroadcaster(h)
 
-	if err := inference.InitRuntime(cfg.Inference.ONNXLibPath); err != nil {
-		return fmt.Errorf("failed to initialize ONNX runtime: %w", err)
+	activeTrue := true
+	onnxType := model.ActionTypeONNX
+	onnxActions, err := s.ListActions(ctx, store.ActionFilter{Type: &onnxType, Active: &activeTrue})
+	if err != nil {
+		return fmt.Errorf("failed to check active onnx actions: %w", err)
 	}
-	defer func() {
-		if err := inference.DestroyRuntime(); err != nil {
-			logger.Error("serve: onnx runtime destroy error", "error", err)
+	if len(onnxActions) > 0 {
+		if err := inference.InitRuntime(cfg.Inference.ONNXLibPath); err != nil {
+			return fmt.Errorf("failed to initialize ONNX runtime: %w", err)
 		}
-	}()
+		defer func() {
+			if err := inference.DestroyRuntime(); err != nil {
+				logger.Error("serve: onnx runtime destroy error", "error", err)
+			}
+		}()
+		logger.Info("serve: onnx runtime initialized", "component", "inference", "active_onnx_actions", len(onnxActions))
+	} else {
+		logger.Info("serve: skipping onnx runtime init (no active onnx actions)", "component", "inference")
+	}
 
 	infReg := inference.NewRegistry()
 

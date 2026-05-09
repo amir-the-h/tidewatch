@@ -157,17 +157,44 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 // varPattern matches ${key} and ${key | filter} placeholders.
 var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
-// htmlTagPattern matches HTML tags for stripping purposes.
-var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
-
 // substituteVars replaces ${key} and ${key | filter} placeholders in tmpl with
 // values from ctx. Supported filters: yesno, join. If escaper is non-nil, each
 // rendered value is passed through it before substitution. Unknown keys are left
-// as-is. After substitution, inline empty parentheticals like " ()" are removed
-// and lines whose only substituted value resolved to empty are dropped.
+// as-is.
+//
+// The template is processed line-by-line. A line is dropped only when it
+// contains at least one ${key} placeholder AND every placeholder on that line
+// resolves to an empty string — this handles label rows like
+// "🎯 Perpetrator: ${perpetrator}" when the value is absent, without
+// incorrectly discarding content lines that happen to end with a colon.
+//
+// After joining, inline empty parentheticals like " ()" are removed.
 func substituteVars(tmpl string, ctx map[string]any, escaper func(string) string) string {
-	result := varPattern.ReplaceAllStringFunc(tmpl, func(match string) string {
-		inner := match[2 : len(match)-1] // strip ${ and }
+	lines := strings.Split(tmpl, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if dropTemplateLine(line, ctx) {
+			continue
+		}
+		kept = append(kept, substituteLine(line, ctx, escaper))
+	}
+	result := strings.Join(kept, "\n")
+	// Remove inline empty parentheticals: "foo ()" → "foo".
+	result = strings.ReplaceAll(result, " ()", "")
+	return result
+}
+
+// dropTemplateLine returns true when the template line contains at least one
+// ${key} placeholder and every placeholder on the line resolves to an empty
+// string. Unknown placeholders (key not in ctx) are treated as non-empty so
+// the line is preserved rather than silently dropped.
+func dropTemplateLine(line string, ctx map[string]any) bool {
+	matches := varPattern.FindAllString(line, -1)
+	if len(matches) == 0 {
+		return false
+	}
+	for _, match := range matches {
+		inner := match[2 : len(match)-1]
 		parts := strings.SplitN(inner, "|", 2)
 		key := strings.TrimSpace(parts[0])
 		filter := ""
@@ -176,7 +203,28 @@ func substituteVars(tmpl string, ctx map[string]any, escaper func(string) string
 		}
 		v, ok := ctx[key]
 		if !ok {
-			return match // unknown key — leave placeholder as-is
+			return false // unknown key — preserve the line
+		}
+		if applyFilter(v, filter) != "" {
+			return false // at least one placeholder has content
+		}
+	}
+	return true
+}
+
+// substituteLine applies ${key} substitution to a single template line.
+func substituteLine(line string, ctx map[string]any, escaper func(string) string) string {
+	return varPattern.ReplaceAllStringFunc(line, func(match string) string {
+		inner := match[2 : len(match)-1]
+		parts := strings.SplitN(inner, "|", 2)
+		key := strings.TrimSpace(parts[0])
+		filter := ""
+		if len(parts) == 2 {
+			filter = strings.TrimSpace(parts[1])
+		}
+		v, ok := ctx[key]
+		if !ok {
+			return match
 		}
 		val := applyFilter(v, filter)
 		if escaper != nil {
@@ -184,23 +232,6 @@ func substituteVars(tmpl string, ctx map[string]any, escaper func(string) string
 		}
 		return val
 	})
-
-	// Remove inline empty parentheticals: "foo ()" → "foo".
-	result = strings.ReplaceAll(result, " ()", "")
-
-	// Drop lines whose only substituted value resolved to empty, leaving
-	// only a label and colon (e.g. "🎯 Perpetrator:" or "<b>Casualties:</b> ").
-	// HTML tags are stripped before the check so markup-wrapped labels are handled.
-	lines := strings.Split(result, "\n")
-	kept := lines[:0]
-	for _, line := range lines {
-		stripped := htmlTagPattern.ReplaceAllString(line, "")
-		if strings.HasSuffix(strings.TrimRight(stripped, " \t"), ":") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
 }
 
 // applyFilter renders a context value through an optional named filter.

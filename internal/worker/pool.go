@@ -32,7 +32,7 @@ type PoolStats struct {
 	Total   int          `json:"total"`
 	Active  int          `json:"active"`
 	Idle    int          `json:"idle"`
-	Workers []WorkerInfo `json:"workers"` // all workers: active first, then idle
+	Workers []WorkerInfo `json:"workers"` // all workers in fixed ascending ID order
 }
 
 // Pool manages N worker goroutines that process tweets from the queue.

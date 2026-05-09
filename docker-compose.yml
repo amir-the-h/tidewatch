@@ -86,7 +86,8 @@ services:
       - ./nominatim-data:/var/lib/postgresql/14/main
       - ./nominatim-pbf:/nominatim/pbf
     networks:
-      - network
+      network:
+        ipv4_address: 172.79.0.5
 
   iran-watcher-ui:
     build:
@@ -115,7 +116,8 @@ services:
     volumes:
       - "${HOME}/.iran-watcher:/root/.iran-watcher"
     networks:
-      network: {}
+      network:
+        ipv4_address: 172.79.0.6
 
 networks:
   network:

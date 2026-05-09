@@ -17,9 +17,18 @@ import { useTweetsStore } from '@/stores/tweets'
 let ws: WebSocket | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
 let staleInterval: ReturnType<typeof setInterval> | null = null
+let queueRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let lastMessageAt = 0
 let reconnectDelay = 1000
 let stopped = false
+
+function scheduleQueueRefresh() {
+  if (queueRefreshTimer !== null) return
+  queueRefreshTimer = setTimeout(() => {
+    queueRefreshTimer = null
+    useQueuesStore().fetchCounts()
+  }, 200)
+}
 
 function clearTimers() {
   if (pingInterval !== null) { clearInterval(pingInterval); pingInterval = null }
@@ -48,7 +57,7 @@ function buildHandlers() {
     pong:                   (_: any) => { /* timestamp updated in onmessage */ },
     new_tweet:              (p: any) => tweetsStore.prependTweet(p),
     worker_stats:           (p: any) => queuesStore.setWorkers(p.workers ?? []),
-    queue_update:           (_: any) => { /* per-action {action_id, pending} — global counts come from GET /api/queue poll */ },
+    queue_update:           (_: any) => scheduleQueueRefresh(),
     failed_count:           (p: any) => failuresStore.setTotal(p.count),
     stream_status:          (p: any) => streamStore.setConnected(p.connected),
     ollama_backends:        (p: any) => ollamaStore.setBackends(p),
