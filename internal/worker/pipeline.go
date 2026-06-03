@@ -523,119 +523,7 @@ func PushContinuationTasks(
 					"conditions", len(targetNode.Conditions),
 				)
 			}
-			passed := evaluateConditionsVerbose(targetNode.Conditions, mergedCtx, pipelineID, targetNode.ID, logger)
-			wantHandle := "pass"
-			if !passed {
-				wantHandle = "fail"
-			}
-			if logger != nil {
-				logger.Info("pipeline: condition node evaluated — following branch",
-					"pipeline_id", pipelineID,
-					"node_id", targetNode.ID,
-					"passed", passed,
-					"branch", wantHandle,
-				)
-			}
-			// Follow edges whose source handle matches the branch ("pass" or "fail").
-			// Legacy edges with an empty source_handle are treated as "pass".
-			for _, condEdge := range outgoingEdges(graph, targetNode.ID) {
-				h := condEdge.SourceHandle
-				if h == "" {
-					h = "pass"
-				}
-				if h != wantHandle {
-					continue
-				}
-				nextNode := findNode(graph, condEdge.TargetNodeID)
-				if nextNode == nil {
-					continue
-				}
-				switch nextNode.Type {
-				case model.PipelineNodeTypeAction:
-					if nextNode.ActionID == nil {
-						if logger != nil {
-							logger.Warn("pipeline: action node has no action_id after condition — skipped",
-								"pipeline_id", pipelineID, "node_id", nextNode.ID)
-						}
-						continue
-					}
-					if cache != nil && cache.Get(*nextNode.ActionID) == nil {
-						if logger != nil {
-							logger.Info("pipeline: skipping downstream task for inactive action (post-condition)",
-								"pipeline_id", pipelineID, "node_id", nextNode.ID,
-								"action_id", *nextNode.ActionID)
-						}
-						continue
-					}
-					if logger != nil {
-						logger.Info("pipeline: pushing downstream action task after condition",
-							"pipeline_id", pipelineID,
-							"action_id", *nextNode.ActionID,
-							"node_id", nextNode.ID,
-						)
-					}
-					if pushContinuationTask(ctx, st, producer, cache, task, nextNode, mergedCtx, logger) {
-						pushed++
-					}
-				case model.PipelineNodeTypePipeline:
-					if nextNode.SubPipelineID == nil {
-						if logger != nil {
-							logger.Warn("pipeline: pipeline node has no sub_pipeline_id after condition — skipped",
-								"pipeline_id", pipelineID, "node_id", nextNode.ID)
-						}
-						continue
-					}
-					subGraph, subErr := st.GetPipelineGraph(ctx, *nextNode.SubPipelineID)
-					if subErr != nil {
-						if logger != nil {
-							logger.Warn("pipeline: load sub-pipeline graph failed (post-condition)",
-								"sub_pipeline_id", *nextNode.SubPipelineID, "error", subErr)
-						}
-						continue
-					}
-					subStartNode := findStartNode(subGraph)
-					if subStartNode == nil {
-						continue
-					}
-					parentNodeID := nextNode.ID
-					tweetID := extractTweetID(task)
-					for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, mergedCtx, *nextNode.SubPipelineID, logger) {
-						if subActionNode.ActionID == nil {
-							continue
-						}
-						if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
-							continue
-						}
-						entryNodeID := subActionNode.ID
-						if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
-							logger.Warn("pipeline: insert pipeline node execution failed (post-condition)",
-								"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
-						}
-						subTask := &queue.Task{
-							TriggerType:            task.TriggerType,
-							Event:                  task.Event,
-							ActionID:               *subActionNode.ActionID,
-							PipelineNodeID:         subActionNode.ID,
-							PipelineID:             *nextNode.SubPipelineID,
-							RootPipelineID:         task.RootPipelineID,
-							ParentPipelineNodeID:   &parentNodeID,
-							SubPipelineEntryNodeID: &entryNodeID,
-							Context:                copyContext(mergedCtx),
-						}
-						if pushTrackedTask(ctx, st, producer, subTask, logger) {
-							pushed++
-						}
-					}
-				default:
-					if logger != nil {
-						logger.Warn("pipeline: unexpected node type after condition — skipped",
-							"pipeline_id", pipelineID,
-							"node_id", nextNode.ID,
-							"type", nextNode.Type,
-						)
-					}
-				}
-			}
+			pushed += pushDownstreamFromNode(ctx, st, producer, cache, graph, pipelineID, task, targetNode, mergedCtx, logger)
 
 		case model.PipelineNodeTypePipeline:
 			if targetNode.SubPipelineID == nil {
@@ -862,6 +750,141 @@ func evalRuleMatch(ctx map[string]any, ruleKey string, wantMatch bool) bool {
 		}
 	}
 	return !wantMatch
+}
+
+// pushDownstreamFromNode pushes tasks starting from node, recursively following
+// condition chains so that condition→condition sequences (e.g. the sequential
+// check chain where a failing condition leads directly to the next condition)
+// are handled correctly at any depth.
+func pushDownstreamFromNode(
+	ctx context.Context,
+	st store.Store,
+	producer queue.Producer,
+	cache *ActionCache,
+	graph *model.PipelineGraph,
+	pipelineID int64,
+	task *queue.Task,
+	node *model.PipelineNode,
+	mergedCtx map[string]any,
+	logger *slog.Logger,
+) int {
+	switch node.Type {
+	case model.PipelineNodeTypeAction:
+		if node.ActionID == nil {
+			if logger != nil {
+				logger.Warn("pipeline: action node has no action_id after condition — skipped",
+					"pipeline_id", pipelineID, "node_id", node.ID)
+			}
+			return 0
+		}
+		if cache != nil && cache.Get(*node.ActionID) == nil {
+			if logger != nil {
+				logger.Info("pipeline: skipping downstream task for inactive action (post-condition)",
+					"pipeline_id", pipelineID, "node_id", node.ID,
+					"action_id", *node.ActionID)
+			}
+			return 0
+		}
+		if logger != nil {
+			logger.Info("pipeline: pushing downstream action task after condition",
+				"pipeline_id", pipelineID,
+				"action_id", *node.ActionID,
+				"node_id", node.ID,
+			)
+		}
+		if pushContinuationTask(ctx, st, producer, cache, task, node, mergedCtx, logger) {
+			return 1
+		}
+		return 0
+
+	case model.PipelineNodeTypeCondition:
+		passed := evaluateConditionsVerbose(node.Conditions, mergedCtx, pipelineID, node.ID, logger)
+		wantHandle := "pass"
+		if !passed {
+			wantHandle = "fail"
+		}
+		if logger != nil {
+			logger.Info("pipeline: condition node evaluated — following branch",
+				"pipeline_id", pipelineID, "node_id", node.ID,
+				"passed", passed, "branch", wantHandle,
+			)
+		}
+		pushed := 0
+		for _, condEdge := range outgoingEdges(graph, node.ID) {
+			h := condEdge.SourceHandle
+			if h == "" {
+				h = "pass"
+			}
+			if h != wantHandle {
+				continue
+			}
+			nextNode := findNode(graph, condEdge.TargetNodeID)
+			if nextNode == nil {
+				continue
+			}
+			pushed += pushDownstreamFromNode(ctx, st, producer, cache, graph, pipelineID, task, nextNode, mergedCtx, logger)
+		}
+		return pushed
+
+	case model.PipelineNodeTypePipeline:
+		if node.SubPipelineID == nil {
+			if logger != nil {
+				logger.Warn("pipeline: pipeline node has no sub_pipeline_id after condition — skipped",
+					"pipeline_id", pipelineID, "node_id", node.ID)
+			}
+			return 0
+		}
+		subGraph, subErr := st.GetPipelineGraph(ctx, *node.SubPipelineID)
+		if subErr != nil {
+			if logger != nil {
+				logger.Warn("pipeline: load sub-pipeline graph failed (post-condition)",
+					"sub_pipeline_id", *node.SubPipelineID, "error", subErr)
+			}
+			return 0
+		}
+		subStartNode := findStartNode(subGraph)
+		if subStartNode == nil {
+			return 0
+		}
+		parentNodeID := node.ID
+		tweetID := extractTweetID(task)
+		pushed := 0
+		for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, mergedCtx, *node.SubPipelineID, logger) {
+			if subActionNode.ActionID == nil {
+				continue
+			}
+			if cache != nil && cache.Get(*subActionNode.ActionID) == nil {
+				continue
+			}
+			entryNodeID := subActionNode.ID
+			if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
+				logger.Warn("pipeline: insert pipeline node execution failed (post-condition)",
+					"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
+			}
+			subTask := &queue.Task{
+				TriggerType:            task.TriggerType,
+				Event:                  task.Event,
+				ActionID:               *subActionNode.ActionID,
+				PipelineNodeID:         subActionNode.ID,
+				PipelineID:             *node.SubPipelineID,
+				RootPipelineID:         task.RootPipelineID,
+				ParentPipelineNodeID:   &parentNodeID,
+				SubPipelineEntryNodeID: &entryNodeID,
+				Context:                copyContext(mergedCtx),
+			}
+			if pushTrackedTask(ctx, st, producer, subTask, logger) {
+				pushed++
+			}
+		}
+		return pushed
+
+	default:
+		if logger != nil {
+			logger.Warn("pipeline: unexpected node type after condition — skipped",
+				"pipeline_id", pipelineID, "node_id", node.ID, "type", node.Type)
+		}
+		return 0
+	}
 }
 
 // ── graph helpers ─────────────────────────────────────────────────────────────
