@@ -136,6 +136,7 @@ const columns: DataTableColumns<Source> = [
         clearable placeholder="All types" style="width: 180px"
       />
       <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
+      <n-button type="primary" size="small" @click="showCreate = true">New Source</n-button>
     </n-flex>
 
     <n-data-table
