@@ -130,6 +130,16 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 		cfg["discord_thread_id"] = v
 	}
 
+	// Pushover's supplementary "url" / "url_title" fields support the same
+	// ${key} substitution as the message body (e.g. linking to the tweet's
+	// detail page via ${tweet_id}), but are otherwise sent to the provider as-is.
+	if v, ok := cfg["url"].(string); ok && v != "" {
+		cfg["url"] = substituteVars(v, input.Context, nil)
+	}
+	if v, ok := cfg["url_title"].(string); ok && v != "" {
+		cfg["url_title"] = substituteVars(v, input.Context, nil)
+	}
+
 	if p.threadNameTemplate != "" {
 		rendered := substituteVars(p.threadNameTemplate, input.Context, nil) // thread name is always plain text
 		runes := []rune(rendered)
