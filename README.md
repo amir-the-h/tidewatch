@@ -6,8 +6,6 @@
 
 **Real-time social-stream intelligence, self-hosted.** tidewatch ingests the X (Twitter) Filtered Stream, runs every post through user-defined DAG pipelines of local ONNX models, Ollama LLMs and built-in handlers, and turns the results into a live map, an entity graph, digests and push alerts — all on your own hardware, in a single Go binary.
 
-<!-- TODO: screenshot / GIF of the map + pipeline editor -->
-
 ## Features
 
 - **Visual DAG pipelines** — compose actions (ONNX classifier/NER, Ollama prompt, internal handler) into graphs with conditional edges (`==`, `contains`, `exists`, …), sub-pipelines and fan-in; hot-reloaded without restart.
