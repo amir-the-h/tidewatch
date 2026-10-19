@@ -65,7 +65,7 @@ Open http://localhost:3000 and sign in as the admin user. ONNX models go in `./m
 
 ### Native build prerequisites
 
-Docker is the preferred way to build and run tidewatch. Native builds require Go 1.25.5+, CGO, the prebuilt [`libtokenizers`](https://github.com/daulet/tokenizers/releases) static library, the ONNX Runtime shared library, and Redis.
+Docker is the preferred way to build and run tidewatch. Native builds require Go 1.26+, CGO, the prebuilt [`libtokenizers`](https://github.com/daulet/tokenizers/releases) static library, the ONNX Runtime shared library, and Redis.
 
 ## Configuration
 
