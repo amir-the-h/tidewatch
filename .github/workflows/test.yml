@@ -15,14 +15,14 @@ jobs:
       contents: read
     env:
       CGO_ENABLED: "1"
-      TOKENIZERS_VERSION: "1.26.0"
+      TOKENIZERS_VERSION: "1.27.0"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 

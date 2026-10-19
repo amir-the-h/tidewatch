@@ -2,7 +2,7 @@
 # Build stage
 # ──────────────────────────────────────────────
 # Debian-based image required for CGO + Rust + CUDA-capable ONNX Runtime.
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.27-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git gcc g++ make wget tar ca-certificates \
@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Download pre-built libtokenizers.a for linux-amd64.
 # Source: https://github.com/daulet/tokenizers/releases
-ARG TOKENIZERS_VERSION=1.26.0
+ARG TOKENIZERS_VERSION=1.27.0
 RUN wget -q "https://github.com/daulet/tokenizers/releases/download/v${TOKENIZERS_VERSION}/libtokenizers.linux-amd64.tar.gz" \
         -O /tmp/libtokenizers.tar.gz \
     && tar -xzf /tmp/libtokenizers.tar.gz -C /usr/local/lib \
