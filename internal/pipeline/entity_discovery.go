@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // discoveryStore is the minimal store interface required by EntityDiscoveryPipeline.
@@ -111,7 +111,7 @@ func (p *EntityDiscoveryPipeline) Run(ctx context.Context, input inference.Pipel
 		if c.Status == "pending" && p.shouldAutoPromote(c) {
 			if err := p.autoPromote(ctx, c); err != nil {
 				p.logger.Warn("entity_discovery: auto-promote", "word", c.Word, "error", err)
-			} else {
+			} else if c.Status == "promoted" { // a UNIQUE conflict leaves it pending
 				autoPromotedCount++
 			}
 		}

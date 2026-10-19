@@ -10,12 +10,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/hub"
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
-	"github.com/amir-the-h/iran-watcher/internal/queue"
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 // Manager launches N worker goroutines that pop Tasks from Redis.

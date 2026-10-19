@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/hub"
 )
 
 // BackendRecord is DB data for a single Ollama backend, used to populate the pool.

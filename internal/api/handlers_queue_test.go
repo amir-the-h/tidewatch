@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/worker"
+	"github.com/amir-the-h/tidewatch/internal/worker"
 )
 
 type stubPoolStats struct {

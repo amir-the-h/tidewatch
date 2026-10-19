@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/amir-the-h/iran-watcher/internal/auth"
+	"github.com/amir-the-h/tidewatch/internal/auth"
 )
 
 // handleLogin authenticates a user and returns a JWT.

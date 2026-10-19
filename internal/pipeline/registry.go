@@ -5,7 +5,7 @@ package pipeline
 import (
 	"fmt"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/inference"
 )
 
 // Factory creates a Pipeline instance from DB config.

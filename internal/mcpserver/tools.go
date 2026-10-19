@@ -24,7 +24,7 @@ type BodyDef struct {
 	Description string
 }
 
-// AllTools returns the complete ToolDef table for all iran-watcher REST endpoints.
+// AllTools returns the complete ToolDef table for all tidewatch REST endpoints.
 // Source of truth: internal/api/server.go route registrations.
 func AllTools() []ToolDef {
 	return []ToolDef{
@@ -908,7 +908,7 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 		// ── Chat ─────────────────────────────────────────────────────────────
 		{
 			Name:        "chat_stream",
-			Description: "Stream an agentic LLM response via SSE. The model autonomously calls iran-watcher tools to answer questions.",
+			Description: "Stream an agentic LLM response via SSE. The model autonomously calls tidewatch tools to answer questions.",
 			Method:      "POST",
 			Path:        "/api/chat/stream",
 			Body: &BodyDef{

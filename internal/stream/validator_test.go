@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/stream"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
 func TestValidateOK(t *testing.T) {

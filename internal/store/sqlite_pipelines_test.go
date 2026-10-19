@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 func seedPipeline(t *testing.T, s Store, name string, active bool) *model.Pipeline {

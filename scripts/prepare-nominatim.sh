@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# prepare-nominatim.sh — Download country PBF extracts and merge them into a
+# prepare-nominatim.sh — Download Geofabrik PBF extracts and merge them into a
 # single file for the self-hosted Nominatim instance.
 #
 # Usage:
@@ -7,24 +7,28 @@
 #   ./scripts/prepare-nominatim.sh download # download only
 #   ./scripts/prepare-nominatim.sh merge    # merge only (PBFs already present)
 #
-# PBF files are saved to nominatim-data/ (bind-mounted into the Nominatim container).
+# Regions are Geofabrik paths (see https://download.geofabrik.de), space-separated:
+#   GEOFABRIK_REGIONS="europe/germany europe/austria" ./scripts/prepare-nominatim.sh
+# The default is a tiny extract that imports in a minute — handy for trying things out.
+#
+# Output name defaults to regions.osm.pbf (override with NOMINATIM_PBF_NAME; must
+# match the PBF_PATH in docker-compose.yml).
+#
+# PBF files are saved to nominatim-pbf/ (bind-mounted into the Nominatim container).
 # The merge step runs in a Docker container (ubuntu:24.04 + osmium-tool).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_DIR="$SCRIPT_DIR/../nominatim-pbf"
-OUTPUT="$DATA_DIR/middle-east.osm.pbf"
+OUTPUT_NAME="${NOMINATIM_PBF_NAME:-regions.osm.pbf}"
+OUTPUT="$DATA_DIR/$OUTPUT_NAME"
 
-COUNTRIES=(
-  "https://download.geofabrik.de/asia/iran-latest.osm.pbf"
-  "https://download.geofabrik.de/asia/iraq-latest.osm.pbf"
-  "https://download.geofabrik.de/asia/israel-and-palestine-latest.osm.pbf"
-  "https://download.geofabrik.de/asia/lebanon-latest.osm.pbf"
-  "https://download.geofabrik.de/asia/jordan-latest.osm.pbf"
-  "https://download.geofabrik.de/asia/azerbaijan-latest.osm.pbf"
-  "https://download.geofabrik.de/asia/pakistan-latest.osm.pbf"
-)
+read -r -a REGIONS <<< "${GEOFABRIK_REGIONS:-europe/monaco}"
+COUNTRIES=()
+for REGION in "${REGIONS[@]}"; do
+  COUNTRIES+=("https://download.geofabrik.de/${REGION}-latest.osm.pbf")
+done
 
 download() {
   echo "==> Downloading PBF extracts to $DATA_DIR"
@@ -55,12 +59,12 @@ merge() {
       set -e
       apt-get update -qq && apt-get install -y -qq osmium-tool
       cd /work
-      rm -f middle-east.osm.pbf
+      rm -f $OUTPUT_NAME
       echo 'Merging...'
-      osmium merge $FILES -o middle-east.osm.pbf
+      osmium merge $FILES -o $OUTPUT_NAME
       echo 'Cleaning up individual PBFs...'
       rm -f $FILES
-      echo 'Done. middle-east.osm.pbf is ready.'
+      echo 'Done. $OUTPUT_NAME is ready.'
     "
   echo "==> Merge complete: $OUTPUT"
 }

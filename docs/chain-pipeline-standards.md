@@ -1,6 +1,6 @@
 # Chain Pipeline Standards
 
-Standards for building Ollama pipelines and notification templates in iran-watcher chains.
+Standards for building Ollama pipelines and notification templates in tidewatch chains.
 
 ## 1. Output Key Naming
 
@@ -36,7 +36,7 @@ Rules:
 
 **Prompt structure:**
 ```
-You are an intelligence analyst monitoring Iran-related news.
+You are an intelligence analyst monitoring [topic] news.
 Your task: determine whether the tweet reports [specific event definition].
 
 Return ONLY valid JSON, no explanation, no markdown:

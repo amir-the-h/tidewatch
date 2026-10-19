@@ -4,7 +4,8 @@
 # Config file
 configs/config.yaml
 
-# Binary output (anchored to root to avoid matching cmd/iran-watcher/ directory)
+# Binary output (anchored to root to avoid matching cmd/tidewatch/ directory)
+/tidewatch
 /iran-watcher
 /bin/
 

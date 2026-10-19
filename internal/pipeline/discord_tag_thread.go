@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
 )
 
 // discordTagger abstracts the Discord Bot API calls needed by DiscordTagThreadPipeline.

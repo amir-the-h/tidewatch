@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
 )
 
 const (
@@ -610,7 +610,7 @@ func (p *OllamaPipeline) Digest(ctx context.Context, tweets []string) (string, e
 }
 
 // OllamaDigestSystem is the prompt for multi-tweet digest/briefing generation.
-const OllamaDigestSystem = `You are an intelligence analyst specialising in Iran. You will receive a numbered list of tweets from open-source social media monitoring.
+const OllamaDigestSystem = `You are an open-source intelligence analyst. You will receive a numbered list of tweets from open-source social media monitoring.
 
 Produce a structured intelligence briefing that:
 - Opens with a one-sentence executive summary of the overall situation
@@ -858,7 +858,7 @@ func extractEmbeddedToolCalls(content string) []ollamaAgentTCall {
 }
 
 // OllamaChatSystem is the default system prompt for the agentic chat assistant.
-const OllamaChatSystem = `You are an intelligent assistant for the iran-watcher OSINT monitoring application.
+const OllamaChatSystem = `You are an intelligent assistant for the tidewatch OSINT monitoring application.
 
 RULES:
 - ALWAYS call a tool to fetch live data before answering. Never answer from memory.

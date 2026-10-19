@@ -20,7 +20,7 @@ var (
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Log in and save a JWT token to ~/.iran-watcher/token",
+	Short: "Log in and save a JWT token to ~/.tidewatch/token",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		body, err := jsonBody(map[string]string{
 			"username": loginUsername,

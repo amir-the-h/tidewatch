@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 const (

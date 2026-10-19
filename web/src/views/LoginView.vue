@@ -40,7 +40,7 @@ async function submit() {
   ">
     <n-card style="width: 360px; background: #1e1e2e; border: 1px solid rgba(255,255,255,0.08)">
       <template #header>
-        <span style="color: #cdd6f4; font-weight: 700; font-size: 18px">Iran Watcher</span>
+        <span style="color: #cdd6f4; font-weight: 700; font-size: 18px">Tidewatch</span>
       </template>
 
       <n-form label-placement="top" @keyup.enter="submit">

@@ -14,7 +14,7 @@ type Server struct {
 	dispatcher *Dispatcher
 }
 
-// New creates a Server that proxies all iran-watcher endpoints to baseURL with no auth.
+// New creates a Server that proxies all tidewatch endpoints to baseURL with no auth.
 func New(baseURL string) *Server {
 	return NewWithCredentials(baseURL, "", "")
 }
@@ -24,7 +24,7 @@ func New(baseURL string) *Server {
 func NewWithCredentials(baseURL, username, password string) *Server {
 	d := NewDispatcherWithCredentials(baseURL, username, password)
 
-	s := server.NewMCPServer("iran-watcher", "1.0.0")
+	s := server.NewMCPServer("tidewatch", "1.0.0")
 
 	for _, td := range AllTools() {
 		td := td // capture loop variable for closure

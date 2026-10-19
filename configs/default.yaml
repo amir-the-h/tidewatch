@@ -6,7 +6,7 @@ redis:
   db: 0
 
 sqlite:
-  path: ./data/iran-watcher.db
+  path: ./data/tidewatch.db
 
 api:
   bind: 127.0.0.1:8080
@@ -27,9 +27,9 @@ pushover:
   user_key: ""
 
 auth:
-  # jwt_secret: change-me-in-production  # or set IRAN_WATCHER_AUTH_JWT_SECRET env var
+  # jwt_secret: ""  # REQUIRED — server refuses to start without it; or set TIDEWATCH_AUTH_JWT_SECRET
   admin_username: admin   # initial admin username (used only on first startup)
-  admin_password: changeme  # CHANGE THIS — or set IRAN_WATCHER_AUTH_ADMIN_PASSWORD
+  admin_password: changeme  # CHANGE THIS — or set TIDEWATCH_AUTH_ADMIN_PASSWORD
 
 ollama:
   # backends:                              # named backends (takes precedence over base_urls/base_url)
@@ -64,4 +64,4 @@ search:
 # Register callback_url in the Twitter developer portal.
 # twitter:
 #   client_id: ""
-#   callback_url: "http://localhost:1452/api/twitter/auth/callback"
+#   callback_url: "http://localhost:8080/api/twitter/auth/callback"

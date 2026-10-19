@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/amir-the-h/iran-watcher/internal/auth"
-	"github.com/amir-the-h/iran-watcher/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/auth"
+	"github.com/amir-the-h/tidewatch/internal/hub"
 )
 
 // handleWS upgrades the connection to WebSocket after validating the JWT

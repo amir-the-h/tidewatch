@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/amir-the-h/iran-watcher/internal/auth"
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/auth"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // handleListUsers returns all users. Admin only.

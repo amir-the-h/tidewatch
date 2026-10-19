@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 func TestOllamaBackends_CRUD(t *testing.T) {

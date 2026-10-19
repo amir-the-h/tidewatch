@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 // geocodeCacheStore is the subset of store.Store needed by ReverseGeocoderPipeline.
@@ -135,7 +135,7 @@ func (p *ReverseGeocoderPipeline) callNominatim(ctx context.Context, lat, lon fl
 	if err != nil {
 		return "", fmt.Errorf("build nominatim request: %w", err)
 	}
-	req.Header.Set("User-Agent", "iran-watcher/1.0")
+	req.Header.Set("User-Agent", "tidewatch/1.0")
 
 	resp, err := p.client.Do(req)
 	if err != nil {

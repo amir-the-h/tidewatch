@@ -16,26 +16,26 @@ import (
 var baseURL string
 
 var rootCmd = &cobra.Command{
-	Use:   "iran-watcher",
-	Short: "X (Twitter) Filtered Stream monitor for Iran-related news",
-	Long:  "iran-watcher monitors X (Twitter) filtered streams for Iran-related news, stores tweets, and categorizes them via local ONNX models.",
+	Use:   "tidewatch",
+	Short: "Real-time X (Twitter) stream monitor with ONNX/LLM processing pipelines",
+	Long:  "tidewatch monitors X (Twitter) filtered streams, stores tweets, and runs them through configurable DAG pipelines of local ONNX models, Ollama LLMs, and internal handlers (entity tracking, geocoding, notifications).",
 }
 
 func init() {
 	defaultBaseURL := "http://localhost:8080"
-	if v := os.Getenv("IRAN_WATCHER_BASE_URL"); v != "" {
+	if v := os.Getenv("TIDEWATCH_BASE_URL"); v != "" {
 		defaultBaseURL = v
 	}
-	rootCmd.PersistentFlags().StringVar(&baseURL, "base-url", defaultBaseURL, "Base URL of the iran-watcher REST API (env: IRAN_WATCHER_BASE_URL)")
+	rootCmd.PersistentFlags().StringVar(&baseURL, "base-url", defaultBaseURL, "Base URL of the tidewatch REST API (env: TIDEWATCH_BASE_URL)")
 }
 
 // tokenFile returns the path to the stored JWT token.
 func tokenFile() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".iran-watcher-token"
+		return ".tidewatch-token"
 	}
-	return filepath.Join(home, ".iran-watcher", "token")
+	return filepath.Join(home, ".tidewatch", "token")
 }
 
 // loadToken reads the stored JWT token, returning empty string if not found.

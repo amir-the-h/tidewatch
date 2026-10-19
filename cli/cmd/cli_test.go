@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/cli/cmd"
+	"github.com/amir-the-h/tidewatch/cli/cmd"
 )
 
 // executeCommand runs a cobra command with the given args and returns stdout, stderr, and any error.
@@ -98,12 +98,12 @@ func TestSourceAdd(t *testing.T) {
 	}
 }
 
-// TestModelActivate tests that `model activate 5` makes POST /api/models/5/activate.
-func TestModelActivate(t *testing.T) {
+// TestActionActivate tests that `action activate 5` makes POST /api/actions/5/activate.
+func TestActionActivate(t *testing.T) {
 	activated := false
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/models/5/activate" {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/actions/5/activate" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -114,13 +114,13 @@ func TestModelActivate(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := executeCommand("--base-url", srv.URL, "model", "activate", "5")
+	_, _, err := executeCommand("--base-url", srv.URL, "action", "activate", "5")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
 	if !activated {
-		t.Error("expected POST /api/models/5/activate to be called")
+		t.Error("expected POST /api/actions/5/activate to be called")
 	}
 }
 

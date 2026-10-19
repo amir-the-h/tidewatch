@@ -128,7 +128,7 @@ watch(() => auth.isAuthenticated, (authenticated) => {
           <span style="display:block; width:20px; height:2px; background:#cdd6f4; border-radius:1px;" />
         </button>
 
-        <span style="font-weight: 700; font-size: 14px; color: #cdd6f4;">Iran Watcher</span>
+        <span style="font-weight: 700; font-size: 14px; color: #cdd6f4;">Tidewatch</span>
 
         <!-- Inline stats badges (admin only) -->
         <div v-if="auth.isAdmin" style="
@@ -202,7 +202,7 @@ watch(() => auth.isAuthenticated, (authenticated) => {
       <n-drawer v-model:show="drawerOpen" :width="220" placement="left">
         <n-drawer-content :native-scrollbar="false" style="display: flex; flex-direction: column; height: 100%;">
           <template #header>
-            <span style="font-weight: 700; color: #cdd6f4;">Iran Watcher</span>
+            <span style="font-weight: 700; color: #cdd6f4;">Tidewatch</span>
           </template>
 
           <n-menu
@@ -260,7 +260,7 @@ watch(() => auth.isAuthenticated, (authenticated) => {
                   Sign out
                 </n-button>
               </template>
-              Sign out of Iran Watcher
+              Sign out of Tidewatch
             </n-tooltip>
           </div>
         </n-drawer-content>

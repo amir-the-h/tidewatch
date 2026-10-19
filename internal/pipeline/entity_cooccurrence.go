@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/inference"
 )
 
 // cooccurrenceStore is the minimal store interface required by EntityCooccurrencePipeline.

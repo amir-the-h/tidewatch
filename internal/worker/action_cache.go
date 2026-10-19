@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
-	"github.com/amir-the-h/iran-watcher/internal/pipeline"
-	"github.com/amir-the-h/iran-watcher/internal/store"
-	"github.com/amir-the-h/iran-watcher/internal/transform"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/pipeline"
+	"github.com/amir-the-h/tidewatch/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/transform"
 )
 
 // CacheEntry pairs an Action DB row with its resolved Pipeline instance and

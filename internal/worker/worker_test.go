@@ -4,23 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/queue"
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 // --- mockConsumer ---
 
 type mockConsumer struct {
+	mu    sync.Mutex // PopTask is called concurrently by every worker goroutine
 	tasks []*queue.Task
 	idx   int
 }
 
-func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration) (*queue.Task, error) {
+func (m *mockConsumer) drained() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.idx >= len(m.tasks)
+}
+
+func (m *mockConsumer) PopTask(_ context.Context, _ time.Duration, _ ...string) (*queue.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.idx >= len(m.tasks) {
 		return nil, nil
 	}
@@ -510,7 +520,7 @@ func runManagerUntilDrained(t *testing.T, mgr *Manager, consumer *mockConsumer) 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
-		if consumer.idx >= len(consumer.tasks) && int(mgr.active.Load()) == 0 {
+		if consumer.drained() && int(mgr.active.Load()) == 0 {
 			break
 		}
 	}

@@ -8,9 +8,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/store"
-	"github.com/amir-the-h/iran-watcher/internal/stream"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
 func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {

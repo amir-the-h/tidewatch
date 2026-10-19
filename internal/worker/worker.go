@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
-	"github.com/amir-the-h/iran-watcher/internal/queue"
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 // worker is the legacy per-goroutine worker used by Pool.

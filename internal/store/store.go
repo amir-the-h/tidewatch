@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // TweetFilter defines optional filters for listing tweets.

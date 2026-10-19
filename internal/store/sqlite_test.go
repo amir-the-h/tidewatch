@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/migrations"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/migrations"
 	_ "modernc.org/sqlite"
 )
 

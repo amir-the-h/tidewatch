@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
 )
 
 // mockDiscordTagger implements discordTagger for tests.
@@ -179,7 +179,8 @@ func TestDiscordTagThreadPipeline_EmptyTagNames_SkipsPatch(t *testing.T) {
 
 func TestDiscordTagThreadPipeline_GetTagsError_Propagates(t *testing.T) {
 	mock := &mockDiscordTagger{tagsErr: errors.New("network error")}
-	p := &DiscordTagThreadPipeline{name: "test", client: mock, tagNamesKey: "discord_tag_names"}
+	// Unique forum ID so a tag cache populated by earlier tests can't satisfy the lookup.
+	p := &DiscordTagThreadPipeline{name: "test", client: mock, tagNamesKey: "discord_tag_names", forumChannelID: t.Name()}
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
 		Context: map[string]any{

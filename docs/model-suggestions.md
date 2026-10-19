@@ -1,4 +1,4 @@
-# Model Suggestions for Iran Watcher
+# Model Suggestions
 
 ## Currently Registered Models
 
@@ -24,7 +24,7 @@ The gaps are: **Persian/Farsi language support**, **tweet-native topic classific
 - **Type:** `ner`
 - **Downloads:** 1.8M
 - **License:** MIT
-- **Why:** The existing `ner` model almost certainly covers English only. A significant portion of Iran-related tweets are in Farsi. This model extracts PER, ORG, and LOC entities from Persian text with proper ZWNJ normalization (critical for Farsi tokenization).
+- **Why:** The existing `ner` model almost certainly covers English only. For non-English monitoring (e.g. Farsi or Arabic sources) a multilingual model is needed. This model extracts PER, ORG, and LOC entities from Persian text with proper ZWNJ normalization (critical for Farsi tokenization).
 - **ONNX:** Export needed — `optimum-cli export onnx --model HooshvareLab/bert-fa-zwnj-base-ner --task token-classification ./models/fa-ner`
 - **Suggested registration:**
   ```json

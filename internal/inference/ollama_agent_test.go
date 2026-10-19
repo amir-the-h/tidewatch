@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
 )
 
 // mockToolExecutor records Execute calls and returns a fixed result.

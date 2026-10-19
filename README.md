@@ -1,78 +1,77 @@
-# iran-watcher
+# tidewatch
 
-Monitors X (Twitter) Filtered Stream for Iran-related news. Stores tweets in SQLite, queues through Redis, categorizes via local ONNX models, and runs LLM summarization via Ollama. Pure Go — no Python.
+[![Test](https://github.com/amir-the-h/tidewatch/actions/workflows/test.yml/badge.svg)](https://github.com/amir-the-h/tidewatch/actions/workflows/test.yml)
+[![Docker](https://github.com/amir-the-h/tidewatch/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/amir-the-h/tidewatch/actions/workflows/docker-publish.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Real-time social-stream intelligence, self-hosted.** tidewatch ingests the X (Twitter) Filtered Stream, runs every post through user-defined DAG pipelines of local ONNX models, Ollama LLMs and built-in handlers, and turns the results into a live map, an entity graph, digests and push alerts — all on your own hardware, in a single Go binary.
+
+<!-- TODO: screenshot / GIF of the map + pipeline editor -->
+
+## Features
+
+- **Visual DAG pipelines** — compose actions (ONNX classifier/NER, Ollama prompt, internal handler) into graphs with conditional edges (`==`, `contains`, `exists`, …), sub-pipelines and fan-in; hot-reloaded without restart.
+- **Local inference** — ONNX Runtime (CUDA when available, CPU fallback) with HuggingFace tokenizers; Ollama backend pool with per-backend concurrency limits, health scoring and per-action backend priority.
+- **Event-driven workers** — per-action Redis queues, `BRPOP` worker pool that only listens on queues it has capacity for (zero Redis traffic while idle), dead-letter queue, pipeline-completion tracking via reference counting.
+- **Entity tracking** — NER-driven candidate discovery with auto-promotion thresholds, alias suggestions, and a co-occurrence graph explorer.
+- **Geo** — coordinate extraction from LLM output, self-hosted Nominatim reverse geocoding with SQLite cache, date-heat map of events.
+- **Alerts** — Pushover, Telegram and Discord Forum threads (with LLM-generated tags), templated with `${key}` substitution.
+- **Agentic chat & MCP** — a tool-calling chat assistant over your data, plus a standalone MCP server exposing the full REST API to Claude and other MCP clients.
+- **Live UI** — Vue 3 + Naive UI dashboard with WebSocket push for queue depth, worker status and execution results; JWT auth with admin/viewer roles.
+
+See [`docs/examples/geopolitical-monitoring`](docs/examples/geopolitical-monitoring) for a complete set of real-world detector → extractor → notification pipelines.
 
 ## Architecture
 
 ```
-X Filtered Stream (SSE)
-        │
-        ▼
-  stream.Client          ← connects, normalizes, saves raw tweet to SQLite
-        │ ZAdd Task per matching action (score=Depth)
-        ▼
-  Redis (iran-watcher:tasks)   ← single global priority sorted set
-        │ BZPopMin
-        ▼
-  worker.Manager         ← N goroutines, each independently BZPopMin from global queue
-        │
-        ├─► ActionCache  ← hot-reloadable in-memory map of action_id → (Action + Pipeline)
-        │
-        ├─► ONNX / Ollama / Internal pipelines
-        │
-        ├─► SQLite (action_executions, action_execution_metadata)
-        │
-        ├─► Pipeline DAG edge evaluation → downstream tasks pushed to Redis
-        │
-        ├─► Redis (iran-watcher:failed)  ← dead-letter for failures
-        │
-        └─► hub.Hub → WebSocket broadcast to connected UI clients
+X Filtered Stream (SSE) ─┐   X search backfill ─┐
+                         ▼                      ▼
+                  stream.Client  ── saves tweet to SQLite
+                         │ LPUSH one Task per subscribed action
+                         ▼
+          Redis  tidewatch:tasks:{action_id}   (one list per action)
+                         │ BRPOP across "ready" keys
+                         ▼
+                  worker.Manager  (N goroutines)
+                    │  Ollama keys only polled while backend capacity is free
+                    ├─► ActionCache (hot-reloadable action → pipeline map)
+                    ├─► ONNX / Ollama / internal handler
+                    ├─► SQLite: action_executions + metadata
+                    ├─► evaluate DAG edges → LPUSH downstream tasks
+                    ├─► tidewatch:failed  (dead-letter list)
+                    └─► hub.Hub → WebSocket → UI
 
-  api.Server             ← REST API (chi), JWT-authenticated
-  iran-watcher-mcp       ← MCP server (stdio + HTTP/SSE), pure Go
-  cli                    ← thin Cobra CLI over the REST API
+  api.Server      REST API (chi), JWT auth
+  tidewatch-mcp   MCP server (stdio + HTTP/SSE), pure Go
+  cli             Cobra CLI over the REST API
 ```
 
-## Prerequisites
+## Quickstart (Docker)
 
-Docker is the preferred way to build and run iran-watcher. Native builds require:
-
-- Go 1.25.5+
-- CGO enabled
-- Rust toolchain (required by `daulet/tokenizers`)
-- ONNX Runtime shared library installed on system
-- [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli) (`hf`) for model downloads
-- Redis
-- X (Twitter) API bearer token with Filtered Stream access
-
-## Running with Docker (recommended)
+Requirements: Docker, an X API bearer token with Filtered Stream access. Optional: an [Ollama](https://ollama.com) server, an NVIDIA GPU.
 
 ```bash
-# Build and start all services
-docker compose build
-docker compose up -d
+git clone https://github.com/amir-the-h/tidewatch && cd tidewatch
+cp .env.example .env
+# edit .env: TIDEWATCH_X_BEARER_TOKEN, TIDEWATCH_AUTH_JWT_SECRET (openssl rand -hex 32),
+#            TIDEWATCH_AUTH_ADMIN_PASSWORD
 
-# Rebuild after code changes
-docker compose build iran-watcher
-docker compose up -d --no-deps iran-watcher
+# (optional) prepare a Nominatim extract for reverse geocoding
+GEOFABRIK_REGIONS="europe/germany" ./scripts/prepare-nominatim.sh
 
-# View logs
-docker compose logs -f iran-watcher
-
-# Stop
-docker compose down
+docker compose up -d --build                 # CPU
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build   # NVIDIA GPU
 ```
+
+Open http://localhost:3000 and sign in as the admin user. ONNX models go in `./models` (download with the HuggingFace `hf` CLI); Ollama backends are added at runtime from the UI.
+
+### Native build prerequisites
+
+Docker is the preferred way to build and run tidewatch. Native builds require Go 1.25.5+, CGO, the prebuilt [`libtokenizers`](https://github.com/daulet/tokenizers/releases) static library, the ONNX Runtime shared library, and Redis.
 
 ## Configuration
 
-Copy the default config and set your bearer token:
-
-```bash
-cp configs/iran-watcher.yaml my-config.yaml
-export IRAN_WATCHER_X_BEARER_TOKEN="your-bearer-token"
-```
-
-`configs/iran-watcher.yaml` defaults:
+The server reads a YAML config (`configs/default.yaml`, copied into the image as `/configs/config.yaml`); every key can be overridden with a `TIDEWATCH_*` environment variable.
 
 ```yaml
 x:
@@ -83,7 +82,7 @@ redis:
   db: 0
 
 sqlite:
-  path: ./data/iran-watcher.db
+  path: ./data/tidewatch.db
 
 api:
   bind: 127.0.0.1:8080
@@ -100,11 +99,11 @@ ollama:
 nominatim_url: http://nominatim:8080
 
 auth:
-  jwt_secret: ""       # required; set via IRAN_WATCHER_AUTH_JWT_SECRET
+  jwt_secret: ""       # REQUIRED — the server refuses to start without it
   admin_username: admin
-  admin_password: ""   # required; set via ADMIN_PASSWORD
+  admin_password: ""   # initial admin, seeded on first startup only
 
-twitter:
+twitter:               # optional: OAuth 2.0 PKCE for retweet/like/quote actions
   client_id: ""
   callback_url: ""
 
@@ -126,76 +125,78 @@ Key environment variables:
 
 | Env var | Config field |
 |---|---|
-| `IRAN_WATCHER_X_BEARER_TOKEN` | `x.bearer_token` |
-| `IRAN_WATCHER_X_TIER` | `x.tier` |
-| `IRAN_WATCHER_REDIS_ADDR` | `redis.addr` |
-| `IRAN_WATCHER_REDIS_PASSWORD` | `redis.password` |
-| `IRAN_WATCHER_SQLITE_PATH` | `sqlite.path` |
-| `IRAN_WATCHER_API_BIND` | `api.bind` |
-| `IRAN_WATCHER_WORKER_COUNT` | `worker.count` |
-| `IRAN_WATCHER_ONNX_LIB_PATH` | `inference.onnx_lib_path` |
-| `IRAN_WATCHER_MODELS_DIR` | `inference.models_dir` |
-| `IRAN_WATCHER_OLLAMA_BASE_URL` | `ollama.base_url` |
-| `IRAN_WATCHER_NOMINATIM_URL` | `nominatim_url` |
-| `IRAN_WATCHER_AUTH_JWT_SECRET` | `auth.jwt_secret` |
-| `ADMIN_USERNAME` | `auth.admin_username` |
-| `ADMIN_PASSWORD` | `auth.admin_password` |
-| `IRAN_WATCHER_TWITTER_CLIENT_ID` | `twitter.client_id` |
-| `IRAN_WATCHER_TWITTER_CALLBACK_URL` | `twitter.callback_url` |
-| `IRAN_WATCHER_LOG_LEVEL` | `log.level` |
-| `IRAN_WATCHER_LOG_FORMAT` | `log.format` |
-| `IRAN_WATCHER_STREAM_AUTO_CONNECT` | `stream.auto_connect` |
+| `TIDEWATCH_X_BEARER_TOKEN` | `x.bearer_token` |
+| `TIDEWATCH_X_TIER` | `x.tier` |
+| `TIDEWATCH_REDIS_ADDR` | `redis.addr` |
+| `TIDEWATCH_REDIS_PASSWORD` | `redis.password` |
+| `TIDEWATCH_SQLITE_PATH` | `sqlite.path` |
+| `TIDEWATCH_API_BIND` | `api.bind` |
+| `TIDEWATCH_WORKER_COUNT` | `worker.count` |
+| `TIDEWATCH_ONNX_LIB_PATH` | `inference.onnx_lib_path` |
+| `TIDEWATCH_MODELS_DIR` | `inference.models_dir` |
+| `TIDEWATCH_OLLAMA_BASE_URL` | `ollama.base_url` |
+| `TIDEWATCH_NOMINATIM_URL` | `nominatim_url` |
+| `TIDEWATCH_AUTH_JWT_SECRET` | `auth.jwt_secret` |
+| `TIDEWATCH_AUTH_ADMIN_USERNAME` | `auth.admin_username` |
+| `TIDEWATCH_AUTH_ADMIN_PASSWORD` | `auth.admin_password` |
+| `TIDEWATCH_TWITTER_CLIENT_ID` | `twitter.client_id` |
+| `TIDEWATCH_TWITTER_CALLBACK_URL` | `twitter.callback_url` |
+| `TIDEWATCH_LOG_LEVEL` | `log.level` |
+| `TIDEWATCH_LOG_FORMAT` | `log.format` |
+| `TIDEWATCH_STREAM_AUTO_CONNECT` | `stream.auto_connect` |
+
+UI container (`tidewatch-ui`) variables: `API_UPSTREAM` (backend URL, default `http://tidewatch:8080`), `API_BASE_URL` (default same-origin), `MAP_CENTER` (`"lat,lon"`) and `MAP_ZOOM` for the map's initial view, `UI_PORT` (host port, default `3000`).
 
 ## CLI
 
-The `iran-watcher` binary exposes a Cobra CLI to manage the running server:
+The `tidewatch` binary exposes a Cobra CLI to manage the running server:
 
 ```bash
 # Authentication
-iran-watcher auth login --username admin --password secret
-iran-watcher auth logout
+tidewatch auth login --username admin --password secret
+tidewatch auth logout
 
 # Sources (stream filter rules)
-iran-watcher source list
-iran-watcher source add --type account --value @username
-iran-watcher source add --type keyword --value "nuclear"
-iran-watcher source remove <id>
+tidewatch source list
+tidewatch source add --type account --value @username
+tidewatch source add --type keyword --value "nuclear"
+tidewatch source remove <id>
 
 # Stream filter rules
-iran-watcher rule list
-iran-watcher rule add --value "keyword lang:fa"
-iran-watcher rule activate <id>
-iran-watcher rule deactivate <id>
+tidewatch rule list
+tidewatch rule add --value "keyword lang:fa"
+tidewatch rule activate <id>
+tidewatch rule deactivate <id>
 
 # Actions (execution units)
-iran-watcher action list
-iran-watcher action activate <id>
-iran-watcher action deactivate <id>
-iran-watcher action backends list <action-id>
-iran-watcher action backends set <action-id> <backend-id> --priority 1
+tidewatch action list
+tidewatch action activate <id>
+tidewatch action deactivate <id>
+tidewatch action backends list <action-id>
+tidewatch action backends set <action-id> <backend-id> --priority 1
 
 # Pipelines (DAG workflows)
-iran-watcher pipeline list
-iran-watcher pipeline activate <id>
-iran-watcher pipeline deactivate <id>
-iran-watcher pipeline run <id>
+tidewatch pipeline list
+tidewatch pipeline activate <id>
+tidewatch pipeline deactivate <id>
+tidewatch pipeline run <id>
 
 # Ollama backends
-iran-watcher ollama backends list
-iran-watcher ollama backends add --url http://localhost:11434 --max-concurrent 2
-iran-watcher ollama backends enable <id>
-iran-watcher ollama backends disable <id>
+tidewatch ollama backends list
+tidewatch ollama backends add --url http://localhost:11434 --max-concurrent 2
+tidewatch ollama backends enable <id>
+tidewatch ollama backends disable <id>
 
 # Tweets
-iran-watcher tweet list [--source-id <id>] [--from <RFC3339>] [--to <RFC3339>] [--page 1] [--per-page 20]
-iran-watcher tweet show <id>
-iran-watcher tweet reprocess [--tweet-ids id1,id2]
+tidewatch tweet list [--source-id <id>] [--from <RFC3339>] [--to <RFC3339>] [--page 1] [--per-page 20]
+tidewatch tweet show <id>
+tidewatch tweet reprocess [--tweet-ids id1,id2]
 
 # Health
-iran-watcher health
+tidewatch health
 
 # Custom API base URL (default: http://localhost:8080)
-iran-watcher --base-url http://remote-host:8080 health
+tidewatch --base-url http://remote-host:8080 health
 ```
 
 ## REST API
@@ -409,8 +410,8 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 ## Project Structure
 
 ```
-cmd/iran-watcher/       → binary entrypoint + lifecycle wiring (CGO)
-cmd/iran-watcher-mcp/   → MCP server binary entrypoint (pure Go, no CGO)
+cmd/tidewatch/       → binary entrypoint + lifecycle wiring (CGO)
+cmd/tidewatch-mcp/   → MCP server binary entrypoint (pure Go, no CGO)
 cli/                    → Cobra CLI subcommands (thin REST client)
 internal/
   config/               → YAML config + env overrides
@@ -424,15 +425,16 @@ internal/
   stream/               → X Filtered Stream SSE client
   worker/               → Worker Manager + ActionCache (hot-reloadable)
   api/                  → REST API (chi)
-  notifier/             → Async push notifications (Pushover + Telegram)
+  notifier/             → Async push notifications (Pushover, Telegram, Discord Bot)
   search/               → X search API backfill scheduler
+  transform/            → Output transforms (e.g. NER entity grouping)
   auth/                 → JWT (HS256) + bcrypt helpers + HTTP middleware
   hub/                  → WebSocket hub (fan-out broadcaster)
   mcpserver/            → MCP server: ToolDef registry, Dispatcher, stdio/SSE transports
 migrations/             → Embedded SQL migration files
 configs/                → Default config files
 models/                 → ONNX model files (gitignored)
-web/                    → Vue 3 frontend (Vite, Pinia, Tailwind)
+web/                    → Vue 3 frontend (Vite, Pinia, Naive UI)
 ```
 
 ## Development
@@ -452,14 +454,18 @@ Native `go build` / `go run` is not recommended — the binary requires CGO, Rus
 
 ## MCP Server
 
-`iran-watcher-mcp` exposes all REST API endpoints as MCP tools for use with Claude Code and other MCP clients.
+`tidewatch-mcp` exposes all REST API endpoints as MCP tools for use with Claude Code and other MCP clients.
 
 ```bash
 # stdio (Claude Code)
-iran-watcher-mcp --base-url http://localhost:8080 --username admin --password secret
+tidewatch-mcp --base-url http://localhost:8080 --username admin --password secret
 
 # HTTP/SSE
-iran-watcher-mcp --base-url http://localhost:8080 --http :9090 --username admin --password secret
+tidewatch-mcp --base-url http://localhost:8080 --http :9090 --username admin --password secret
 ```
 
-Environment variables: `IRAN_WATCHER_MCP_BASE_URL`, `IRAN_WATCHER_MCP_HTTP`, `IRAN_WATCHER_MCP_USERNAME`, `IRAN_WATCHER_MCP_PASSWORD`.
+Environment variables: `TIDEWATCH_MCP_BASE_URL`, `TIDEWATCH_MCP_HTTP`, `TIDEWATCH_MCP_USERNAME`, `TIDEWATCH_MCP_PASSWORD`.
+
+## License
+
+[MIT](LICENSE)

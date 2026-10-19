@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/hub"
 )
 
 func TestHub_BroadcastReachesAllClients(t *testing.T) {

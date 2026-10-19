@@ -1,5 +1,5 @@
 // Package auth provides JWT token generation/validation and password hashing
-// for the iran-watcher web UI. Tokens use HS256 (HMAC-SHA256) via stdlib only.
+// for the tidewatch web UI. Tokens use HS256 (HMAC-SHA256) via stdlib only.
 package auth
 
 import (
@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // contextKey is the key used to store the authenticated user in a request context.

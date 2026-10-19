@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
 )
 
 // mockProvider records what was delivered and returns optional metadata.

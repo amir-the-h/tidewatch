@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/inference"
 )
 
 // mockGeoStore implements geocodeCacheStore for testing.

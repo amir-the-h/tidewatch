@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 const channelBufferSize = 256

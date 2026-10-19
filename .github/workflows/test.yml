@@ -1,0 +1,44 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  go:
+    name: Go vet + unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CGO_ENABLED: "1"
+      TOKENIZERS_VERSION: "1.26.0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # daulet/tokenizers links against a prebuilt static library (same one the Dockerfile uses).
+      - name: Install libtokenizers
+        run: |
+          mkdir -p "$RUNNER_TEMP/tokenizers"
+          wget -q "https://github.com/daulet/tokenizers/releases/download/v${TOKENIZERS_VERSION}/libtokenizers.linux-amd64.tar.gz" -O - \
+            | tar -xz -C "$RUNNER_TEMP/tokenizers"
+          echo "CGO_LDFLAGS=-L$RUNNER_TEMP/tokenizers" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l cmd cli internal migrations)" || (gofmt -l cmd cli internal migrations && exit 1)
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...

@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadEmpty_ReturnsDefaults(t *testing.T) {
-	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "")
+	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -23,7 +23,7 @@ func TestLoadEmpty_ReturnsDefaults(t *testing.T) {
 
 func TestLoadYAML_OverridesDefaults(t *testing.T) {
 	// Clear env vars so they don't override YAML values under test.
-	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "")
+	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "")
 
 	content := `
 x:
@@ -56,7 +56,7 @@ redis:
 }
 
 func TestLoadNonExistentPath_ReturnsDefaults(t *testing.T) {
-	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "")
+	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "")
 
 	cfg, err := Load("nonexistent-path.yaml")
 	if err != nil {
@@ -71,7 +71,7 @@ func TestLoadNonExistentPath_ReturnsDefaults(t *testing.T) {
 }
 
 func TestEnvVar_BearerToken(t *testing.T) {
-	t.Setenv("IRAN_WATCHER_X_BEARER_TOKEN", "env-token")
+	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "env-token")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -83,7 +83,7 @@ func TestEnvVar_BearerToken(t *testing.T) {
 }
 
 func TestEnvVar_RedisDB_Valid(t *testing.T) {
-	t.Setenv("IRAN_WATCHER_REDIS_DB", "5")
+	t.Setenv("TIDEWATCH_REDIS_DB", "5")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -95,19 +95,19 @@ func TestEnvVar_RedisDB_Valid(t *testing.T) {
 }
 
 func TestEnvVar_RedisDB_Invalid(t *testing.T) {
-	t.Setenv("IRAN_WATCHER_REDIS_DB", "notanumber")
+	t.Setenv("TIDEWATCH_REDIS_DB", "notanumber")
 
 	_, err := Load("")
 	if err == nil {
-		t.Fatal("expected error for invalid IRAN_WATCHER_REDIS_DB, got nil")
+		t.Fatal("expected error for invalid TIDEWATCH_REDIS_DB, got nil")
 	}
 }
 
 func TestEnvVar_WorkerCount_Invalid(t *testing.T) {
-	t.Setenv("IRAN_WATCHER_WORKER_COUNT", "notanumber")
+	t.Setenv("TIDEWATCH_WORKER_COUNT", "notanumber")
 
 	_, err := Load("")
 	if err == nil {
-		t.Fatal("expected error for invalid IRAN_WATCHER_WORKER_COUNT, got nil")
+		t.Fatal("expected error for invalid TIDEWATCH_WORKER_COUNT, got nil")
 	}
 }

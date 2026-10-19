@@ -18,6 +18,13 @@ const error    = ref<string | null>(null)
 const oldestDate = ref<string>('')
 const newestDate = ref<string>('')
 
+// Initial view comes from runtime config (MAP_CENTER="lat,lon", MAP_ZOOM) — defaults to a world view.
+const runtimeEnv = (window as Window & { __ENV__?: { MAP_CENTER?: string; MAP_ZOOM?: string } }).__ENV__ ?? {}
+const parsedCenter = (runtimeEnv.MAP_CENTER ?? '').split(',').map(Number)
+const initialCenter: L.LatLngExpression =
+  parsedCenter.length === 2 && parsedCenter.every(Number.isFinite) ? [parsedCenter[0], parsedCenter[1]] : [20, 0]
+const initialZoom = Number(runtimeEnv.MAP_ZOOM) || 2
+
 let map: L.Map | null = null
 
 // Maps a normalized t ∈ [0,1] (0=oldest, 1=newest) to a hex color
@@ -31,8 +38,8 @@ onMounted(async () => {
   if (!mapEl.value) return
 
   map = L.map(mapEl.value, {
-    center: [32.4, 53.7], // Iran centroid
-    zoom: 5,
+    center: initialCenter,
+    zoom: initialZoom,
   })
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {

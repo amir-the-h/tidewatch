@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { login as apiLogin, type AuthUser } from '../api/auth'
 
-const TOKEN_KEY = 'iran_watcher_token'
+const TOKEN_KEY = 'tidewatch_token'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem(TOKEN_KEY))

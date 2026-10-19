@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
 )
 
 // PipelineType mirrors model.PipelineType but lives in inference to avoid

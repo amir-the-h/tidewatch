@@ -1,54 +1,45 @@
 services:
-  iran-watcher:
+  tidewatch:
     build:
       context: .
       dockerfile: Dockerfile
-    image: iran-watcher:local
-    container_name: iran-watcher
+    image: tidewatch:local
+    container_name: tidewatch
     restart: unless-stopped
 
     environment:
       # Required
-      IRAN_WATCHER_X_BEARER_TOKEN: "${IRAN_WATCHER_X_BEARER_TOKEN}"
-      IRAN_WATCHER_TELEGRAM_BOT_TOKEN: "${IRAN_WATCHER_TELEGRAM_BOT_TOKEN}"
+      TIDEWATCH_X_BEARER_TOKEN: "${TIDEWATCH_X_BEARER_TOKEN}"
 
       # Port
-      IRAN_WATCHER_API_BIND: "${IRAN_WATCHER_API_BIND:-0.0.0.0:8080}"
+      TIDEWATCH_API_BIND: "${TIDEWATCH_API_BIND:-0.0.0.0:8080}"
 
       # Redis — point at the service name in your shared network
-      IRAN_WATCHER_REDIS_ADDR: "${IRAN_WATCHER_REDIS_ADDR:-iran-watcher-redis:6379}"
-      IRAN_WATCHER_REDIS_PASSWORD: "${IRAN_WATCHER_REDIS_PASSWORD:-}"
-      IRAN_WATCHER_REDIS_DB: "${IRAN_WATCHER_REDIS_DB:-0}"
+      TIDEWATCH_REDIS_ADDR: "${TIDEWATCH_REDIS_ADDR:-tidewatch-redis:6379}"
+      TIDEWATCH_REDIS_PASSWORD: "${TIDEWATCH_REDIS_PASSWORD:-}"
+      TIDEWATCH_REDIS_DB: "${TIDEWATCH_REDIS_DB:-0}"
 
       # Logging
-      IRAN_WATCHER_LOG_FORMAT: "${IRAN_WATCHER_LOG_FORMAT:-json}"
-      IRAN_WATCHER_LOG_LEVEL: "${IRAN_WATCHER_LOG_LEVEL:-info}"
+      TIDEWATCH_LOG_FORMAT: "${TIDEWATCH_LOG_FORMAT:-json}"
+      TIDEWATCH_LOG_LEVEL: "${TIDEWATCH_LOG_LEVEL:-info}"
 
       # Ollama
-      IRAN_WATCHER_OLLAMA_BASE_URL: "${IRAN_WATCHER_OLLAMA_BASE_URL:-http://ollama:11434}"
+      TIDEWATCH_OLLAMA_BASE_URL: "${TIDEWATCH_OLLAMA_BASE_URL:-http://ollama:11434}"
 
       # Optional Pushover notifications
-      IRAN_WATCHER_PUSHOVER_APP_TOKEN: "${IRAN_WATCHER_PUSHOVER_APP_TOKEN:-}"
-      IRAN_WATCHER_PUSHOVER_USER_KEY: "${IRAN_WATCHER_PUSHOVER_USER_KEY:-}"
+      TIDEWATCH_PUSHOVER_APP_TOKEN: "${TIDEWATCH_PUSHOVER_APP_TOKEN:-}"
+      TIDEWATCH_PUSHOVER_USER_KEY: "${TIDEWATCH_PUSHOVER_USER_KEY:-}"
 
       # Stream
-      IRAN_WATCHER_STREAM_AUTO_CONNECT: "${IRAN_WATCHER_STREAM_AUTO_CONNECT:-true}"
+      TIDEWATCH_STREAM_AUTO_CONNECT: "${TIDEWATCH_STREAM_AUTO_CONNECT:-true}"
 
       # Nominatim reverse geocoding
-      IRAN_WATCHER_NOMINATIM_URL: "${IRAN_WATCHER_NOMINATIM_URL:-http://nominatim:8080}"
+      TIDEWATCH_NOMINATIM_URL: "${TIDEWATCH_NOMINATIM_URL:-http://nominatim:8080}"
 
       # Auth — set a strong jwt_secret in production!
-      IRAN_WATCHER_AUTH_JWT_SECRET: "${IRAN_WATCHER_AUTH_JWT_SECRET}"
-      IRAN_WATCHER_AUTH_ADMIN_USERNAME: "${IRAN_WATCHER_AUTH_ADMIN_USERNAME:-admin}"
-      IRAN_WATCHER_AUTH_ADMIN_PASSWORD: "${IRAN_WATCHER_AUTH_ADMIN_PASSWORD:-changeme}"
-
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      TIDEWATCH_AUTH_JWT_SECRET: "${TIDEWATCH_AUTH_JWT_SECRET:?set TIDEWATCH_AUTH_JWT_SECRET in .env}"
+      TIDEWATCH_AUTH_ADMIN_USERNAME: "${TIDEWATCH_AUTH_ADMIN_USERNAME:-admin}"
+      TIDEWATCH_AUTH_ADMIN_PASSWORD: "${TIDEWATCH_AUTH_ADMIN_PASSWORD:-changeme}"
 
     volumes:
       # Persistent SQLite database
@@ -61,11 +52,10 @@ services:
     networks:
       network:
         ipv4_address: 172.79.0.2
-      shared: {}
 
   redis:
     image: redis:7-alpine
-    container_name: iran-watcher-redis
+    container_name: tidewatch-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
@@ -76,11 +66,11 @@ services:
 
   nominatim:
     image: mediagis/nominatim:4.4
-    container_name: iran-watcher-nominatim
+    container_name: tidewatch-nominatim
     restart: unless-stopped
     shm_size: 1g
     environment:
-      PBF_PATH: "/nominatim/pbf/middle-east.osm.pbf"
+      PBF_PATH: "/nominatim/pbf/${NOMINATIM_PBF_NAME:-regions.osm.pbf}"
       NOMINATIM_PASSWORD: "nominatim"
     volumes:
       - ./nominatim-data:/var/lib/postgresql/14/main
@@ -89,32 +79,36 @@ services:
       network:
         ipv4_address: 172.79.0.5
 
-  iran-watcher-ui:
+  tidewatch-ui:
     build:
       context: ./web
-    image: iran-watcher-ui:local
-    container_name: iran-watcher-ui
+    image: tidewatch-ui:local
+    container_name: tidewatch-ui
     restart: unless-stopped
     environment:
       # Empty = same-origin; nginx proxies /api/ to API_UPSTREAM internally.
       API_BASE_URL: "${API_BASE_URL:-}"
       # Backend container reachable via Docker network — never leaves the server.
-      API_UPSTREAM: "${API_UPSTREAM:-http://iran-watcher:1452}"
+      API_UPSTREAM: "${API_UPSTREAM:-http://tidewatch:8080}"
+      # Initial map view, e.g. MAP_CENTER="32.4,53.7" MAP_ZOOM=5 (default: world view)
+      MAP_CENTER: "${MAP_CENTER:-}"
+      MAP_ZOOM: "${MAP_ZOOM:-}"
+    ports:
+      - "${UI_PORT:-3000}:80"
     networks:
       network:
         ipv4_address: 172.79.0.3
-      shared: {}
     depends_on:
-      - iran-watcher
+      - tidewatch
 
   cli:
-    image: iran-watcher:local
+    image: tidewatch:local
     profiles: ["cli"]
-    entrypoint: ["iran-watcher"]
+    entrypoint: ["tidewatch"]
     environment:
-      IRAN_WATCHER_BASE_URL: "http://iran-watcher:8080"
+      TIDEWATCH_BASE_URL: "http://tidewatch:8080"
     volumes:
-      - "${HOME}/.iran-watcher:/root/.iran-watcher"
+      - "${HOME}/.tidewatch:/root/.tidewatch"
     networks:
       network:
         ipv4_address: 172.79.0.6
@@ -126,5 +120,3 @@ networks:
       config:
         - subnet: 172.79.0.0/16
           gateway: 172.79.0.1
-  shared:
-    external: true

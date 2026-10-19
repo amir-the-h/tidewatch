@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/queue"
 )
 
 func (s *Server) handleFlushWorkerBuffer(w http.ResponseWriter, r *http.Request) {

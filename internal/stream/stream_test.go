@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/queue"
-	"github.com/amir-the-h/iran-watcher/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/store"
 	"log/slog"
 	"os"
 )
@@ -21,13 +21,13 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	saveTweetCalled     bool
-	saveTweetRuleCalled bool
+	saveTweetCalled     atomic.Bool // set from the client's stream goroutine
+	saveTweetRuleCalled atomic.Bool
 	rulesByXRuleID      map[string]*model.Rule
 }
 
 func (m *mockStore) SaveTweet(_ context.Context, _ *model.Tweet) error {
-	m.saveTweetCalled = true
+	m.saveTweetCalled.Store(true)
 	return nil
 }
 func (m *mockStore) GetRuleByXRuleID(_ context.Context, xRuleID string) (*model.Rule, error) {
@@ -37,7 +37,7 @@ func (m *mockStore) GetRuleByXRuleID(_ context.Context, xRuleID string) (*model.
 	return nil, fmt.Errorf("rule not found: %s", xRuleID)
 }
 func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error {
-	m.saveTweetRuleCalled = true
+	m.saveTweetRuleCalled.Store(true)
 	return nil
 }
 func (m *mockStore) GetTweet(_ context.Context, _ string) (*model.Tweet, error)  { return nil, nil }
@@ -212,6 +212,8 @@ func (m *mockStore) BulkDeleteTrackedEntities(_ context.Context, _ store.BulkDel
 func (m *mockStore) BulkDeleteEntityCandidates(_ context.Context, _ store.BulkDeleteEntityCandidatesFilter) (int64, error)           { return 0, nil }
 func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error)                       { return 0, nil }
 func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSearchJobsFilter) (int64, error)                       { return 0, nil }
+func (m *mockStore) GetGeocodeCache(_ context.Context, _, _ float64) (string, bool, error) { return "", false, nil }
+func (m *mockStore) SetGeocodeCache(_ context.Context, _, _ float64, _ string) error      { return nil }
 func (m *mockStore) Close() error                                                       { return nil }
 
 type mockProducer struct {
@@ -450,7 +452,7 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 			<-done
 			goto check
 		case <-time.After(50 * time.Millisecond):
-			if ms.saveTweetCalled && ms.saveTweetRuleCalled {
+			if ms.saveTweetCalled.Load() && ms.saveTweetRuleCalled.Load() {
 				cancel()
 				<-done
 				goto check
@@ -458,10 +460,10 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 		}
 	}
 check:
-	if !ms.saveTweetCalled {
+	if !ms.saveTweetCalled.Load() {
 		t.Error("expected SaveTweet to be called")
 	}
-	if !ms.saveTweetRuleCalled {
+	if !ms.saveTweetRuleCalled.Load() {
 		t.Error("expected SaveTweetRule to be called")
 	}
 	// Note: no task push expected because cache is nil in this test.

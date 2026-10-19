@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // mockDiscoveryStore records calls and controls return values for tests.

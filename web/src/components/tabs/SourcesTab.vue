@@ -150,7 +150,7 @@ const columns: DataTableColumns<Source> = [
     <!-- Create drawer -->
     <FormDrawer v-model:show="showCreate" title="New Source" save-label="Create" :loading="saving" @save="onCreate">
       <n-form-item label="Name">
-        <n-input v-model:value="form.name" placeholder="e.g. Iran keyword" />
+        <n-input v-model:value="form.name" placeholder="e.g. Earthquake keyword" />
       </n-form-item>
       <n-form-item label="Type">
         <n-select v-model:value="form.type" :options="SOURCE_TYPES" />
@@ -159,14 +159,14 @@ const columns: DataTableColumns<Source> = [
         <n-input :value="operatorFor(form.type)" disabled />
       </n-form-item>
       <n-form-item label="Value">
-        <n-input v-model:value="form.value" placeholder="e.g. iran" />
+        <n-input v-model:value="form.value" placeholder="e.g. earthquake" />
       </n-form-item>
     </FormDrawer>
 
     <!-- Edit drawer -->
     <FormDrawer v-model:show="showEdit" title="Edit Source" :loading="updating" @save="onUpdate">
       <n-form-item label="Name">
-        <n-input v-model:value="editForm.name" placeholder="e.g. Iran keyword" />
+        <n-input v-model:value="editForm.name" placeholder="e.g. Earthquake keyword" />
       </n-form-item>
       <n-form-item label="Type">
         <n-select v-model:value="editForm.type" :options="SOURCE_TYPES" />

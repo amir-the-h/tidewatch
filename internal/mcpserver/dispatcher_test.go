@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 

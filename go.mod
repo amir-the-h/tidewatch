@@ -1,4 +1,4 @@
-module github.com/amir-the-h/iran-watcher
+module github.com/amir-the-h/tidewatch
 
 go 1.25.5
 

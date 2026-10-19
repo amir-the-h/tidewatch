@@ -81,7 +81,7 @@ func defaults() *Config {
 	cfg.X.Tier = "basic"
 	cfg.Redis.Addr = "localhost:6379"
 	cfg.Redis.DB = 0
-	cfg.SQLite.Path = "./data/iran-watcher.db"
+	cfg.SQLite.Path = "./data/tidewatch.db"
 	cfg.API.Bind = "127.0.0.1:8080"
 	cfg.Inference.ModelsDir = "./models"
 	cfg.Ollama.FastWaitTimeout = 5 * time.Second
@@ -126,91 +126,91 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// applyEnv overrides cfg fields from IRAN_WATCHER_* environment variables.
+// applyEnv overrides cfg fields from TIDEWATCH_* environment variables.
 // Only non-empty env vars are applied.
 func applyEnv(cfg *Config) error {
-	if v := os.Getenv("IRAN_WATCHER_X_BEARER_TOKEN"); v != "" {
+	if v := os.Getenv("TIDEWATCH_X_BEARER_TOKEN"); v != "" {
 		cfg.X.BearerToken = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_X_TIER"); v != "" {
+	if v := os.Getenv("TIDEWATCH_X_TIER"); v != "" {
 		cfg.X.Tier = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_REDIS_ADDR"); v != "" {
+	if v := os.Getenv("TIDEWATCH_REDIS_ADDR"); v != "" {
 		cfg.Redis.Addr = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_REDIS_PASSWORD"); v != "" {
+	if v := os.Getenv("TIDEWATCH_REDIS_PASSWORD"); v != "" {
 		cfg.Redis.Password = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_REDIS_DB"); v != "" {
+	if v := os.Getenv("TIDEWATCH_REDIS_DB"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("config: IRAN_WATCHER_REDIS_DB: %w", err)
+			return fmt.Errorf("config: TIDEWATCH_REDIS_DB: %w", err)
 		}
 		cfg.Redis.DB = n
 	}
-	if v := os.Getenv("IRAN_WATCHER_SQLITE_PATH"); v != "" {
+	if v := os.Getenv("TIDEWATCH_SQLITE_PATH"); v != "" {
 		cfg.SQLite.Path = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_API_BIND"); v != "" {
+	if v := os.Getenv("TIDEWATCH_API_BIND"); v != "" {
 		cfg.API.Bind = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_WORKER_COUNT"); v != "" {
+	if v := os.Getenv("TIDEWATCH_WORKER_COUNT"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("config: IRAN_WATCHER_WORKER_COUNT: %w", err)
+			return fmt.Errorf("config: TIDEWATCH_WORKER_COUNT: %w", err)
 		}
 		cfg.Worker.Count = n
 	}
-	if v := os.Getenv("IRAN_WATCHER_ONNX_LIB_PATH"); v != "" {
+	if v := os.Getenv("TIDEWATCH_ONNX_LIB_PATH"); v != "" {
 		cfg.Inference.ONNXLibPath = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_MODELS_DIR"); v != "" {
+	if v := os.Getenv("TIDEWATCH_MODELS_DIR"); v != "" {
 		cfg.Inference.ModelsDir = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_LOG_LEVEL"); v != "" {
+	if v := os.Getenv("TIDEWATCH_LOG_LEVEL"); v != "" {
 		cfg.Log.Level = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_LOG_FORMAT"); v != "" {
+	if v := os.Getenv("TIDEWATCH_LOG_FORMAT"); v != "" {
 		cfg.Log.Format = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_OLLAMA_FAST_WAIT_TIMEOUT"); v != "" {
+	if v := os.Getenv("TIDEWATCH_OLLAMA_FAST_WAIT_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return fmt.Errorf("config: IRAN_WATCHER_OLLAMA_FAST_WAIT_TIMEOUT: %w", err)
+			return fmt.Errorf("config: TIDEWATCH_OLLAMA_FAST_WAIT_TIMEOUT: %w", err)
 		}
 		cfg.Ollama.FastWaitTimeout = d
 	}
-	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_APP_TOKEN"); v != "" {
+	if v := os.Getenv("TIDEWATCH_PUSHOVER_APP_TOKEN"); v != "" {
 		cfg.Pushover.AppToken = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_PUSHOVER_USER_KEY"); v != "" {
+	if v := os.Getenv("TIDEWATCH_PUSHOVER_USER_KEY"); v != "" {
 		cfg.Pushover.UserKey = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_TELEGRAM_BOT_TOKEN"); v != "" {
+	if v := os.Getenv("TIDEWATCH_TELEGRAM_BOT_TOKEN"); v != "" {
 		cfg.Telegram.BotToken = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_STREAM_AUTO_CONNECT"); v != "" {
+	if v := os.Getenv("TIDEWATCH_STREAM_AUTO_CONNECT"); v != "" {
 		cfg.Stream.AutoConnect = v == "true" || v == "1"
 	}
-	if v := os.Getenv("IRAN_WATCHER_AUTH_JWT_SECRET"); v != "" {
+	if v := os.Getenv("TIDEWATCH_AUTH_JWT_SECRET"); v != "" {
 		cfg.Auth.JWTSecret = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_AUTH_ADMIN_USERNAME"); v != "" {
+	if v := os.Getenv("TIDEWATCH_AUTH_ADMIN_USERNAME"); v != "" {
 		cfg.Auth.AdminUsername = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_AUTH_ADMIN_PASSWORD"); v != "" {
+	if v := os.Getenv("TIDEWATCH_AUTH_ADMIN_PASSWORD"); v != "" {
 		cfg.Auth.AdminPassword = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_TWITTER_CLIENT_ID"); v != "" {
+	if v := os.Getenv("TIDEWATCH_TWITTER_CLIENT_ID"); v != "" {
 		cfg.Twitter.ClientID = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_TWITTER_CLIENT_SECRET"); v != "" {
+	if v := os.Getenv("TIDEWATCH_TWITTER_CLIENT_SECRET"); v != "" {
 		cfg.Twitter.ClientSecret = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_TWITTER_CALLBACK_URL"); v != "" {
+	if v := os.Getenv("TIDEWATCH_TWITTER_CALLBACK_URL"); v != "" {
 		cfg.Twitter.CallbackURL = v
 	}
-	if v := os.Getenv("IRAN_WATCHER_NOMINATIM_URL"); v != "" {
+	if v := os.Getenv("TIDEWATCH_NOMINATIM_URL"); v != "" {
 		cfg.Nominatim.URL = v
 	}
 	return nil

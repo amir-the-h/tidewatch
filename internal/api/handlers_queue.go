@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/amir-the-h/iran-watcher/internal/queue"
-	"github.com/amir-the-h/iran-watcher/internal/worker"
+	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/worker"
 )
 
 func (s *Server) handleGetQueue(w http.ResponseWriter, r *http.Request) {

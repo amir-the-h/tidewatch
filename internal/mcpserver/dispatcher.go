@@ -15,7 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Dispatcher translates MCP tool calls into HTTP requests against the iran-watcher API.
+// Dispatcher translates MCP tool calls into HTTP requests against the tidewatch API.
 // If username and password are provided it manages token acquisition and re-authentication
 // transparently; otherwise it uses a static token (or no auth).
 type Dispatcher struct {

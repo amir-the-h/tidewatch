@@ -10,10 +10,10 @@ import (
 const (
 	// QueueTasksPrefix is the key prefix for per-action task queues.
 	// Full key: QueueTasksPrefix + strconv.FormatInt(actionID, 10)
-	QueueTasksPrefix = "iran-watcher:tasks:"
+	QueueTasksPrefix = "tidewatch:tasks:"
 
 	// QueueFailed is the dead-letter queue key.
-	QueueFailed = "iran-watcher:failed"
+	QueueFailed = "tidewatch:failed"
 )
 
 // QueueTasksKey returns the Redis key for the task queue of the given action.
@@ -21,7 +21,7 @@ func QueueTasksKey(actionID int64) string {
 	return QueueTasksPrefix + strconv.FormatInt(actionID, 10)
 }
 
-// Task is a single unit of work pushed to iran-watcher:tasks:{action_id}.
+// Task is a single unit of work pushed to tidewatch:tasks:{action_id}.
 type Task struct {
 	TriggerType    string          `json:"trigger_type"`
 	Event          json.RawMessage `json:"event"`

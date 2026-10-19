@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem('iran_watcher_token')
+  return localStorage.getItem('tidewatch_token')
 }
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -25,7 +25,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 
   if (res.status === 401) {
     // Token expired or invalid — redirect to login.
-    localStorage.removeItem('iran_watcher_token')
+    localStorage.removeItem('tidewatch_token')
     window.location.href = '/login'
     throw new ApiError(401, 'unauthorized')
   }

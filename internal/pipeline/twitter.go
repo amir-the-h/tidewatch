@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/twitter"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/twitter"
 )
 
 // RetweetPipeline retweets the tweet identified by tweet_id in the input context.

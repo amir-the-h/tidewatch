@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/hub"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -191,7 +191,7 @@ func (q *RedisQueue) ClearFailed(ctx context.Context) error {
 }
 
 // TotalTaskLen returns a non-atomic estimate of the total pending task count
-// across all per-action queues by scanning keys matching iran-watcher:tasks:*.
+// across all per-action queues by scanning keys matching tidewatch:tasks:*.
 // Keys created or deleted between SCAN pages may be missed or double-counted.
 // Returns 0 if the underlying client does not support SCAN (e.g. test fakes).
 func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
@@ -222,7 +222,7 @@ func (q *RedisQueue) TotalTaskLen(ctx context.Context) (int64, error) {
 }
 
 // FlushQueue deletes per-action task queues by scanning for keys matching
-// iran-watcher:tasks:* and deleting them in batches. Tasks pushed between
+// tidewatch:tasks:* and deleting them in batches. Tasks pushed between
 // SCAN pages may survive the flush. Returns nil if the client does not support SCAN.
 func (q *RedisQueue) FlushQueue(ctx context.Context) error {
 	s, ok := q.client.(scanner)

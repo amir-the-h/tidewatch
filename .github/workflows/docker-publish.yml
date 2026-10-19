@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-backend:
-    name: Backend (iran-watcher)
+    name: Backend (tidewatch)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,7 +37,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/iran-watcher
+          images: ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/tidewatch
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -58,7 +58,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   build-ui:
-    name: Frontend (iran-watcher-ui)
+    name: Frontend (tidewatch-ui)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,7 +81,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/iran-watcher-ui
+          images: ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/tidewatch-ui
           tags: |
             type=ref,event=branch
             type=ref,event=pr

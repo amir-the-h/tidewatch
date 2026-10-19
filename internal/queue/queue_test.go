@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/hub"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -64,11 +64,11 @@ func (b *captureBroadcaster) Broadcast(e hub.Event) {
 // ---------------------------------------------------------------------------
 
 func TestQueueTasksKey_Format(t *testing.T) {
-	if got := QueueTasksKey(42); got != "iran-watcher:tasks:42" {
-		t.Errorf("QueueTasksKey(42) = %q, want %q", got, "iran-watcher:tasks:42")
+	if got := QueueTasksKey(42); got != "tidewatch:tasks:42" {
+		t.Errorf("QueueTasksKey(42) = %q, want %q", got, "tidewatch:tasks:42")
 	}
-	if got := QueueTasksKey(1); got != "iran-watcher:tasks:1" {
-		t.Errorf("QueueTasksKey(1) = %q, want %q", got, "iran-watcher:tasks:1")
+	if got := QueueTasksKey(1); got != "tidewatch:tasks:1" {
+		t.Errorf("QueueTasksKey(1) = %q, want %q", got, "tidewatch:tasks:1")
 	}
 }
 
@@ -155,7 +155,7 @@ func TestPushTask_RoutesToPerActionKey(t *testing.T) {
 	if err := q.PushTask(context.Background(), task); err != nil {
 		t.Fatalf("PushTask: %v", err)
 	}
-	want := "iran-watcher:tasks:42"
+	want := "tidewatch:tasks:42"
 	if fake.pushedKey != want {
 		t.Errorf("pushed to key %q, want %q", fake.pushedKey, want)
 	}
@@ -203,7 +203,7 @@ func TestPushTask_NoBroadcastWithoutBroadcaster(t *testing.T) {
 
 func TestPopTask_ReturnsNilOnTimeout(t *testing.T) {
 	q := &RedisQueue{client: &fakeRedisClient{brpopErr: redis.Nil}}
-	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:1")
+	task, err := q.PopTask(context.Background(), 1*time.Second, "tidewatch:tasks:1")
 	if err != nil {
 		t.Fatalf("expected nil error on timeout, got: %v", err)
 	}
@@ -240,13 +240,13 @@ func TestPopTask_BroadcastsActionPending(t *testing.T) {
 	ev, _ := json.Marshal(TweetEvent{TweetID: "1", Text: "test", AuthorHandle: "user"})
 	taskJSON, _ := json.Marshal(&Task{TriggerType: "new_tweet", ActionID: 7, Event: json.RawMessage(ev), Context: map[string]any{}})
 	fake := &brpopSuccessFakeClient{
-		fakeRedisClient: fakeRedisClient{llenResult: map[string]int64{"iran-watcher:tasks:7": 5}},
-		result:          []string{"iran-watcher:tasks:7", string(taskJSON)},
+		fakeRedisClient: fakeRedisClient{llenResult: map[string]int64{"tidewatch:tasks:7": 5}},
+		result:          []string{"tidewatch:tasks:7", string(taskJSON)},
 	}
 	bc := &captureBroadcaster{}
 	q := &RedisQueue{client: fake, broadcaster: bc}
 
-	task, err := q.PopTask(context.Background(), 1*time.Second, "iran-watcher:tasks:7")
+	task, err := q.PopTask(context.Background(), 1*time.Second, "tidewatch:tasks:7")
 	if err != nil {
 		t.Fatalf("PopTask: %v", err)
 	}

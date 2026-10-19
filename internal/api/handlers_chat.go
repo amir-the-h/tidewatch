@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
 )
 
 // lockedWriter wraps an http.ResponseWriter with a mutex so that the

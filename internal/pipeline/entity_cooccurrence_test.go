@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/inference"
 )
 
 type mockCooccurrenceStore struct {

@@ -161,7 +161,7 @@ function truncateResult(result: string): string {
           color: #6c7086;
         "
       >
-        <n-text depth="3" style="font-size: 13px;">Ask anything about your iran-watcher data…</n-text>
+        <n-text depth="3" style="font-size: 13px;">Ask anything about your tidewatch data…</n-text>
         <n-text depth="3" style="font-size: 12px;">The assistant can query tweets, rules, pipelines, entities, and more.</n-text>
       </div>
 

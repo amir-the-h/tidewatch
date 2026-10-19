@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 func sampleTweet() *model.Tweet {

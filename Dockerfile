@@ -37,10 +37,10 @@ COPY . .
 
 RUN CGO_ENABLED=1 GOOS=linux \
     CGO_LDFLAGS="-L/usr/local/lib" \
-    go build -ldflags="-s -w" -o iran-watcher ./cmd/iran-watcher
+    go build -ldflags="-s -w" -o tidewatch ./cmd/tidewatch
 
 RUN CGO_ENABLED=0 GOOS=linux \
-    go build -ldflags="-s -w" -o iran-watcher-mcp ./cmd/iran-watcher-mcp
+    go build -ldflags="-s -w" -o tidewatch-mcp ./cmd/tidewatch-mcp
 
 # ──────────────────────────────────────────────
 # Runtime stage
@@ -60,8 +60,8 @@ COPY --from=builder /usr/local/lib/libonnxruntime_providers_shared.so   /usr/loc
 COPY --from=builder /usr/local/lib/libonnxruntime_providers_cuda.so     /usr/local/lib/
 RUN ldconfig
 
-COPY --from=builder /app/iran-watcher /usr/local/bin/iran-watcher
-COPY --from=builder /app/iran-watcher-mcp /usr/local/bin/iran-watcher-mcp
+COPY --from=builder /app/tidewatch /usr/local/bin/tidewatch
+COPY --from=builder /app/tidewatch-mcp /usr/local/bin/tidewatch-mcp
 
 RUN mkdir -p /configs /data /models
 COPY configs/default.yaml /configs/config.yaml
@@ -70,10 +70,10 @@ VOLUME ["/data", "/models"]
 
 EXPOSE 8080
 
-ENV IRAN_WATCHER_SQLITE_PATH=/data/iran-watcher.db \
-    IRAN_WATCHER_MODELS_DIR=/models \
-    IRAN_WATCHER_API_BIND=0.0.0.0:8080 \
-    IRAN_WATCHER_ONNX_LIB_PATH=/usr/local/lib/libonnxruntime.so.${ORT_VERSION}
+ENV TIDEWATCH_SQLITE_PATH=/data/tidewatch.db \
+    TIDEWATCH_MODELS_DIR=/models \
+    TIDEWATCH_API_BIND=0.0.0.0:8080 \
+    TIDEWATCH_ONNX_LIB_PATH=/usr/local/lib/libonnxruntime.so.${ORT_VERSION}
 
-ENTRYPOINT ["iran-watcher"]
+ENTRYPOINT ["tidewatch"]
 CMD ["serve", "--config", "/configs/config.yaml"]

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // xStreamEvent mirrors the X API v2 Filtered Stream event JSON structure.

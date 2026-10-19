@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 // ── Actions ───────────────────────────────────────────────────────────────────

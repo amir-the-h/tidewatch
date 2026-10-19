@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/amir-the-h/iran-watcher/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/queue"
 )
 
 func (s *Server) handleListFailures(w http.ResponseWriter, r *http.Request) {

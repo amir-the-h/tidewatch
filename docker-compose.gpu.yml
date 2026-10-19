@@ -1,0 +1,13 @@
+# Optional NVIDIA GPU override for ONNX inference (CUDA execution provider).
+# Without it, ONNX models run on CPU automatically.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+services:
+  tidewatch:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

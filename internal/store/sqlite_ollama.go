@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
 func (s *sqliteStore) ListOllamaBackends(ctx context.Context) ([]model.OllamaBackend, error) {

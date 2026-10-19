@@ -11,22 +11,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/amir-the-h/iran-watcher/internal/api"
-	"github.com/amir-the-h/iran-watcher/internal/auth"
-	"github.com/amir-the-h/iran-watcher/internal/config"
-	"github.com/amir-the-h/iran-watcher/internal/hub"
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
-	"github.com/amir-the-h/iran-watcher/internal/model"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
-	"github.com/amir-the-h/iran-watcher/internal/pipeline"
-	"github.com/amir-the-h/iran-watcher/internal/queue"
-	"github.com/amir-the-h/iran-watcher/internal/search"
-	"github.com/amir-the-h/iran-watcher/internal/store"
-	"github.com/amir-the-h/iran-watcher/internal/stream"
-	"github.com/amir-the-h/iran-watcher/internal/twitter"
-	"github.com/amir-the-h/iran-watcher/internal/worker"
-	"github.com/amir-the-h/iran-watcher/migrations"
+	"github.com/amir-the-h/tidewatch/internal/api"
+	"github.com/amir-the-h/tidewatch/internal/auth"
+	"github.com/amir-the-h/tidewatch/internal/config"
+	"github.com/amir-the-h/tidewatch/internal/hub"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/pipeline"
+	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/search"
+	"github.com/amir-the-h/tidewatch/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/stream"
+	"github.com/amir-the-h/tidewatch/internal/twitter"
+	"github.com/amir-the-h/tidewatch/internal/worker"
+	"github.com/amir-the-h/tidewatch/migrations"
 	"github.com/spf13/cobra"
 )
 
@@ -34,12 +34,12 @@ var configPath string
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start the iran-watcher server",
+	Short: "Start the tidewatch server",
 	RunE:  runServe,
 }
 
 func init() {
-	serveCmd.Flags().StringVar(&configPath, "config", "configs/iran-watcher.yaml", "path to YAML config file")
+	serveCmd.Flags().StringVar(&configPath, "config", "configs/tidewatch.yaml", "path to YAML config file")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -61,7 +61,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	slog.SetDefault(logger)
 
 	if cfg.X.BearerToken == "" {
-		return fmt.Errorf("X bearer token is required; set via config or IRAN_WATCHER_X_BEARER_TOKEN env var")
+		return fmt.Errorf("X bearer token is required; set via config or TIDEWATCH_X_BEARER_TOKEN env var")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -204,9 +204,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	jwtSecret := cfg.Auth.JWTSecret
 	if jwtSecret == "" {
-		// Warn loudly — an empty secret makes all tokens trivially forgeable.
-		logger.Warn("serve: auth.jwt_secret is not set; using an insecure default — set IRAN_WATCHER_AUTH_JWT_SECRET in production", "component", "auth")
-		jwtSecret = "iran-watcher-insecure-default-secret"
+		// Refuse to start — a missing or well-known secret makes all tokens trivially forgeable.
+		return fmt.Errorf("serve: auth.jwt_secret is not set; set TIDEWATCH_AUTH_JWT_SECRET (e.g. `openssl rand -hex 32`)")
 	}
 
 	if err := seedAdminUser(ctx, s, cfg.Auth.AdminUsername, cfg.Auth.AdminPassword, logger); err != nil {
@@ -321,6 +320,9 @@ func seedAdminUser(ctx context.Context, s store.Store, username, password string
 	}
 	if count > 0 {
 		return nil // admin already exists
+	}
+	if password == "changeme" {
+		logger.Warn("serve: seeding admin with the default password — set TIDEWATCH_AUTH_ADMIN_PASSWORD or change it after first login", "component", "auth")
 	}
 
 	hash, err := auth.HashPassword(password)

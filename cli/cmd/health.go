@@ -9,7 +9,7 @@ import (
 
 var healthCmd = &cobra.Command{
 	Use:   "health",
-	Short: "Check the health of the iran-watcher API",
+	Short: "Check the health of the tidewatch API",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		resp, err := apiGet(baseURL + "/api/health")
 		if err != nil {

@@ -3,7 +3,7 @@ package mcpserver_test
 import (
 	"testing"
 
-	"github.com/amir-the-h/iran-watcher/internal/mcpserver"
+	"github.com/amir-the-h/tidewatch/internal/mcpserver"
 )
 
 func TestBuildOllamaTools_EmptyAllowed_ReturnsAll(t *testing.T) {

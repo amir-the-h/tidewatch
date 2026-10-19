@@ -21,7 +21,7 @@ export type ChatEvent =
 
 /** Returns all available MCP tool names and descriptions. */
 export async function listChatTools(): Promise<ChatToolInfo[]> {
-  const token = localStorage.getItem('iran_watcher_token')
+  const token = localStorage.getItem('tidewatch_token')
   const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(`${apiBase}/api/chat/tools`, { headers })
@@ -49,7 +49,7 @@ export function streamChat(
 
   ;(async () => {
     try {
-      const token = localStorage.getItem('iran_watcher_token')
+      const token = localStorage.getItem('tidewatch_token')
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (token) headers['Authorization'] = `Bearer ${token}`
 
@@ -64,7 +64,7 @@ export function streamChat(
       })
 
       if (res.status === 401) {
-        localStorage.removeItem('iran_watcher_token')
+        localStorage.removeItem('tidewatch_token')
         window.location.href = '/login'
         return
       }

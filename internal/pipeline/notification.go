@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/amir-the-h/iran-watcher/internal/inference"
-	"github.com/amir-the-h/iran-watcher/internal/notifier"
+	"github.com/amir-the-h/tidewatch/internal/inference"
+	"github.com/amir-the-h/tidewatch/internal/notifier"
 )
 
 // ActionSummary holds the aggregated execution metadata for a single action on a tweet.
