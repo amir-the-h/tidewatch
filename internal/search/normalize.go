@@ -10,7 +10,7 @@ import (
 
 // xSearchResponse mirrors the X API v2 search response JSON structure.
 type xSearchResponse struct {
-	Data []xSearchTweet `json:"data"`
+	Data     []xSearchTweet `json:"data"`
 	Includes struct {
 		Users []struct {
 			ID       string `json:"id"`

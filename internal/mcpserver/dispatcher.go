@@ -19,12 +19,12 @@ import (
 // If username and password are provided it manages token acquisition and re-authentication
 // transparently; otherwise it uses a static token (or no auth).
 type Dispatcher struct {
-	baseURL  string
-	username string
-	password string
-	mu       sync.Mutex // guards cachedToken
+	baseURL     string
+	username    string
+	password    string
+	mu          sync.Mutex // guards cachedToken
 	cachedToken string
-	client   *http.Client
+	client      *http.Client
 }
 
 // NewDispatcher creates a Dispatcher with no authentication.

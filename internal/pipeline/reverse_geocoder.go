@@ -70,9 +70,11 @@ func NewReverseGeocoderFactory(st store.Store, defaultURL string) Factory {
 	}
 }
 
-func (p *ReverseGeocoderPipeline) Name() string                 { return p.name }
-func (p *ReverseGeocoderPipeline) Type() inference.PipelineType { return inference.PipelineTypeInternal }
-func (p *ReverseGeocoderPipeline) Close() error                 { return nil }
+func (p *ReverseGeocoderPipeline) Name() string { return p.name }
+func (p *ReverseGeocoderPipeline) Type() inference.PipelineType {
+	return inference.PipelineTypeInternal
+}
+func (p *ReverseGeocoderPipeline) Close() error { return nil }
 
 func (p *ReverseGeocoderPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
 	raw, ok := input.Context[p.cfg.CoordinateKey]

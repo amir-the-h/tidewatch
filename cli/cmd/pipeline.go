@@ -106,9 +106,9 @@ var pipelineAddCmd = &cobra.Command{
 }
 
 var (
-	pipelineDescription    string
-	pipelineUpdateName     string
-	pipelineUpdateDesc     string
+	pipelineDescription string
+	pipelineUpdateName  string
+	pipelineUpdateDesc  string
 )
 
 var pipelineUpdateCmd = &cobra.Command{

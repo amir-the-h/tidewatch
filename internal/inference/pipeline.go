@@ -13,10 +13,10 @@ import (
 type PipelineType string
 
 const (
-	PipelineTypeONNX          PipelineType = "onnx"
-	PipelineTypeOllama        PipelineType = "ollama"
-	PipelineTypeInternal      PipelineType = "internal"
-	PipelineTypeNotification  PipelineType = "notification"
+	PipelineTypeONNX         PipelineType = "onnx"
+	PipelineTypeOllama       PipelineType = "ollama"
+	PipelineTypeInternal     PipelineType = "internal"
+	PipelineTypeNotification PipelineType = "notification"
 )
 
 // PipelineInput carries all data a pipeline needs to run.

@@ -108,4 +108,3 @@ func TestStreamTweetCreation(t *testing.T) {
 		t.Errorf("MatchingRules[1] = %+v, want {ID:rule-2 Tag:tehran}", st.MatchingRules[1])
 	}
 }
-

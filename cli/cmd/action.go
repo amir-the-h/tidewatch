@@ -17,11 +17,11 @@ var actionCmd = &cobra.Command{
 }
 
 var (
-	actionTypeFilter  string
-	actionActiveFilt  string
-	actionName        string
-	actionType        string
-	actionConfig      string
+	actionTypeFilter string
+	actionActiveFilt string
+	actionName       string
+	actionType       string
+	actionConfig     string
 )
 
 var actionListCmd = &cobra.Command{

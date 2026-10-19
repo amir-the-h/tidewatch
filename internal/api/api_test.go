@@ -220,8 +220,10 @@ func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, triggerTyp
 	}
 	return out, nil
 }
-func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error            { return nil }
-func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
 
 // Pipeline node execution tracking (sub-pipeline fan-in)
 func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error {
@@ -414,8 +416,8 @@ func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string, _ int) (
 func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string, _ int) error {
 	return nil
 }
-func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error              { return nil }
-func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error  { return nil }
+func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error             { return nil }
+func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error { return nil }
 func (m *mockStore) ListActionBackends(_ context.Context, _ int64) ([]model.ActionBackend, error) {
 	return nil, nil
 }
@@ -1087,7 +1089,9 @@ func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
 	}
 	tweetIDs := make(map[string]bool)
 	for _, task := range pushed {
-		var ev struct{ TweetID string `json:"tweet_id"` }
+		var ev struct {
+			TweetID string `json:"tweet_id"`
+		}
 		_ = json.Unmarshal(task.Event, &ev)
 		tweetIDs[ev.TweetID] = true
 	}
@@ -1139,7 +1143,9 @@ func TestRunPipeline_AscOrder(t *testing.T) {
 	if len(pushed) != 2 {
 		t.Fatalf("expected 2 pushed tasks, got %d", len(pushed))
 	}
-	var ev0 struct{ TweetID string `json:"tweet_id"` }
+	var ev0 struct {
+		TweetID string `json:"tweet_id"`
+	}
 	_ = json.Unmarshal(pushed[0].Event, &ev0)
 	if ev0.TweetID != "t_old" {
 		t.Errorf("expected first task for t_old (oldest), got %s", ev0.TweetID)

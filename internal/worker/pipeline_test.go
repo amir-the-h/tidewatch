@@ -31,8 +31,8 @@ func (g *graphStore) GetPipelineIDForNode(_ context.Context, _ int64) (int64, er
 // (never actually run the pipeline).
 type mockPipeline struct{ name string }
 
-func (m *mockPipeline) Name() string                                                      { return m.name }
-func (m *mockPipeline) Type() inference.PipelineType                                      { return inference.PipelineTypeInternal }
+func (m *mockPipeline) Name() string                 { return m.name }
+func (m *mockPipeline) Type() inference.PipelineType { return inference.PipelineTypeInternal }
 func (m *mockPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[string]any, error) {
 	return nil, nil
 }
@@ -150,4 +150,3 @@ func TestEvaluateConditionsVerbose_RuleMatches(t *testing.T) {
 		t.Error("rule_not_matches with matched rule should fail")
 	}
 }
-

@@ -8,7 +8,7 @@ import (
 // stubPipeline is a test double implementing Pipeline with a configurable name.
 type stubPipeline struct{ name string }
 
-func (s *stubPipeline) Name() string { return s.name }
+func (s *stubPipeline) Name() string       { return s.name }
 func (s *stubPipeline) Type() PipelineType { return PipelineTypeInternal }
 func (s *stubPipeline) Run(_ context.Context, _ PipelineInput) (map[string]any, error) {
 	return map[string]any{}, nil

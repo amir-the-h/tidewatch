@@ -6,10 +6,10 @@ import "time"
 type DigestStatus string
 
 const (
-	DigestStatusPending   DigestStatus = "pending"
-	DigestStatusRunning   DigestStatus = "running"
-	DigestStatusDone      DigestStatus = "done"
-	DigestStatusError     DigestStatus = "error"
+	DigestStatusPending DigestStatus = "pending"
+	DigestStatusRunning DigestStatus = "running"
+	DigestStatusDone    DigestStatus = "done"
+	DigestStatusError   DigestStatus = "error"
 )
 
 // DigestJob represents a background digest generation task.

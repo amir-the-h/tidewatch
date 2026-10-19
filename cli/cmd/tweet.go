@@ -111,7 +111,7 @@ var tweetShowCmd = &cobra.Command{
 }
 
 var (
-	reprocessTweetIDs  string
+	reprocessTweetIDs   string
 	reprocessModelNames string
 )
 

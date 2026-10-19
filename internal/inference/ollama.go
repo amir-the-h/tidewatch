@@ -69,10 +69,10 @@ type ollamaBackend struct {
 	name          string // display name; defaults to baseURL if empty
 	baseURL       string
 	client        *http.Client
-	enabled       bool  // false means the backend is disabled and should not be used
-	healthy       bool  // managed by health checker and request-time failures
-	activeCount   int   // number of requests currently in-flight
-	maxConcurrent int   // max simultaneous requests; < 1 treated as 1
+	enabled       bool      // false means the backend is disabled and should not be used
+	healthy       bool      // managed by health checker and request-time failures
+	activeCount   int       // number of requests currently in-flight
+	maxConcurrent int       // max simultaneous requests; < 1 treated as 1
 	score         float64   // tokens/sec, exponential moving average; 0 = not yet measured
 	requestCount  int64     // total completed requests
 	lastActiveAt  time.Time // zero value if never used
@@ -155,7 +155,7 @@ type OllamaPipeline struct {
 	fastWaitTimeout time.Duration
 	think           *bool // nil = model default; false = disable thinking (e.g. qwen3)
 	// Context injection
-	inputMode        string               // "text_only" | "context_only" | "text_and_context"
+	inputMode        string // "text_only" | "context_only" | "text_and_context"
 	contextActionIDs []int64
 	loadSummaries    ContextSummaryLoader // nil = context disabled
 	// Testability hook: if non-nil, overrides the real sendChat HTTP call.
@@ -449,9 +449,9 @@ func (p *OllamaPipeline) sendChat(ctx context.Context, userText string) (string,
 			{Role: "system", Content: p.systemPrompt},
 			{Role: "user", Content: userText},
 		},
-		Stream:  false,
-		Format:  "json",
-		Think:   p.think,
+		Stream: false,
+		Format: "json",
+		Think:  p.think,
 	})
 	if err != nil {
 		return "", fmt.Errorf("inference: ollama: marshal request: %w", err)
@@ -619,7 +619,6 @@ Produce a structured intelligence briefing that:
 - Concludes with any notable patterns, escalations, or trends
 
 Write in plain text with clear section headings. Be concise and factual. Synthesise across tweets — do not list them individually.`
-
 
 // AgentStream runs the agentic tool-calling loop. It sends messages + tool
 // definitions to Ollama (stream:false), executes any tool_calls via executor,

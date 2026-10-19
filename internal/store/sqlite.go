@@ -646,7 +646,6 @@ func (s *sqliteStore) ListTweetRuleIDs(ctx context.Context, tweetID string) ([]i
 	return ids, rows.Err()
 }
 
-
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 type scanner interface {

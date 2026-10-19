@@ -28,9 +28,11 @@ func NewEntityCooccurrenceFactory(st cooccurrenceStore) Factory {
 	}
 }
 
-func (p *EntityCooccurrencePipeline) Name() string                 { return p.name }
-func (p *EntityCooccurrencePipeline) Type() inference.PipelineType { return inference.PipelineTypeInternal }
-func (p *EntityCooccurrencePipeline) Close() error                 { return nil }
+func (p *EntityCooccurrencePipeline) Name() string { return p.name }
+func (p *EntityCooccurrencePipeline) Type() inference.PipelineType {
+	return inference.PipelineTypeInternal
+}
+func (p *EntityCooccurrencePipeline) Close() error { return nil }
 
 func (p *EntityCooccurrencePipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
 	ids := extractMatchedIDs(input.Context)

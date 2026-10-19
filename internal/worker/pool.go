@@ -17,7 +17,7 @@ import (
 // Idle workers have Status="idle" and zero values for all other fields.
 type WorkerInfo struct {
 	ID          int       `json:"id"`
-	Status      string    `json:"status"`       // "active" | "idle"
+	Status      string    `json:"status"` // "active" | "idle"
 	ActionID    int64     `json:"action_id"`
 	Action      string    `json:"action"`
 	Pipeline    string    `json:"pipeline"`

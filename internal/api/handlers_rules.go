@@ -77,11 +77,11 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	rule := &model.Rule{
-		Name:      req.Name,
+		Name:       req.Name,
 		Expression: req.Expression,
-		Local:     req.Local,
-		CreatedAt: now,
-		UpdatedAt: now,
+		Local:      req.Local,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if req.Local {

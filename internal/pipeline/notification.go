@@ -66,7 +66,9 @@ func NewNotificationPipeline(name, messageTemplate, threadNameTemplate string, d
 func (p *NotificationPipeline) Name() string { return p.name }
 
 // Type implements inference.Pipeline.
-func (p *NotificationPipeline) Type() inference.PipelineType { return inference.PipelineTypeNotification }
+func (p *NotificationPipeline) Type() inference.PipelineType {
+	return inference.PipelineTypeNotification
+}
 
 // Close implements inference.Pipeline.
 func (p *NotificationPipeline) Close() error { return nil }

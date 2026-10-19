@@ -1143,7 +1143,7 @@ func TestBulkDeleteTrackedEntities_All(t *testing.T) {
 func TestBulkDeleteTrackedEntities_ByType(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	e1 := seedTrackedEntity(t, s, "Tehran")   // type = "PER" from seedTrackedEntity
+	e1 := seedTrackedEntity(t, s, "Tehran") // type = "PER" from seedTrackedEntity
 	e2 := &model.TrackedEntity{Name: "IRGC", Type: "ORG", Aliases: []string{}, Active: true}
 	_ = s.SaveTrackedEntity(ctx, e2)
 

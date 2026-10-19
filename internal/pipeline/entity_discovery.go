@@ -20,10 +20,10 @@ type discoveryStore interface {
 
 // entityDiscoveryConfig holds the user-configured thresholds and settings.
 type entityDiscoveryConfig struct {
-	MinConfidence      float64  `json:"min_confidence"`
-	MinFrequency       int      `json:"min_frequency"`
-	AutoPromoteTypes   []string `json:"auto_promote_types"`
-	EntityKey          string   `json:"entity_key"`
+	MinConfidence    float64  `json:"min_confidence"`
+	MinFrequency     int      `json:"min_frequency"`
+	AutoPromoteTypes []string `json:"auto_promote_types"`
+	EntityKey        string   `json:"entity_key"`
 	// StripLabelPrefixes removes these prefixes from NER labels before storing the
 	// entity type and checking auto_promote_types. Use ["B-", "I-"] for BIO-tagged
 	// models that output labels like "I-LOC" instead of "LOC".
@@ -69,9 +69,11 @@ func newEntityDiscoveryPipeline(name string, cfg entityDiscoveryConfig, st disco
 	return &EntityDiscoveryPipeline{name: name, config: cfg, store: st, logger: slog.Default()}
 }
 
-func (p *EntityDiscoveryPipeline) Name() string                 { return p.name }
-func (p *EntityDiscoveryPipeline) Type() inference.PipelineType { return inference.PipelineTypeInternal }
-func (p *EntityDiscoveryPipeline) Close() error                 { return nil }
+func (p *EntityDiscoveryPipeline) Name() string { return p.name }
+func (p *EntityDiscoveryPipeline) Type() inference.PipelineType {
+	return inference.PipelineTypeInternal
+}
+func (p *EntityDiscoveryPipeline) Close() error { return nil }
 
 func (p *EntityDiscoveryPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
 	nerEntities := p.extractEntities(input)

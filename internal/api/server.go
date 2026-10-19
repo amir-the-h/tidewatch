@@ -68,30 +68,30 @@ type streamClientInterface interface {
 
 // Server is the REST API server.
 type Server struct {
-	store                   store.Store
-	producer                queue.Producer
-	registry                *inference.Registry
-	actionCache             *worker.ActionCache
-	pipelineRegistry        *pipeline.Registry
-	twitterClient           *twitter.Client // nil when Twitter not configured
-	rules                   ruleManagerInterface
-	stream                  streamClientInterface
-	tier                    string
-	backendPool             *inference.BackendPool
-	ollamaFastWaitTimeout   time.Duration
-	jwtSecret               string
-	dispatcher              *notifier.Dispatcher
-	toolExec                inference.ToolExecutor
-	searchScheduler         searchScheduler // nil if search not configured
-	pool                    workerPoolStatsProvider
-	sizer                   queueSizer
-	failureLister           queue.FailureLister
-	logger                  *slog.Logger
-	modelsDir               string
-	hub                     *hub.Hub
-	router                  chi.Router
-	http                    *http.Server
-	ctx                     context.Context
+	store                 store.Store
+	producer              queue.Producer
+	registry              *inference.Registry
+	actionCache           *worker.ActionCache
+	pipelineRegistry      *pipeline.Registry
+	twitterClient         *twitter.Client // nil when Twitter not configured
+	rules                 ruleManagerInterface
+	stream                streamClientInterface
+	tier                  string
+	backendPool           *inference.BackendPool
+	ollamaFastWaitTimeout time.Duration
+	jwtSecret             string
+	dispatcher            *notifier.Dispatcher
+	toolExec              inference.ToolExecutor
+	searchScheduler       searchScheduler // nil if search not configured
+	pool                  workerPoolStatsProvider
+	sizer                 queueSizer
+	failureLister         queue.FailureLister
+	logger                *slog.Logger
+	modelsDir             string
+	hub                   *hub.Hub
+	router                chi.Router
+	http                  *http.Server
+	ctx                   context.Context
 }
 
 // NewServer creates a new Server and registers all routes.

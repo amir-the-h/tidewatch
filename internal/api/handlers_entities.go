@@ -280,10 +280,10 @@ func (s *Server) handleListEntityTracks(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tracks":     tracks,
-		"total":      total,
-		"page":       filter.Page,
-		"per_page":   filter.PerPage,
+		"tracks":   tracks,
+		"total":    total,
+		"page":     filter.Page,
+		"per_page": filter.PerPage,
 	})
 }
 

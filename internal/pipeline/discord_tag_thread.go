@@ -61,7 +61,9 @@ type DiscordTagThreadPipeline struct {
 func (p *DiscordTagThreadPipeline) Name() string { return p.name }
 
 // Type implements inference.Pipeline.
-func (p *DiscordTagThreadPipeline) Type() inference.PipelineType { return inference.PipelineTypeInternal }
+func (p *DiscordTagThreadPipeline) Type() inference.PipelineType {
+	return inference.PipelineTypeInternal
+}
 
 // Close implements inference.Pipeline.
 func (p *DiscordTagThreadPipeline) Close() error { return nil }

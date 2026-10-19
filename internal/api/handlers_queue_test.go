@@ -18,8 +18,8 @@ func (s *stubPoolStats) Stats() worker.PoolStats { return s.stats }
 
 type stubSizerQueue struct{ pending int64 }
 
-func (s *stubSizerQueue) Len(_ context.Context, _ string) (int64, error)    { return s.pending, nil }
-func (s *stubSizerQueue) TotalTaskLen(_ context.Context) (int64, error)     { return s.pending, nil }
+func (s *stubSizerQueue) Len(_ context.Context, _ string) (int64, error) { return s.pending, nil }
+func (s *stubSizerQueue) TotalTaskLen(_ context.Context) (int64, error)  { return s.pending, nil }
 
 func TestHandleGetQueue_Shape(t *testing.T) {
 	srv := &Server{sizer: &stubSizerQueue{pending: 5}, pool: &stubPoolStats{}}

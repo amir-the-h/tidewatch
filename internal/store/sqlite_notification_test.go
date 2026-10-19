@@ -24,12 +24,12 @@ func sampleProvider() *model.NotificationProvider {
 
 func sampleChannel(providerID int64) *model.NotificationChannel {
 	return &model.NotificationChannel{
-		Name:      "alert-channel",
+		Name:       "alert-channel",
 		ProviderID: providerID,
-		Config:    json.RawMessage(`{"chat_id":"-1001234567890"}`),
-		Active:    true,
-		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Config:     json.RawMessage(`{"chat_id":"-1001234567890"}`),
+		Active:     true,
+		CreatedAt:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 

@@ -84,6 +84,7 @@ func (m *mockStore) SaveActionExecution(_ context.Context, e *model.ActionExecut
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
+
 // Tweets
 func (m *mockStore) SaveTweet(_ context.Context, _ *model.Tweet) error { return nil }
 func (m *mockStore) GetTweet(_ context.Context, _ string) (*model.Tweet, error) {
@@ -163,8 +164,10 @@ func (m *mockStore) ListTriggerPipelineLinks(_ context.Context) ([]*model.Trigge
 func (m *mockStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string, _ int64) ([]*model.TriggerPipelineLink, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error            { return nil }
-func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error { return nil }
+func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error {
+	return nil
+}
 
 // Pipeline node execution tracking
 func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error {
@@ -305,8 +308,8 @@ func (m *mockStore) GetAction(_ context.Context, _ int64) (*model.Action, error)
 func (m *mockStore) ListActions(_ context.Context, _ store.ActionFilter) ([]*model.Action, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error    { return nil }
-func (m *mockStore) DeleteAction(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) UpdateAction(_ context.Context, _ *model.Action) error { return nil }
+func (m *mockStore) DeleteAction(_ context.Context, _ int64) error         { return nil }
 func (m *mockStore) BulkDeleteActions(_ context.Context, _ store.BulkDeleteActionsFilter) (int64, error) {
 	return 0, nil
 }
@@ -341,7 +344,9 @@ func (m *mockStore) GetTwitterCredentials(_ context.Context) (*model.TwitterCred
 }
 func (m *mockStore) DeleteTwitterCredentials(_ context.Context) error { return nil }
 
-func (m *mockStore) ListMapPins(_ context.Context, _, _ int) ([]*store.MapPin, error) { return nil, nil }
+func (m *mockStore) ListMapPins(_ context.Context, _, _ int) ([]*store.MapPin, error) {
+	return nil, nil
+}
 
 func (m *mockStore) ListOllamaBackends(_ context.Context) ([]model.OllamaBackend, error) {
 	return nil, nil
@@ -355,8 +360,8 @@ func (m *mockStore) CreateOllamaBackend(_ context.Context, _, _ string, _ int) (
 func (m *mockStore) UpdateOllamaBackend(_ context.Context, _ int64, _, _ string, _ int) error {
 	return nil
 }
-func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error              { return nil }
-func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error  { return nil }
+func (m *mockStore) DeleteOllamaBackend(_ context.Context, _ int64) error             { return nil }
+func (m *mockStore) SetOllamaBackendEnabled(_ context.Context, _ int64, _ bool) error { return nil }
 func (m *mockStore) ListActionBackends(_ context.Context, _ int64) ([]model.ActionBackend, error) {
 	return nil, nil
 }
@@ -368,14 +373,26 @@ func (m *mockStore) ListAllActionBackendIDs(_ context.Context) (map[int64][]int6
 	return nil, nil
 }
 
-func (m *mockStore) ListEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) ([]*model.EntityCandidate, error) { return nil, nil }
-func (m *mockStore) GetEntityCandidate(_ context.Context, _ int64) (*model.EntityCandidate, error) { return nil, nil }
-func (m *mockStore) UpsertEntityCandidate(_ context.Context, _ *model.EntityCandidate) error { return nil }
+func (m *mockStore) ListEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) ([]*model.EntityCandidate, error) {
+	return nil, nil
+}
+func (m *mockStore) GetEntityCandidate(_ context.Context, _ int64) (*model.EntityCandidate, error) {
+	return nil, nil
+}
+func (m *mockStore) UpsertEntityCandidate(_ context.Context, _ *model.EntityCandidate) error {
+	return nil
+}
 func (m *mockStore) DeleteEntityCandidate(_ context.Context, _ int64) error { return nil }
-func (m *mockStore) UpdateEntityCandidateStatus(_ context.Context, _ int64, _ string, _ *int64, _ bool) error { return nil }
-func (m *mockStore) CountEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) (int, error) { return 0, nil }
+func (m *mockStore) UpdateEntityCandidateStatus(_ context.Context, _ int64, _ string, _ *int64, _ bool) error {
+	return nil
+}
+func (m *mockStore) CountEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) (int, error) {
+	return 0, nil
+}
 func (m *mockStore) UpsertEntityConnection(_ context.Context, _, _ int64) error { return nil }
-func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityConnection, error) { return nil, nil }
+func (m *mockStore) ListEntityConnections(_ context.Context) ([]*model.EntityConnection, error) {
+	return nil, nil
+}
 func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return nil }
 func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
 	return []*model.EntityConnection{}, nil
@@ -417,7 +434,7 @@ func (m *mockStore) GetGeocodeCache(_ context.Context, _, _ float64) (string, bo
 	return "", false, nil
 }
 func (m *mockStore) SetGeocodeCache(_ context.Context, _, _ float64, _ string) error { return nil }
-func (m *mockStore) Close() error                                                     { return nil }
+func (m *mockStore) Close() error                                                    { return nil }
 
 // --- stubPipeline ---
 
@@ -846,4 +863,3 @@ func TestManager_Flush_CancelsActiveWorkers(t *testing.T) {
 		t.Errorf("expected 0 active workers after Flush, got %d", mgr.active.Load())
 	}
 }
-

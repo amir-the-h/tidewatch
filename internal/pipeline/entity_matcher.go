@@ -26,9 +26,9 @@ func NewEntityMatcherFactory(st store.Store) Factory {
 	}
 }
 
-func (p *EntityMatcherPipeline) Name() string                  { return p.name }
-func (p *EntityMatcherPipeline) Type() inference.PipelineType  { return inference.PipelineTypeInternal }
-func (p *EntityMatcherPipeline) Close() error                  { return nil }
+func (p *EntityMatcherPipeline) Name() string                 { return p.name }
+func (p *EntityMatcherPipeline) Type() inference.PipelineType { return inference.PipelineTypeInternal }
+func (p *EntityMatcherPipeline) Close() error                 { return nil }
 
 func (p *EntityMatcherPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
 	entities, err := p.store.ListActiveTrackedEntities(ctx)

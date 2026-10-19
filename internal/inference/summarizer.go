@@ -18,9 +18,9 @@ const defaultMaxNewTokens = 64
 
 // seq2seqConfig holds the fields we read from config.json for seq2seq models.
 type seq2seqConfig struct {
-	DModel    int `json:"d_model"`    // BART / mBART hidden size
+	DModel     int `json:"d_model"`     // BART / mBART hidden size
 	HiddenSize int `json:"hidden_size"` // T5 and other architectures
-	VocabSize int `json:"vocab_size"`
+	VocabSize  int `json:"vocab_size"`
 }
 
 // genConfig holds optional values from generation_config.json.

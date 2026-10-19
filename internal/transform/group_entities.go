@@ -17,11 +17,11 @@ import "fmt"
 // Example: given entities [{label:"LOC", word:"Iran", score:0.999}, {label:"LOC", word:"Tehran", score:0.75}]
 // with default min_score 0.8, the result is {"LOC": ["Iran"]} (Tehran is filtered out).
 type GroupEntities struct {
-	source      string
-	minScore    float64
-	labelField  string
-	wordField   string
-	scoreField  string
+	source     string
+	minScore   float64
+	labelField string
+	wordField  string
+	scoreField string
 }
 
 func newGroupEntities(spec map[string]interface{}) (*GroupEntities, error) {
