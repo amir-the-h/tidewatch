@@ -12,6 +12,12 @@ updates:
     groups:
       go-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Must match the ONNX Runtime shared library (ORT_VERSION in Dockerfile, which in turn
+      # pins the CUDA base image); bump all three together by hand.
+      - dependency-name: github.com/yalue/onnxruntime_go
+      # Must match the prebuilt libtokenizers.a (TOKENIZERS_VERSION in Dockerfile and test.yml).
+      - dependency-name: github.com/daulet/tokenizers
 
   - package-ecosystem: npm
     directory: /web
@@ -22,6 +28,10 @@ updates:
     groups:
       web-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # TypeScript 7 (native compiler) has no JS API yet, which vue-tsc requires.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
