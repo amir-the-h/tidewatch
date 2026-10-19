@@ -33,6 +33,7 @@ migrations/             → Embedded SQL migration files
 models/                 → ONNX model files (gitignored)
 configs/                → Default config files
 .github/workflows/      → GitHub Actions: test.yml (gofmt, vet, go test -race), docker-publish.yml (Docker build + push to Docker Hub)
+.github/dependabot.yml  → Weekly grouped dependency updates (gomod, npm /web), monthly Actions + Docker base images (nvidia/cuda pinned by hand)
 docs/examples/          → Worked pipeline examples (geopolitical-monitoring detector/extractor flows)
 scripts/                → prepare-nominatim.sh (Geofabrik PBF download + merge; regions via GEOFABRIK_REGIONS)
 docker-compose.gpu.yml  → Optional NVIDIA GPU override (ONNX falls back to CPU without it)
@@ -40,7 +41,7 @@ docker-compose.gpu.yml  → Optional NVIDIA GPU override (ONNX falls back to CPU
 
 ## Tech Stack
 
-- **Go 1.25.5** — no Python anywhere
+- **Go 1.26** — no Python anywhere
 - **SQLite** (via `modernc.org/sqlite` or `mattn/go-sqlite3`) — DELETE journal mode (no WAL/SHM files; data dir lives on NFS so WAL mode is unreliable), embedded migrations
 - **Redis** — per-action lists for task queues (`tidewatch:tasks:{action_id}`, `LPush`/`BRPop`); plain list for dead-letter queue (`tidewatch:failed`, `LPush`/`BRPop`); `TotalTaskLen` and `FlushQueue` use `SCAN` + `LLen`/`DEL`; no sorted sets, no Streams, no Pub/Sub
 - **onnxruntime-go** — local ONNX model execution
@@ -51,7 +52,7 @@ docker-compose.gpu.yml  → Optional NVIDIA GPU override (ONNX falls back to CPU
 
 ## Build Requirements
 
-- Go 1.25.5+
+- Go 1.26+
 - CGO enabled (required by `daulet/tokenizers`)
 - Rust toolchain (required by `daulet/tokenizers`)
 - ONNX Runtime shared library installed on system
