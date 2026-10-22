@@ -44,7 +44,6 @@ declare module 'vue' {
     ExecutionOutput: typeof import('./src/components/tweets/ExecutionOutput.vue')['default']
     ExecutionsTab: typeof import('./src/components/tabs/ExecutionsTab.vue')['default']
     FailureSheet: typeof import('./src/components/queue/FailureSheet.vue')['default']
-    FormDrawer: typeof import('./src/components/FormDrawer.vue')['default']
     FormField: typeof import('./src/components/ui/FormField.vue')['default']
     FormSection: typeof import('./src/components/actions/FormSection.vue')['default']
     IconButton: typeof import('./src/components/ui/IconButton.vue')['default']
