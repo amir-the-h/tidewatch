@@ -1,34 +1,44 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NTabs, NTabPane } from 'naive-ui'
+import { Tabs } from '@/components/ui'
 import PageHeader from '../components/PageHeader.vue'
-import TweetsTab from '../components/tabs/TweetsTab.vue'
-import SearchTab from '../components/tabs/SearchTab.vue'
+import TweetsTab from '../components/tweets/TweetsTab.vue'
+import SearchTab from '../components/tweets/SearchTab.vue'
+import { useAuthStore } from '../stores/auth'
 
 const route  = useRoute()
 const router = useRouter()
+const auth   = useAuthStore()
 
-const activeTab = ref((route.query.tab as string) || 'tweets')
-function switchTab(tab: string) {
-  activeTab.value = tab
-  router.replace({ query: { tab } })
+// Search runs and lists backfill jobs through admin-only endpoints.
+const tabs = computed(() => [
+  { value: 'tweets', label: 'Tweets' },
+  ...(auth.isAdmin ? [{ value: 'search', label: 'Search' }] : []),
+])
+
+function validTab(tab: unknown): string {
+  return typeof tab === 'string' && tabs.value.some(t => t.value === tab) ? tab : 'tweets'
 }
 
-// Keep activeTab in sync if URL changes externally
+const activeTab = ref(validTab(route.query.tab))
+watch(activeTab, (tab) => {
+  if (route.query.tab !== tab) router.replace({ query: { tab } })
+})
 watch(() => route.query.tab, (tab) => {
-  if (tab && tab !== activeTab.value) activeTab.value = tab as string
+  if (tab && tab !== activeTab.value) activeTab.value = validTab(tab)
 })
 </script>
 
 <template>
-  <PageHeader title="Tweets" />
-  <n-tabs :value="activeTab" type="line" animated style="margin-top: -8px;" @update:value="switchTab">
-    <n-tab-pane name="tweets" tab="Tweets">
-      <TweetsTab />
-    </n-tab-pane>
-    <n-tab-pane name="search" tab="Search">
-      <SearchTab />
-    </n-tab-pane>
-  </n-tabs>
+  <div class="flex flex-col gap-2">
+    <PageHeader
+      title="Tweets"
+      description="Tweets the stream and searches matched, with what each action produced for them."
+    />
+    <Tabs v-model="activeTab" :items="tabs">
+      <template #tweets><TweetsTab /></template>
+      <template #search><SearchTab @view-tweets="activeTab = 'tweets'" /></template>
+    </Tabs>
+  </div>
 </template>
