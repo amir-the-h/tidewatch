@@ -119,7 +119,7 @@ func (s *sqliteStore) GetSignal(ctx context.Context, id int64) (*model.Signal, e
 	// Populate XRules via join
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT r.id, r.name, r.expression, r.compiled_value, r.x_rule_id, r.active, r.local, r.created_at, r.updated_at
-		 FROM rules r
+		 FROM x_rules r
 		 JOIN x_rule_matches m ON m.rule_id = r.id
 		 WHERE m.signal_id = ?`, id)
 	if err != nil {
@@ -128,7 +128,7 @@ func (s *sqliteStore) GetSignal(ctx context.Context, id int64) (*model.Signal, e
 	defer rows.Close()
 
 	for rows.Next() {
-		rule, err := scanRule(rows)
+		rule, err := scanXRule(rows)
 		if err != nil {
 			return nil, fmt.Errorf("store: get signal: scan rule: %w", err)
 		}
@@ -137,7 +137,11 @@ func (s *sqliteStore) GetSignal(ctx context.Context, id int64) (*model.Signal, e
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: get signal: rules rows: %w", err)
 	}
+	rows.Close()
 
+	if sig.Sources, err = s.ListSignalSources(ctx, id); err != nil {
+		return nil, fmt.Errorf("store: get signal: %w", err)
+	}
 	return sig, nil
 }
 
@@ -147,6 +151,18 @@ func signalFilterSQL(filter SignalFilter) (joins string, where []string, args []
 		joins += ` JOIN x_rule_matches m ON m.signal_id = s.id`
 		where = append(where, "m.rule_id = ?")
 		args = append(args, *filter.RuleID)
+	}
+	if filter.SourceID != nil || filter.SourceType != "" {
+		joins += ` JOIN signal_sources ss ON ss.signal_id = s.id`
+		if filter.SourceID != nil {
+			where = append(where, "ss.source_id = ?")
+			args = append(args, *filter.SourceID)
+		}
+		if filter.SourceType != "" {
+			joins += ` JOIN sources src ON src.id = ss.source_id`
+			where = append(where, "src.type = ?")
+			args = append(args, filter.SourceType)
+		}
 	}
 	if filter.EntityID != nil {
 		joins += ` JOIN entity_tracks et ON et.signal_id = s.id`
@@ -245,7 +261,7 @@ func (s *sqliteStore) DeleteNoiseSignals(ctx context.Context) (int64, error) {
 		DELETE FROM signals
 		WHERE ext_ns = 'x' AND NOT EXISTS (
 			SELECT 1 FROM x_rule_matches m
-			JOIN rules r ON r.id = m.rule_id
+			JOIN x_rules r ON r.id = m.rule_id
 			WHERE m.signal_id = signals.id AND r.local = FALSE
 		)`)
 	if err != nil {
@@ -264,11 +280,11 @@ func int64Placeholders(ids []int64) (string, []any) {
 	return strings.TrimSuffix(strings.Repeat("?,", len(ids)), ","), args
 }
 
-// ── Sources ───────────────────────────────────────────────────────────────────
+// ── X terms (rule atoms) ─────────────────────────────────────────────────────
 
-func (s *sqliteStore) SaveSource(ctx context.Context, source *model.Source) error {
+func (s *sqliteStore) SaveXTerm(ctx context.Context, source *model.XTerm) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO sources (name, type, class, operator, value, active, created_at, updated_at)
+		`INSERT INTO x_terms (name, type, class, operator, value, active, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		source.Name,
 		string(source.Type),
@@ -290,10 +306,10 @@ func (s *sqliteStore) SaveSource(ctx context.Context, source *model.Source) erro
 	return nil
 }
 
-func (s *sqliteStore) GetSource(ctx context.Context, id int64) (*model.Source, error) {
+func (s *sqliteStore) GetXTerm(ctx context.Context, id int64) (*model.XTerm, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, type, class, operator, value, active, created_at, updated_at FROM sources WHERE id = ?`, id)
-	src, err := scanSource(row)
+		`SELECT id, name, type, class, operator, value, active, created_at, updated_at FROM x_terms WHERE id = ?`, id)
+	src, err := scanXTerm(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("store: get source: not found: %w", err)
@@ -303,8 +319,8 @@ func (s *sqliteStore) GetSource(ctx context.Context, id int64) (*model.Source, e
 	return src, nil
 }
 
-func (s *sqliteStore) ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error) {
-	query := `SELECT id, name, type, class, operator, value, active, created_at, updated_at FROM sources`
+func (s *sqliteStore) ListXTerms(ctx context.Context, filter XTermFilter) ([]*model.XTerm, error) {
+	query := `SELECT id, name, type, class, operator, value, active, created_at, updated_at FROM x_terms`
 	var args []any
 	var where []string
 
@@ -331,9 +347,9 @@ func (s *sqliteStore) ListSources(ctx context.Context, filter SourceFilter) ([]*
 	}
 	defer rows.Close()
 
-	sources := make([]*model.Source, 0)
+	sources := make([]*model.XTerm, 0)
 	for rows.Next() {
-		src, err := scanSource(rows)
+		src, err := scanXTerm(rows)
 		if err != nil {
 			return nil, fmt.Errorf("store: list sources: scan: %w", err)
 		}
@@ -342,10 +358,10 @@ func (s *sqliteStore) ListSources(ctx context.Context, filter SourceFilter) ([]*
 	return sources, rows.Err()
 }
 
-func (s *sqliteStore) UpdateSource(ctx context.Context, source *model.Source) error {
+func (s *sqliteStore) UpdateXTerm(ctx context.Context, source *model.XTerm) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sources SET name = ?, type = ?, class = ?, operator = ?, value = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE x_terms SET name = ?, type = ?, class = ?, operator = ?, value = ?, updated_at = ? WHERE id = ?`,
 		source.Name,
 		string(source.Type),
 		string(source.Class),
@@ -361,17 +377,17 @@ func (s *sqliteStore) UpdateSource(ctx context.Context, source *model.Source) er
 	return nil
 }
 
-func (s *sqliteStore) DeleteSource(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sources WHERE id = ?`, id)
+func (s *sqliteStore) DeleteXTerm(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM x_terms WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("store: delete source: %w", err)
 	}
 	return nil
 }
 
-func (s *sqliteStore) SetSourceActive(ctx context.Context, id int64, active bool) error {
+func (s *sqliteStore) SetXTermActive(ctx context.Context, id int64, active bool) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sources SET active = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE x_terms SET active = ?, updated_at = ? WHERE id = ?`,
 		boolToInt(active), time.Now().UTC().Format(time.RFC3339), id)
 	if err != nil {
 		return fmt.Errorf("store: set source active: %w", err)
@@ -382,7 +398,7 @@ func (s *sqliteStore) SetSourceActive(ctx context.Context, id int64, active bool
 func (s *sqliteStore) ActiveRuleRefCount(ctx context.Context, sourceID int64) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM rules WHERE active = 1 AND expression LIKE ?`,
+		`SELECT COUNT(*) FROM x_rules WHERE active = 1 AND expression LIKE ?`,
 		fmt.Sprintf(`%%"src":%d}%%`, sourceID),
 	).Scan(&count)
 	if err != nil {
@@ -394,7 +410,7 @@ func (s *sqliteStore) ActiveRuleRefCount(ctx context.Context, sourceID int64) (i
 func (s *sqliteStore) RuleRefCount(ctx context.Context, sourceID int64) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM rules WHERE expression LIKE ?`,
+		`SELECT COUNT(*) FROM x_rules WHERE expression LIKE ?`,
 		fmt.Sprintf(`%%"src":%d}%%`, sourceID),
 	).Scan(&count)
 	if err != nil {
@@ -405,9 +421,9 @@ func (s *sqliteStore) RuleRefCount(ctx context.Context, sourceID int64) (int, er
 
 // ── Rules ─────────────────────────────────────────────────────────────────────
 
-func (s *sqliteStore) SaveRule(ctx context.Context, rule *model.Rule) error {
+func (s *sqliteStore) SaveXRule(ctx context.Context, rule *model.XRule) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO rules (name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at)
+		`INSERT INTO x_rules (name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		rule.Name,
 		string(rule.Expression),
@@ -429,10 +445,10 @@ func (s *sqliteStore) SaveRule(ctx context.Context, rule *model.Rule) error {
 	return nil
 }
 
-func (s *sqliteStore) GetRule(ctx context.Context, id int64) (*model.Rule, error) {
+func (s *sqliteStore) GetXRule(ctx context.Context, id int64) (*model.XRule, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM rules WHERE id = ?`, id)
-	rule, err := scanRule(row)
+		`SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM x_rules WHERE id = ?`, id)
+	rule, err := scanXRule(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("store: get rule: not found: %w", err)
@@ -442,10 +458,10 @@ func (s *sqliteStore) GetRule(ctx context.Context, id int64) (*model.Rule, error
 	return rule, nil
 }
 
-func (s *sqliteStore) GetRuleByXRuleID(ctx context.Context, xRuleID string) (*model.Rule, error) {
+func (s *sqliteStore) GetXRuleByXRuleID(ctx context.Context, xRuleID string) (*model.XRule, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM rules WHERE x_rule_id = ?`, xRuleID)
-	rule, err := scanRule(row)
+		`SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM x_rules WHERE x_rule_id = ?`, xRuleID)
+	rule, err := scanXRule(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("store: get rule by x_rule_id: not found: %w", err)
@@ -455,8 +471,8 @@ func (s *sqliteStore) GetRuleByXRuleID(ctx context.Context, xRuleID string) (*mo
 	return rule, nil
 }
 
-func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*model.Rule, error) {
-	query := `SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM rules`
+func (s *sqliteStore) ListXRules(ctx context.Context, filter XRuleFilter) ([]*model.XRule, error) {
+	query := `SELECT id, name, expression, compiled_value, x_rule_id, active, local, created_at, updated_at FROM x_rules`
 	var args []any
 	var where []string
 	if filter.Active != nil {
@@ -478,9 +494,9 @@ func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*mode
 	}
 	defer rows.Close()
 
-	rules := make([]*model.Rule, 0)
+	rules := make([]*model.XRule, 0)
 	for rows.Next() {
-		rule, err := scanRule(rows)
+		rule, err := scanXRule(rows)
 		if err != nil {
 			return nil, fmt.Errorf("store: list rules: scan: %w", err)
 		}
@@ -489,9 +505,9 @@ func (s *sqliteStore) ListRules(ctx context.Context, filter RuleFilter) ([]*mode
 	return rules, rows.Err()
 }
 
-func (s *sqliteStore) UpdateRule(ctx context.Context, rule *model.Rule) error {
+func (s *sqliteStore) UpdateXRule(ctx context.Context, rule *model.XRule) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE rules SET name = ?, expression = ?, compiled_value = ?, x_rule_id = ?, active = ?, local = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE x_rules SET name = ?, expression = ?, compiled_value = ?, x_rule_id = ?, active = ?, local = ?, updated_at = ? WHERE id = ?`,
 		rule.Name,
 		string(rule.Expression),
 		rule.CompiledValue,
@@ -507,17 +523,17 @@ func (s *sqliteStore) UpdateRule(ctx context.Context, rule *model.Rule) error {
 	return nil
 }
 
-func (s *sqliteStore) DeleteRule(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM rules WHERE id = ?`, id)
+func (s *sqliteStore) DeleteXRule(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM x_rules WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("store: delete rule: %w", err)
 	}
 	return nil
 }
 
-func (s *sqliteStore) SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error {
+func (s *sqliteStore) SetXRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE rules SET active = ?, x_rule_id = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE x_rules SET active = ?, x_rule_id = ?, updated_at = ? WHERE id = ?`,
 		boolToInt(active), xRuleID, time.Now().UTC().Format(time.RFC3339), id)
 	if err != nil {
 		return fmt.Errorf("store: set rule active: %w", err)
@@ -525,12 +541,12 @@ func (s *sqliteStore) SetRuleActive(ctx context.Context, id int64, active bool, 
 	return nil
 }
 
-func (s *sqliteStore) ListRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.Rule, error) {
-	all, err := s.ListRules(ctx, RuleFilter{})
+func (s *sqliteStore) ListXRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.XRule, error) {
+	all, err := s.ListXRules(ctx, XRuleFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("store: list rules depending on %d: %w", ruleID, err)
 	}
-	var out []*model.Rule
+	var out []*model.XRule
 	for _, r := range all {
 		if r.ID == ruleID {
 			continue
@@ -644,16 +660,16 @@ func scanSignal(s scanner) (*model.Signal, error) {
 	return &sig, nil
 }
 
-func scanSource(s scanner) (*model.Source, error) {
-	var src model.Source
+func scanXTerm(s scanner) (*model.XTerm, error) {
+	var src model.XTerm
 	var rawType, rawClass string
 	var active int
 	var createdAt, updatedAt string
 	if err := s.Scan(&src.ID, &src.Name, &rawType, &rawClass, &src.Operator, &src.Value, &active, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
-	src.Type = model.SourceType(rawType)
-	src.Class = model.SourceClass(rawClass)
+	src.Type = model.XTermType(rawType)
+	src.Class = model.XTermClass(rawClass)
 	src.Active = active != 0
 	var err error
 	src.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
@@ -667,8 +683,8 @@ func scanSource(s scanner) (*model.Source, error) {
 	return &src, nil
 }
 
-func scanRule(s scanner) (*model.Rule, error) {
-	var r model.Rule
+func scanXRule(s scanner) (*model.XRule, error) {
+	var r model.XRule
 	var expression string
 	var active, local int
 	var createdAt, updatedAt string
@@ -1863,7 +1879,7 @@ func (s *sqliteStore) BulkDeleteEntityCandidates(ctx context.Context, f BulkDele
 	return n, nil
 }
 
-func (s *sqliteStore) BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error) {
+func (s *sqliteStore) BulkDeleteXRules(ctx context.Context, f BulkDeleteXRulesFilter) (int64, error) {
 	var clauses []string
 	var args []any
 
@@ -1883,7 +1899,7 @@ func (s *sqliteStore) BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilt
 		args = append(args, boolToInt(*f.Local))
 	}
 
-	query := "DELETE FROM rules"
+	query := "DELETE FROM x_rules"
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
@@ -1896,7 +1912,7 @@ func (s *sqliteStore) BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilt
 	return n, nil
 }
 
-func (s *sqliteStore) BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error) {
+func (s *sqliteStore) BulkDeleteXTerms(ctx context.Context, f BulkDeleteXTermsFilter) (int64, error) {
 	var clauses []string
 	var args []any
 
@@ -1916,7 +1932,7 @@ func (s *sqliteStore) BulkDeleteSources(ctx context.Context, f BulkDeleteSources
 		args = append(args, f.Type)
 	}
 
-	query := "DELETE FROM sources"
+	query := "DELETE FROM x_terms"
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}

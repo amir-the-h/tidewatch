@@ -19,15 +19,15 @@ func executeCommand(args ...string) (string, string, error) {
 	return outBuf.String(), errBuf.String(), err
 }
 
-// TestSourceList tests that `source list` makes GET /api/sources and prints results.
-func TestSourceList(t *testing.T) {
+// TestXTermList tests that `x term list` makes GET /api/x/terms and prints results.
+func TestXTermList(t *testing.T) {
 	sources := []map[string]interface{}{
 		{"id": 1, "type": "account", "value": "@handle", "created_at": "2026-01-01T00:00:00Z"},
 		{"id": 2, "type": "keyword", "value": "iran", "created_at": "2026-01-02T00:00:00Z"},
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/sources" {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/x/terms" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -37,7 +37,7 @@ func TestSourceList(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, _, err := executeCommand("--base-url", srv.URL, "source", "list")
+	out, _, err := executeCommand("--base-url", srv.URL, "x", "term", "list")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -56,12 +56,12 @@ func TestSourceList(t *testing.T) {
 	}
 }
 
-// TestSourceAdd tests that `source add --type account --value @handle` makes POST /api/sources with correct body.
-func TestSourceAdd(t *testing.T) {
+// TestXTermAdd tests that `x term add --type account --value @handle` makes POST /api/x/terms with correct body.
+func TestXTermAdd(t *testing.T) {
 	var received map[string]string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/sources" {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/x/terms" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -82,7 +82,7 @@ func TestSourceAdd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, _, err := executeCommand("--base-url", srv.URL, "source", "add", "--type", "account", "--value", "@handle")
+	out, _, err := executeCommand("--base-url", srv.URL, "x", "term", "add", "--type", "account", "--value", "@handle")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestNon200Response(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, errOut, err := executeCommand("--base-url", srv.URL, "source", "list")
+	_, errOut, err := executeCommand("--base-url", srv.URL, "x", "term", "list")
 	if err == nil {
 		t.Error("expected error for non-200 response")
 	}

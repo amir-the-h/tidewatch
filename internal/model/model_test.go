@@ -7,12 +7,12 @@ import (
 )
 
 // Test 1: Verify SourceType constants have correct string values.
-func TestSourceTypeConstants(t *testing.T) {
-	if SourceTypeAccount != "account" {
-		t.Errorf("SourceTypeAccount = %q, want %q", SourceTypeAccount, "account")
+func TestXTermTypeConstants(t *testing.T) {
+	if XTermTypeAccount != "account" {
+		t.Errorf("XTermTypeAccount = %q, want %q", XTermTypeAccount, "account")
 	}
-	if SourceTypeKeyword != "keyword" {
-		t.Errorf("SourceTypeKeyword = %q, want %q", SourceTypeKeyword, "keyword")
+	if XTermTypeKeyword != "keyword" {
+		t.Errorf("XTermTypeKeyword = %q, want %q", XTermTypeKeyword, "keyword")
 	}
 }
 

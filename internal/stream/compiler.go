@@ -9,10 +9,10 @@ import (
 )
 
 // SourceResolver looks up a Source by ID.
-type SourceResolver func(id int64) (*model.Source, error)
+type SourceResolver func(id int64) (*model.XTerm, error)
 
 // RuleResolver looks up a local Rule by ID.
-type RuleResolver func(id int64) (*model.Rule, error)
+type RuleResolver func(id int64) (*model.XRule, error)
 
 // RuleCompiler compiles an ExprNode tree into an X Filtered Stream rule string.
 type RuleCompiler struct{}

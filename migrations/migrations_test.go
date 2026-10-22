@@ -35,3 +35,27 @@ func TestSQLContainsAllTables(t *testing.T) {
 		}
 	}
 }
+
+func TestSourcesMigration(t *testing.T) {
+	content, err := FS.ReadFile("002_sources.sql")
+	if err != nil {
+		t.Fatalf("FS.ReadFile failed: %v", err)
+	}
+	sql := string(content)
+	for _, want := range []string{
+		"ALTER TABLE sources RENAME TO x_terms",
+		"ALTER TABLE rules RENAME TO x_rules",
+		"CREATE TABLE sources (",
+		"CREATE TABLE source_state (",
+		"CREATE TABLE source_runs (",
+		"CREATE TABLE signal_sources (",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("002_sources.sql lacks %q", want)
+		}
+	}
+	// The renames must run before the new sources table exists.
+	if strings.Index(sql, "RENAME TO x_terms") > strings.Index(sql, "CREATE TABLE sources (") {
+		t.Error("sources is created before the rule-atom table is renamed away")
+	}
+}

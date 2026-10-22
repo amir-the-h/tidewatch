@@ -287,7 +287,7 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 	// Resolve each matching X rule to its local rule ID.
 	var resolvedRuleIDs []int64
 	for _, mr := range evt.MatchingRules {
-		rule, err := c.store.GetRuleByXRuleID(ctx, mr.ID)
+		rule, err := c.store.GetXRuleByXRuleID(ctx, mr.ID)
 		if err != nil {
 			c.logger.Warn("stream: rule lookup failed",
 				"component", "stream",

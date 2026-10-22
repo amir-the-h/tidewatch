@@ -9,10 +9,33 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/source"
 	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
 // ── NotificationProviders ─────────────────────────────────────────────────────
+
+// providerSecretKeys are the credential keys masked in API responses; a PUT
+// that sends the mask back keeps the stored value.
+var providerSecretKeys = map[string][]string{
+	"pushover": {"app_token", "user_key"},
+	"telegram": {"bot_token"},
+	"discord":  {"bot_token"},
+}
+
+func maskProvider(p *model.NotificationProvider) *model.NotificationProvider {
+	cp := *p
+	cp.Config = source.MaskConfig(providerSecretKeys[p.Type], p.Config)
+	return &cp
+}
+
+func maskProviders(list []*model.NotificationProvider) []*model.NotificationProvider {
+	out := make([]*model.NotificationProvider, len(list))
+	for i, p := range list {
+		out[i] = maskProvider(p)
+	}
+	return out
+}
 
 func (s *Server) handleListNotificationProviders(w http.ResponseWriter, r *http.Request) {
 	providers, err := s.store.ListNotificationProviders(r.Context())
@@ -21,7 +44,7 @@ func (s *Server) handleListNotificationProviders(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusInternalServerError, "failed to list notification providers")
 		return
 	}
-	writeJSON(w, http.StatusOK, providers)
+	writeJSON(w, http.StatusOK, maskProviders(providers))
 }
 
 func (s *Server) handleCreateNotificationProvider(w http.ResponseWriter, r *http.Request) {
@@ -54,9 +77,9 @@ func (s *Server) handleCreateNotificationProvider(w http.ResponseWriter, r *http
 		return
 	}
 	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
-		s.broadcastEvent("notification_providers", list)
+		s.broadcastEvent("notification_providers", maskProviders(list))
 	}
-	writeJSON(w, http.StatusCreated, &p)
+	writeJSON(w, http.StatusCreated, maskProvider(&p))
 }
 
 func (s *Server) handleGetNotificationProvider(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +92,7 @@ func (s *Server) handleGetNotificationProvider(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusNotFound, "notification provider not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, maskProvider(p))
 }
 
 func (s *Server) handleUpdateNotificationProvider(w http.ResponseWriter, r *http.Request) {
@@ -82,9 +105,18 @@ func (s *Server) handleUpdateNotificationProvider(w http.ResponseWriter, r *http
 		writeError(w, http.StatusNotFound, "notification provider not found")
 		return
 	}
+	storedType, storedConfig := p.Type, p.Config
 	if err := json.NewDecoder(r.Body).Decode(p); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	if p.Type == storedType {
+		merged, err := source.MergeSecrets(providerSecretKeys[p.Type], p.Config, storedConfig)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		p.Config = merged
 	}
 	if p.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
@@ -102,9 +134,9 @@ func (s *Server) handleUpdateNotificationProvider(w http.ResponseWriter, r *http
 	}
 	s.reloadCache(r.Context())
 	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
-		s.broadcastEvent("notification_providers", list)
+		s.broadcastEvent("notification_providers", maskProviders(list))
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeJSON(w, http.StatusOK, maskProvider(p))
 }
 
 func (s *Server) handleDeleteNotificationProvider(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +150,7 @@ func (s *Server) handleDeleteNotificationProvider(w http.ResponseWriter, r *http
 		return
 	}
 	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
-		s.broadcastEvent("notification_providers", list)
+		s.broadcastEvent("notification_providers", maskProviders(list))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -135,7 +167,7 @@ func (s *Server) handleActivateNotificationProvider(w http.ResponseWriter, r *ht
 	}
 	s.reloadCache(r.Context())
 	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
-		s.broadcastEvent("notification_providers", list)
+		s.broadcastEvent("notification_providers", maskProviders(list))
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "activated"})
 }
@@ -152,7 +184,7 @@ func (s *Server) handleDeactivateNotificationProvider(w http.ResponseWriter, r *
 	}
 	s.reloadCache(r.Context())
 	if list, err := s.store.ListNotificationProviders(r.Context()); err == nil {
-		s.broadcastEvent("notification_providers", list)
+		s.broadcastEvent("notification_providers", maskProviders(list))
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deactivated"})
 }

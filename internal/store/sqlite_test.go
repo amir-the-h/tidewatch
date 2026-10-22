@@ -54,11 +54,11 @@ func mustSaveSignal(t *testing.T, s Store, externalID string, publishedAt time.T
 	return sig
 }
 
-func sampleSource() *model.Source {
-	return &model.Source{
+func sampleSource() *model.XTerm {
+	return &model.XTerm{
 		Name:      "Iran keyword",
-		Type:      model.SourceTypeKeyword,
-		Class:     model.SourceClassAtom,
+		Type:      model.XTermTypeKeyword,
+		Class:     model.XTermClassAtom,
 		Operator:  "",
 		Value:     "Iran",
 		Active:    true,
@@ -67,8 +67,8 @@ func sampleSource() *model.Source {
 	}
 }
 
-func sampleRule() *model.Rule {
-	return &model.Rule{
+func sampleRule() *model.XRule {
+	return &model.XRule{
 		Name:          "iran-rule",
 		Expression:    json.RawMessage(`{"src":1}`),
 		CompiledValue: "Iran",
@@ -200,8 +200,8 @@ func TestDeleteSignals_Cascades(t *testing.T) {
 		t.Fatalf("SaveEntityTrack: %v", err)
 	}
 	rule := sampleRule()
-	if err := s.SaveRule(ctx, rule); err != nil {
-		t.Fatalf("SaveRule: %v", err)
+	if err := s.SaveXRule(ctx, rule); err != nil {
+		t.Fatalf("SaveXRule: %v", err)
 	}
 	if err := s.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: rule.ID}); err != nil {
 		t.Fatalf("SaveXRuleMatch: %v", err)
@@ -225,28 +225,28 @@ func TestDeleteSignals_Cascades(t *testing.T) {
 }
 
 // 3. TestSaveSource_ListSources_ActiveFilter
-func TestSaveSource_ListSources_ActiveFilter(t *testing.T) {
+func TestSaveXTerm_ListXTerms_ActiveFilter(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	active := sampleSource()
 	active.Active = true
-	if err := s.SaveSource(ctx, active); err != nil {
-		t.Fatalf("SaveSource active: %v", err)
+	if err := s.SaveXTerm(ctx, active); err != nil {
+		t.Fatalf("SaveXTerm active: %v", err)
 	}
 
 	inactive := sampleSource()
 	inactive.Value = "nuclear"
 	inactive.Name = "nuclear keyword"
 	inactive.Active = false
-	if err := s.SaveSource(ctx, inactive); err != nil {
-		t.Fatalf("SaveSource inactive: %v", err)
+	if err := s.SaveXTerm(ctx, inactive); err != nil {
+		t.Fatalf("SaveXTerm inactive: %v", err)
 	}
 
 	trueVal := true
-	sources, err := s.ListSources(ctx, SourceFilter{Active: &trueVal})
+	sources, err := s.ListXTerms(ctx, XTermFilter{Active: &trueVal})
 	if err != nil {
-		t.Fatalf("ListSources: %v", err)
+		t.Fatalf("ListXTerms: %v", err)
 	}
 	if len(sources) != 1 {
 		t.Errorf("expected 1 active source, got %d", len(sources))
@@ -257,66 +257,66 @@ func TestSaveSource_ListSources_ActiveFilter(t *testing.T) {
 }
 
 // 4. TestDeleteSource
-func TestDeleteSource(t *testing.T) {
+func TestDeleteXTerm(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	src := sampleSource()
-	if err := s.SaveSource(ctx, src); err != nil {
-		t.Fatalf("SaveSource: %v", err)
+	if err := s.SaveXTerm(ctx, src); err != nil {
+		t.Fatalf("SaveXTerm: %v", err)
 	}
 
-	if err := s.DeleteSource(ctx, src.ID); err != nil {
-		t.Fatalf("DeleteSource: %v", err)
+	if err := s.DeleteXTerm(ctx, src.ID); err != nil {
+		t.Fatalf("DeleteXTerm: %v", err)
 	}
 
-	got, err := s.GetSource(ctx, src.ID)
+	got, err := s.GetXTerm(ctx, src.ID)
 	if err == nil && got != nil {
 		t.Error("expected error or nil after deleting source, got non-nil source")
 	}
 }
 
 // 5. TestSaveAndGetSource — new fields
-func TestSaveAndGetSource(t *testing.T) {
+func TestSaveAndGetXTerm(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	src := &model.Source{
+	src := &model.XTerm{
 		Name:      "BBC Persian",
-		Type:      model.SourceTypeAccount,
-		Class:     model.SourceClassAtom,
+		Type:      model.XTermTypeAccount,
+		Class:     model.XTermClassAtom,
 		Operator:  "from:",
 		Value:     "BBCPersian",
 		Active:    true,
 		CreatedAt: time.Now().UTC().Truncate(time.Second),
 		UpdatedAt: time.Now().UTC().Truncate(time.Second),
 	}
-	if err := s.SaveSource(ctx, src); err != nil {
-		t.Fatalf("SaveSource: %v", err)
+	if err := s.SaveXTerm(ctx, src); err != nil {
+		t.Fatalf("SaveXTerm: %v", err)
 	}
 	if src.ID == 0 {
 		t.Fatal("expected non-zero ID after save")
 	}
-	got, err := s.GetSource(ctx, src.ID)
+	got, err := s.GetXTerm(ctx, src.ID)
 	if err != nil {
-		t.Fatalf("GetSource: %v", err)
+		t.Fatalf("GetXTerm: %v", err)
 	}
-	if got.Name != "BBC Persian" || got.Operator != "from:" || got.Class != model.SourceClassAtom {
+	if got.Name != "BBC Persian" || got.Operator != "from:" || got.Class != model.XTermClassAtom {
 		t.Errorf("unexpected source: %+v", got)
 	}
 }
 
 // 6. TestSetSourceActive
-func TestSetSourceActive(t *testing.T) {
+func TestSetXTermActive(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	src := sampleSource()
-	_ = s.SaveSource(ctx, src)
-	if err := s.SetSourceActive(ctx, src.ID, false); err != nil {
-		t.Fatalf("SetSourceActive: %v", err)
+	_ = s.SaveXTerm(ctx, src)
+	if err := s.SetXTermActive(ctx, src.ID, false); err != nil {
+		t.Fatalf("SetXTermActive: %v", err)
 	}
-	got, _ := s.GetSource(ctx, src.ID)
+	got, _ := s.GetXTerm(ctx, src.ID)
 	if got.Active {
 		t.Error("expected Active=false")
 	}
@@ -328,7 +328,7 @@ func TestActiveRuleRefCount(t *testing.T) {
 	s := newTestStore(t)
 
 	src := sampleSource()
-	_ = s.SaveSource(ctx, src)
+	_ = s.SaveXTerm(ctx, src)
 	n, err := s.ActiveRuleRefCount(ctx, src.ID)
 	if err != nil {
 		t.Fatalf("ActiveRuleRefCount: %v", err)
@@ -339,20 +339,20 @@ func TestActiveRuleRefCount(t *testing.T) {
 }
 
 // 8. TestSaveAndGetRule
-func TestSaveAndGetRule(t *testing.T) {
+func TestSaveAndGetXRule(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	rule := sampleRule()
-	if err := s.SaveRule(ctx, rule); err != nil {
-		t.Fatalf("SaveRule: %v", err)
+	if err := s.SaveXRule(ctx, rule); err != nil {
+		t.Fatalf("SaveXRule: %v", err)
 	}
 	if rule.ID == 0 {
 		t.Fatal("expected non-zero ID after save")
 	}
-	got, err := s.GetRule(ctx, rule.ID)
+	got, err := s.GetXRule(ctx, rule.ID)
 	if err != nil {
-		t.Fatalf("GetRule: %v", err)
+		t.Fatalf("GetXRule: %v", err)
 	}
 	if got.Name != "iran-rule" {
 		t.Errorf("Name: got %q, want %q", got.Name, "iran-rule")
@@ -363,19 +363,19 @@ func TestSaveAndGetRule(t *testing.T) {
 }
 
 // 9. TestGetRuleByXRuleID
-func TestGetRuleByXRuleID(t *testing.T) {
+func TestGetXRuleByXRuleID(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
 	rule := sampleRule()
 	rule.XRuleID = "x-rule-123"
-	if err := s.SaveRule(ctx, rule); err != nil {
-		t.Fatalf("SaveRule: %v", err)
+	if err := s.SaveXRule(ctx, rule); err != nil {
+		t.Fatalf("SaveXRule: %v", err)
 	}
 
-	got, err := s.GetRuleByXRuleID(ctx, "x-rule-123")
+	got, err := s.GetXRuleByXRuleID(ctx, "x-rule-123")
 	if err != nil {
-		t.Fatalf("GetRuleByXRuleID: %v", err)
+		t.Fatalf("GetXRuleByXRuleID: %v", err)
 	}
 	if got.ID != rule.ID {
 		t.Errorf("ID: got %d, want %d", got.ID, rule.ID)
@@ -391,7 +391,7 @@ func TestXRuleMatchCount(t *testing.T) {
 	_, _ = s.SaveSignal(ctx, sig)
 
 	rule := sampleRule()
-	_ = s.SaveRule(ctx, rule)
+	_ = s.SaveXRule(ctx, rule)
 
 	if err := s.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: rule.ID}); err != nil {
 		t.Fatalf("SaveXRuleMatch: %v", err)
@@ -415,7 +415,7 @@ func TestSaveXRuleMatch_GetSignal_PopulatesRules(t *testing.T) {
 	_, _ = s.SaveSignal(ctx, sig)
 
 	rule := sampleRule()
-	_ = s.SaveRule(ctx, rule)
+	_ = s.SaveXRule(ctx, rule)
 
 	if err := s.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: rule.ID}); err != nil {
 		t.Fatalf("SaveXRuleMatch: %v", err)
@@ -1081,137 +1081,137 @@ func TestBulkDeleteEntityCandidates_NoMatch(t *testing.T) {
 	}
 }
 
-// ── BulkDeleteRules ──────────────────────────────────────────────────────────
+// ── BulkDeleteXRules ──────────────────────────────────────────────────────────
 
-func TestBulkDeleteRules_All(t *testing.T) {
+func TestBulkDeleteXRules_All(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	r1 := sampleRule()
 	r1.Name = "rule-1"
-	if err := s.SaveRule(ctx, r1); err != nil {
-		t.Fatalf("SaveRule: %v", err)
+	if err := s.SaveXRule(ctx, r1); err != nil {
+		t.Fatalf("SaveXRule: %v", err)
 	}
 	r2 := sampleRule()
 	r2.Name = "rule-2"
-	if err := s.SaveRule(ctx, r2); err != nil {
-		t.Fatalf("SaveRule: %v", err)
+	if err := s.SaveXRule(ctx, r2); err != nil {
+		t.Fatalf("SaveXRule: %v", err)
 	}
 
-	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{})
+	n, err := s.BulkDeleteXRules(ctx, BulkDeleteXRulesFilter{})
 	if err != nil {
-		t.Fatalf("BulkDeleteRules: %v", err)
+		t.Fatalf("BulkDeleteXRules: %v", err)
 	}
 	if n != 2 {
 		t.Errorf("expected 2 deleted, got %d", n)
 	}
-	rules, _ := s.ListRules(ctx, RuleFilter{})
+	rules, _ := s.ListXRules(ctx, XRuleFilter{})
 	if len(rules) != 0 {
 		t.Errorf("expected 0 rules remaining, got %d", len(rules))
 	}
 }
 
-func TestBulkDeleteRules_ByIDs(t *testing.T) {
+func TestBulkDeleteXRules_ByIDs(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	r1 := sampleRule()
 	r1.Name = "rule-1"
-	if err := s.SaveRule(ctx, r1); err != nil {
-		t.Fatalf("SaveRule r1: %v", err)
+	if err := s.SaveXRule(ctx, r1); err != nil {
+		t.Fatalf("SaveXRule r1: %v", err)
 	}
 	r2 := sampleRule()
 	r2.Name = "rule-2"
-	if err := s.SaveRule(ctx, r2); err != nil {
-		t.Fatalf("SaveRule r2: %v", err)
+	if err := s.SaveXRule(ctx, r2); err != nil {
+		t.Fatalf("SaveXRule r2: %v", err)
 	}
 
-	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{IDs: []int64{r1.ID}})
+	n, err := s.BulkDeleteXRules(ctx, BulkDeleteXRulesFilter{IDs: []int64{r1.ID}})
 	if err != nil {
-		t.Fatalf("BulkDeleteRules: %v", err)
+		t.Fatalf("BulkDeleteXRules: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("expected 1 deleted, got %d", n)
 	}
-	rules, _ := s.ListRules(ctx, RuleFilter{})
+	rules, _ := s.ListXRules(ctx, XRuleFilter{})
 	if len(rules) != 1 || rules[0].ID != r2.ID {
 		t.Errorf("expected only r2 remaining")
 	}
 }
 
-func TestBulkDeleteRules_ByLocal(t *testing.T) {
+func TestBulkDeleteXRules_ByLocal(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	r1 := sampleRule()
 	r1.Name = "local-rule"
 	r1.Local = true
-	_ = s.SaveRule(ctx, r1)
+	_ = s.SaveXRule(ctx, r1)
 	r2 := sampleRule()
 	r2.Name = "remote-rule"
 	r2.Local = false
-	_ = s.SaveRule(ctx, r2)
+	_ = s.SaveXRule(ctx, r2)
 
 	localTrue := true
-	n, err := s.BulkDeleteRules(ctx, BulkDeleteRulesFilter{Local: &localTrue})
+	n, err := s.BulkDeleteXRules(ctx, BulkDeleteXRulesFilter{Local: &localTrue})
 	if err != nil {
-		t.Fatalf("BulkDeleteRules: %v", err)
+		t.Fatalf("BulkDeleteXRules: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("expected 1 deleted, got %d", n)
 	}
-	rules, _ := s.ListRules(ctx, RuleFilter{})
+	rules, _ := s.ListXRules(ctx, XRuleFilter{})
 	if len(rules) != 1 || rules[0].ID != r2.ID {
 		t.Errorf("expected only remote rule remaining")
 	}
 }
 
-// ── BulkDeleteSources ────────────────────────────────────────────────────────
+// ── BulkDeleteXTerms ────────────────────────────────────────────────────────
 
-func TestBulkDeleteSources_All(t *testing.T) {
+func TestBulkDeleteXTerms_All(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	src1 := sampleSource()
 	src1.Name = "src-1"
-	_ = s.SaveSource(ctx, src1)
+	_ = s.SaveXTerm(ctx, src1)
 	src2 := sampleSource()
 	src2.Name = "src-2"
-	_ = s.SaveSource(ctx, src2)
+	_ = s.SaveXTerm(ctx, src2)
 
-	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{})
+	n, err := s.BulkDeleteXTerms(ctx, BulkDeleteXTermsFilter{})
 	if err != nil {
-		t.Fatalf("BulkDeleteSources: %v", err)
+		t.Fatalf("BulkDeleteXTerms: %v", err)
 	}
 	if n != 2 {
 		t.Errorf("expected 2 deleted, got %d", n)
 	}
-	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	srcs, _ := s.ListXTerms(ctx, XTermFilter{})
 	if len(srcs) != 0 {
 		t.Errorf("expected 0 sources remaining, got %d", len(srcs))
 	}
 }
 
-func TestBulkDeleteSources_ByType(t *testing.T) {
+func TestBulkDeleteXTerms_ByType(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	src1 := sampleSource()
 	src1.Name = "kw-src"
-	src1.Type = model.SourceTypeKeyword
-	if err := s.SaveSource(ctx, src1); err != nil {
-		t.Fatalf("SaveSource src1: %v", err)
+	src1.Type = model.XTermTypeKeyword
+	if err := s.SaveXTerm(ctx, src1); err != nil {
+		t.Fatalf("SaveXTerm src1: %v", err)
 	}
 	src2 := sampleSource()
 	src2.Name = "ph-src"
-	src2.Type = model.SourceTypePhrase
-	if err := s.SaveSource(ctx, src2); err != nil {
-		t.Fatalf("SaveSource src2: %v", err)
+	src2.Type = model.XTermTypePhrase
+	if err := s.SaveXTerm(ctx, src2); err != nil {
+		t.Fatalf("SaveXTerm src2: %v", err)
 	}
 
-	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{Type: model.SourceTypeKeyword})
+	n, err := s.BulkDeleteXTerms(ctx, BulkDeleteXTermsFilter{Type: model.XTermTypeKeyword})
 	if err != nil {
-		t.Fatalf("BulkDeleteSources: %v", err)
+		t.Fatalf("BulkDeleteXTerms: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("expected 1 deleted, got %d", n)
 	}
-	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	srcs, _ := s.ListXTerms(ctx, XTermFilter{})
 	if len(srcs) != 1 || srcs[0].ID != src2.ID {
 		t.Errorf("expected only phrase source remaining")
 	}
@@ -1258,28 +1258,28 @@ func TestBulkDeleteTrackedEntities_ByType(t *testing.T) {
 	}
 }
 
-func TestBulkDeleteSources_ByIDs(t *testing.T) {
+func TestBulkDeleteXTerms_ByIDs(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	src1 := sampleSource()
 	src1.Name = "src-1"
-	if err := s.SaveSource(ctx, src1); err != nil {
-		t.Fatalf("SaveSource src1: %v", err)
+	if err := s.SaveXTerm(ctx, src1); err != nil {
+		t.Fatalf("SaveXTerm src1: %v", err)
 	}
 	src2 := sampleSource()
 	src2.Name = "src-2"
-	if err := s.SaveSource(ctx, src2); err != nil {
-		t.Fatalf("SaveSource src2: %v", err)
+	if err := s.SaveXTerm(ctx, src2); err != nil {
+		t.Fatalf("SaveXTerm src2: %v", err)
 	}
 
-	n, err := s.BulkDeleteSources(ctx, BulkDeleteSourcesFilter{IDs: []int64{src1.ID}})
+	n, err := s.BulkDeleteXTerms(ctx, BulkDeleteXTermsFilter{IDs: []int64{src1.ID}})
 	if err != nil {
-		t.Fatalf("BulkDeleteSources: %v", err)
+		t.Fatalf("BulkDeleteXTerms: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("expected 1 deleted, got %d", n)
 	}
-	srcs, _ := s.ListSources(ctx, SourceFilter{})
+	srcs, _ := s.ListXTerms(ctx, XTermFilter{})
 	if len(srcs) != 1 || srcs[0].ID != src2.ID {
 		t.Errorf("expected only src2 remaining")
 	}

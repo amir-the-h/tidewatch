@@ -10,8 +10,8 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-func mockResolver(sources map[int64]*model.Source) stream.SourceResolver {
-	return func(id int64) (*model.Source, error) {
+func mockResolver(sources map[int64]*model.XTerm) stream.SourceResolver {
+	return func(id int64) (*model.XTerm, error) {
 		s, ok := sources[id]
 		if !ok {
 			return nil, errors.New("not found")
@@ -20,12 +20,12 @@ func mockResolver(sources map[int64]*model.Source) stream.SourceResolver {
 	}
 }
 
-var testSources = map[int64]*model.Source{
-	1: {ID: 1, Operator: "from:", Value: "BBCPersian", Class: model.SourceClassAtom},
-	2: {ID: 2, Operator: "from:", Value: "IranIntl", Class: model.SourceClassAtom},
-	3: {ID: 3, Operator: "", Value: "ایران", Class: model.SourceClassAtom},
-	4: {ID: 4, Operator: "lang:", Value: "fa", Class: model.SourceClassModifier},
-	5: {ID: 5, Operator: "", Value: `"breaking news"`, Class: model.SourceClassAtom},
+var testSources = map[int64]*model.XTerm{
+	1: {ID: 1, Operator: "from:", Value: "BBCPersian", Class: model.XTermClassAtom},
+	2: {ID: 2, Operator: "from:", Value: "IranIntl", Class: model.XTermClassAtom},
+	3: {ID: 3, Operator: "", Value: "ایران", Class: model.XTermClassAtom},
+	4: {ID: 4, Operator: "lang:", Value: "fa", Class: model.XTermClassModifier},
+	5: {ID: 5, Operator: "", Value: `"breaking news"`, Class: model.XTermClassAtom},
 }
 
 func TestCompileSingleSrc(t *testing.T) {

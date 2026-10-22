@@ -125,3 +125,34 @@ func TestAllTools_SignalRename(t *testing.T) {
 		}
 	}
 }
+
+// TestAllTools_Sources checks the X rule builder tools moved to x_terms_* /
+// x_rules_* under /api/x, and the generic source tools exist.
+func TestAllTools_Sources(t *testing.T) {
+	byName := map[string]mcpserver.ToolDef{}
+	for _, td := range mcpserver.AllTools() {
+		byName[td.Name] = td
+		if strings.HasPrefix(td.Name, "rules_") || strings.HasPrefix(td.Path, "/api/rules") {
+			t.Errorf("tool %s (%s) still uses the old rules name or route", td.Name, td.Path)
+		}
+		if strings.HasPrefix(td.Name, "x_") && !strings.HasPrefix(td.Path, "/api/x/") {
+			t.Errorf("tool %s: path %s, want /api/x/…", td.Name, td.Path)
+		}
+		if (strings.HasPrefix(td.Name, "sources_") || strings.HasPrefix(td.Name, "source_")) &&
+			!strings.HasPrefix(td.Path, "/api/sources") && !strings.HasPrefix(td.Path, "/api/source-runs/") {
+			t.Errorf("tool %s: path %s, want /api/sources… or /api/source-runs/…", td.Name, td.Path)
+		}
+	}
+	for _, name := range []string{
+		"x_terms_list", "x_terms_create", "x_terms_update", "x_terms_delete", "x_terms_bulk_delete", "x_terms_deactivate",
+		"x_rules_list", "x_rules_get", "x_rules_create", "x_rules_update", "x_rules_delete", "x_rules_bulk_delete",
+		"x_rules_activate", "x_rules_deactivate",
+		"sources_list", "sources_get", "sources_create", "sources_update", "sources_delete", "sources_bulk_delete",
+		"sources_activate", "sources_deactivate", "sources_fetch", "sources_backfill", "sources_status_get",
+		"source_types_list", "source_runs_list", "source_runs_get",
+	} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("missing tool %s", name)
+		}
+	}
+}

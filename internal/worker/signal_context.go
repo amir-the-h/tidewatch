@@ -15,10 +15,11 @@ const textShortLen = 280
 
 // signalContext returns the context keys every task gets for its signal:
 // every attrs key (e.g. x_tweet_id), then signal_id, signal_kind, author,
-// title, text, text_short, url, lang, published_at and, when the event
-// carries it, source_type. The generic keys are written after attrs so a
-// connector can't shadow them.
-func signalContext(sig *model.Signal, ev queue.SignalEvent) map[string]any {
+// title, text, text_short, url, lang, published_at and, when known, the
+// dispatching source's source_id, source_name, source_type and source_tier.
+// The generic keys are written after attrs so a connector can't shadow them.
+// src may be nil.
+func signalContext(sig *model.Signal, ev queue.SignalEvent, src *model.SourceRef) map[string]any {
 	out := make(map[string]any, len(sig.Attrs)+11)
 	for k, v := range sig.Attrs {
 		out[k] = v
@@ -39,10 +40,33 @@ func signalContext(sig *model.Signal, ev queue.SignalEvent) map[string]any {
 	if ev.SourceType != "" {
 		out["source_type"] = ev.SourceType
 	}
-	if ev.SourceID != 0 {
-		out["source_id"] = ev.SourceID
+	if src != nil {
+		out["source_id"] = src.ID
+		out["source_name"] = src.Name
+		out["source_type"] = src.Type
+		if src.Tier != nil {
+			out["source_tier"] = *src.Tier
+		}
 	}
 	return out
+}
+
+// dispatchingSource returns the source the event names, or — for events
+// without one (reprocess, pipeline-run backfills) — the first source that saw
+// the signal. It returns nil when neither is known.
+func dispatchingSource(ctx context.Context, st store.Store, ev queue.SignalEvent) *model.SourceRef {
+	if ev.SourceID != 0 {
+		src, err := st.GetSource(ctx, ev.SourceID)
+		if err != nil {
+			return nil
+		}
+		return &model.SourceRef{ID: src.ID, Name: src.Name, Type: src.Type, Tier: src.Tier}
+	}
+	refs, err := st.ListSignalSources(ctx, ev.SignalID)
+	if err != nil || len(refs) == 0 {
+		return nil
+	}
+	return refs[0]
 }
 
 // signalInputText is the PipelineInput.Text for a signal: the text for posts,
@@ -69,5 +93,5 @@ func loadSignalContext(ctx context.Context, st store.Store, eventPayload []byte)
 	if err != nil {
 		return map[string]any{"signal_id": ev.SignalID}, ev.SignalID
 	}
-	return signalContext(sig, ev), ev.SignalID
+	return signalContext(sig, ev, dispatchingSource(ctx, st, ev)), ev.SignalID
 }

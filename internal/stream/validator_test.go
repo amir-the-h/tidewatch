@@ -45,8 +45,8 @@ func TestValidateInlineAtomOnly(t *testing.T) {
 
 func TestValidateTooLong(t *testing.T) {
 	v := stream.NewRuleValidator("basic")
-	src := &model.Source{ID: 99, Operator: "from:", Value: strings.Repeat("a", 1020), Class: model.SourceClassAtom}
-	sources := map[int64]*model.Source{99: src}
+	src := &model.XTerm{ID: 99, Operator: "from:", Value: strings.Repeat("a", 1020), Class: model.XTermClassAtom}
+	sources := map[int64]*model.XTerm{99: src}
 	node := model.ExprNode{Src: ptr[int64](99)}
 	if err := v.Validate(node, mockResolver(sources), nil); err == nil {
 		t.Error("expected error for too-long rule")

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -105,35 +106,35 @@ func (m *mockStore) DeleteSignals(_ context.Context, _ []int64) (int64, error)  
 func (m *mockStore) DeleteNoiseSignals(_ context.Context) (int64, error)               { return 0, nil }
 
 // Sources
-func (m *mockStore) SaveSource(_ context.Context, _ *model.Source) error         { return nil }
-func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error       { return nil }
-func (m *mockStore) GetSource(_ context.Context, _ int64) (*model.Source, error) { return nil, nil }
-func (m *mockStore) ListSources(_ context.Context, _ store.SourceFilter) ([]*model.Source, error) {
+func (m *mockStore) SaveXTerm(_ context.Context, _ *model.XTerm) error         { return nil }
+func (m *mockStore) UpdateXTerm(_ context.Context, _ *model.XTerm) error       { return nil }
+func (m *mockStore) GetXTerm(_ context.Context, _ int64) (*model.XTerm, error) { return nil, nil }
+func (m *mockStore) ListXTerms(_ context.Context, _ store.XTermFilter) ([]*model.XTerm, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteSource(_ context.Context, _ int64) error              { return nil }
-func (m *mockStore) SetSourceActive(_ context.Context, _ int64, _ bool) error   { return nil }
+func (m *mockStore) DeleteXTerm(_ context.Context, _ int64) error               { return nil }
+func (m *mockStore) SetXTermActive(_ context.Context, _ int64, _ bool) error    { return nil }
 func (m *mockStore) ActiveRuleRefCount(_ context.Context, _ int64) (int, error) { return 0, nil }
 func (m *mockStore) RuleRefCount(_ context.Context, _ int64) (int, error)       { return 0, nil }
 
 // Rules
-func (m *mockStore) SaveRule(_ context.Context, _ *model.Rule) error         { return nil }
-func (m *mockStore) GetRule(_ context.Context, _ int64) (*model.Rule, error) { return nil, nil }
-func (m *mockStore) GetRuleByXRuleID(_ context.Context, _ string) (*model.Rule, error) {
+func (m *mockStore) SaveXRule(_ context.Context, _ *model.XRule) error         { return nil }
+func (m *mockStore) GetXRule(_ context.Context, _ int64) (*model.XRule, error) { return nil, nil }
+func (m *mockStore) GetXRuleByXRuleID(_ context.Context, _ string) (*model.XRule, error) {
 	return nil, nil
 }
-func (m *mockStore) ListRules(_ context.Context, _ store.RuleFilter) ([]*model.Rule, error) {
+func (m *mockStore) ListXRules(_ context.Context, _ store.XRuleFilter) ([]*model.XRule, error) {
 	return nil, nil
 }
-func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
+func (m *mockStore) ListXRulesDependingOn(_ context.Context, _ int64) ([]*model.XRule, error) {
 	return nil, nil
 }
-func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error                { return nil }
-func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                      { return nil }
-func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error { return nil }
-func (m *mockStore) XRuleMatchCount(_ context.Context, _ int64) (int, error)          { return 0, nil }
-func (m *mockStore) SaveXRuleMatch(_ context.Context, _ *model.XRuleMatch) error      { return nil }
-func (m *mockStore) ListXRuleIDs(_ context.Context, _ int64) ([]int64, error)         { return nil, nil }
+func (m *mockStore) UpdateXRule(_ context.Context, _ *model.XRule) error               { return nil }
+func (m *mockStore) DeleteXRule(_ context.Context, _ int64) error                      { return nil }
+func (m *mockStore) SetXRuleActive(_ context.Context, _ int64, _ bool, _ string) error { return nil }
+func (m *mockStore) XRuleMatchCount(_ context.Context, _ int64) (int, error)           { return 0, nil }
+func (m *mockStore) SaveXRuleMatch(_ context.Context, _ *model.XRuleMatch) error       { return nil }
+func (m *mockStore) ListXRuleIDs(_ context.Context, _ int64) ([]int64, error)          { return nil, nil }
 
 // Actions (absorbs old Pipelines + Actions)
 func (m *mockStore) ListActionLabels(_ context.Context, _ int64) ([]string, error) {
@@ -404,10 +405,10 @@ func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return
 func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
 	return []*model.EntityConnection{}, nil
 }
-func (m *mockStore) BulkDeleteSources(_ context.Context, _ store.BulkDeleteSourcesFilter) (int64, error) {
+func (m *mockStore) BulkDeleteXTerms(_ context.Context, _ store.BulkDeleteXTermsFilter) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) BulkDeleteRules(_ context.Context, _ store.BulkDeleteRulesFilter) (int64, error) {
+func (m *mockStore) BulkDeleteXRules(_ context.Context, _ store.BulkDeleteXRulesFilter) (int64, error) {
 	return 0, nil
 }
 func (m *mockStore) BulkDeleteNotificationProviders(_ context.Context, _ store.BulkDeleteNotificationProvidersFilter) (int64, error) {
@@ -635,7 +636,7 @@ func TestSignalInputText_Article(t *testing.T) {
 	if got := signalInputText(sig); got != "Headline\n\nBody" {
 		t.Errorf("signalInputText(article) = %q", got)
 	}
-	ctx := signalContext(&model.Signal{Kind: model.SignalKindArticle, Title: "Only a title"}, queue.SignalEvent{})
+	ctx := signalContext(&model.Signal{Kind: model.SignalKindArticle, Title: "Only a title"}, queue.SignalEvent{}, nil)
 	if ctx["text_short"] != "Only a title" {
 		t.Errorf("text_short falls back to title, got %v", ctx["text_short"])
 	}
@@ -931,4 +932,41 @@ func TestManager_Flush_CancelsActiveWorkers(t *testing.T) {
 	if mgr.active.Load() != 0 {
 		t.Errorf("expected 0 active workers after Flush, got %d", mgr.active.Load())
 	}
+}
+
+// Generic sources are not exercised through this mock.
+func (m *mockStore) SaveSource(_ context.Context, _ *model.Source) error { return nil }
+func (m *mockStore) GetSource(_ context.Context, _ int64) (*model.Source, error) {
+	return nil, sql.ErrNoRows
+}
+func (m *mockStore) ListSources(_ context.Context, _ store.SourceFilter) ([]*model.Source, error) {
+	return nil, nil
+}
+func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error    { return nil }
+func (m *mockStore) SetSourceActive(_ context.Context, _ int64, _ bool) error { return nil }
+func (m *mockStore) DeleteSource(_ context.Context, _ int64) error            { return nil }
+func (m *mockStore) BulkDeleteSources(_ context.Context, _ store.BulkDeleteSourcesFilter) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) GetSourceState(_ context.Context, id int64) (*model.SourceState, error) {
+	return &model.SourceState{SourceID: id}, nil
+}
+func (m *mockStore) ListSourceStates(_ context.Context) ([]*model.SourceState, error) {
+	return nil, nil
+}
+func (m *mockStore) UpsertSourceState(_ context.Context, _ *model.SourceState) error { return nil }
+func (m *mockStore) SaveSourceRun(_ context.Context, _ *model.SourceRun) error       { return nil }
+func (m *mockStore) UpdateSourceRun(_ context.Context, _ *model.SourceRun) error     { return nil }
+func (m *mockStore) GetSourceRun(_ context.Context, _ string) (*model.SourceRun, error) {
+	return nil, sql.ErrNoRows
+}
+func (m *mockStore) ListSourceRuns(_ context.Context, _ int64, _ int) ([]*model.SourceRun, error) {
+	return nil, nil
+}
+func (m *mockStore) FailUnfinishedSourceRuns(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+func (m *mockStore) AddSignalSource(_ context.Context, _, _ int64) error { return nil }
+func (m *mockStore) ListSignalSources(_ context.Context, _ int64) ([]*model.SourceRef, error) {
+	return nil, nil
 }

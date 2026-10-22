@@ -10,6 +10,8 @@ import (
 // SignalFilter defines optional filters for listing signals.
 type SignalFilter struct {
 	RuleID         *int64
+	SourceID       *int64 // signals seen by this source (signal_sources)
+	SourceType     string // signals seen by any source of this connector type
 	Kind           *model.SignalKind
 	EntityID       *int64
 	HasEntityTrack bool
@@ -30,15 +32,28 @@ type SummaryFilter struct {
 	PerPage  int
 }
 
-// SourceFilter defines optional filters for listing sources.
+// SourceFilter defines optional filters for listing generic sources.
 type SourceFilter struct {
-	Type   *model.SourceType
-	Class  *model.SourceClass
+	Type   string
 	Active *bool
 }
 
-// RuleFilter defines optional filters for listing rules.
-type RuleFilter struct {
+// BulkDeleteSourcesFilter defines filters for bulk-deleting generic sources.
+type BulkDeleteSourcesFilter struct {
+	IDs    []int64
+	Active *bool
+	Type   string
+}
+
+// XTermFilter defines optional filters for listing X terms.
+type XTermFilter struct {
+	Type   *model.XTermType
+	Class  *model.XTermClass
+	Active *bool
+}
+
+// XRuleFilter defines optional filters for listing X rules.
+type XRuleFilter struct {
 	Active *bool
 	Local  *bool
 }
@@ -106,18 +121,18 @@ type ExecutionFilter struct {
 	PerPage  int
 }
 
-// BulkDeleteRulesFilter defines filters for bulk-deleting rules.
-type BulkDeleteRulesFilter struct {
+// BulkDeleteXRulesFilter defines filters for bulk-deleting rules.
+type BulkDeleteXRulesFilter struct {
 	IDs    []int64
 	Active *bool
 	Local  *bool
 }
 
-// BulkDeleteSourcesFilter defines filters for bulk-deleting sources.
-type BulkDeleteSourcesFilter struct {
+// BulkDeleteXTermsFilter defines filters for bulk-deleting X terms.
+type BulkDeleteXTermsFilter struct {
 	IDs    []int64
 	Active *bool
-	Type   model.SourceType
+	Type   model.XTermType
 }
 
 // BulkDeletePipelinesFilter defines filters for bulk-deleting pipelines.
@@ -208,27 +223,52 @@ type Store interface {
 	// whose every matching rule is marked local=true. Returns the count deleted.
 	DeleteNoiseSignals(ctx context.Context) (int64, error)
 
-	// Sources
-	SaveSource(ctx context.Context, source *model.Source) error
-	UpdateSource(ctx context.Context, source *model.Source) error
-	GetSource(ctx context.Context, id int64) (*model.Source, error)
-	ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error)
-	DeleteSource(ctx context.Context, id int64) error
-	BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error)
-	SetSourceActive(ctx context.Context, id int64, active bool) error
+	// X terms (rule atoms)
+	SaveXTerm(ctx context.Context, source *model.XTerm) error
+	UpdateXTerm(ctx context.Context, source *model.XTerm) error
+	GetXTerm(ctx context.Context, id int64) (*model.XTerm, error)
+	ListXTerms(ctx context.Context, filter XTermFilter) ([]*model.XTerm, error)
+	DeleteXTerm(ctx context.Context, id int64) error
+	BulkDeleteXTerms(ctx context.Context, f BulkDeleteXTermsFilter) (int64, error)
+	SetXTermActive(ctx context.Context, id int64, active bool) error
 	ActiveRuleRefCount(ctx context.Context, sourceID int64) (int, error)
 	RuleRefCount(ctx context.Context, sourceID int64) (int, error)
 
-	// Rules
-	SaveRule(ctx context.Context, rule *model.Rule) error
-	GetRule(ctx context.Context, id int64) (*model.Rule, error)
-	GetRuleByXRuleID(ctx context.Context, xRuleID string) (*model.Rule, error)
-	ListRules(ctx context.Context, filter RuleFilter) ([]*model.Rule, error)
-	ListRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.Rule, error)
-	UpdateRule(ctx context.Context, rule *model.Rule) error
-	DeleteRule(ctx context.Context, id int64) error
-	BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error)
-	SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error
+	// Sources (configured connector instances)
+	SaveSource(ctx context.Context, src *model.Source) error
+	GetSource(ctx context.Context, id int64) (*model.Source, error)
+	ListSources(ctx context.Context, filter SourceFilter) ([]*model.Source, error)
+	UpdateSource(ctx context.Context, src *model.Source) error
+	SetSourceActive(ctx context.Context, id int64, active bool) error
+	DeleteSource(ctx context.Context, id int64) error
+	BulkDeleteSources(ctx context.Context, f BulkDeleteSourcesFilter) (int64, error)
+	// GetSourceState returns the source's state, or a zero state with an
+	// empty cursor when none has been written yet.
+	GetSourceState(ctx context.Context, sourceID int64) (*model.SourceState, error)
+	ListSourceStates(ctx context.Context) ([]*model.SourceState, error)
+	UpsertSourceState(ctx context.Context, st *model.SourceState) error
+	SaveSourceRun(ctx context.Context, run *model.SourceRun) error
+	UpdateSourceRun(ctx context.Context, run *model.SourceRun) error
+	GetSourceRun(ctx context.Context, id string) (*model.SourceRun, error)
+	ListSourceRuns(ctx context.Context, sourceID int64, limit int) ([]*model.SourceRun, error)
+	// FailUnfinishedSourceRuns marks pending and running runs as errored (used
+	// at startup: their goroutines died with the previous process).
+	FailUnfinishedSourceRuns(ctx context.Context, msg string) (int64, error)
+	// AddSignalSource records that a source saw a signal (idempotent).
+	AddSignalSource(ctx context.Context, signalID, sourceID int64) error
+	// ListSignalSources returns the sources that saw a signal, earliest first.
+	ListSignalSources(ctx context.Context, signalID int64) ([]*model.SourceRef, error)
+
+	// X rules
+	SaveXRule(ctx context.Context, rule *model.XRule) error
+	GetXRule(ctx context.Context, id int64) (*model.XRule, error)
+	GetXRuleByXRuleID(ctx context.Context, xRuleID string) (*model.XRule, error)
+	ListXRules(ctx context.Context, filter XRuleFilter) ([]*model.XRule, error)
+	ListXRulesDependingOn(ctx context.Context, ruleID int64) ([]*model.XRule, error)
+	UpdateXRule(ctx context.Context, rule *model.XRule) error
+	DeleteXRule(ctx context.Context, id int64) error
+	BulkDeleteXRules(ctx context.Context, f BulkDeleteXRulesFilter) (int64, error)
+	SetXRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error
 	XRuleMatchCount(ctx context.Context, ruleID int64) (int, error)
 
 	// XRuleMatches

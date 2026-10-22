@@ -19,6 +19,7 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/pipeline"
 	"github.com/amir-the-h/tidewatch/internal/queue"
 	"github.com/amir-the-h/tidewatch/internal/search"
+	"github.com/amir-the-h/tidewatch/internal/source"
 	"github.com/amir-the-h/tidewatch/internal/store"
 	"github.com/amir-the-h/tidewatch/internal/stream"
 	"github.com/amir-the-h/tidewatch/internal/twitter"
@@ -83,6 +84,7 @@ type Server struct {
 	dispatcher            *notifier.Dispatcher
 	toolExec              inference.ToolExecutor
 	searchScheduler       searchScheduler // nil if search not configured
+	sources               *source.Manager // nil until WithSources
 	pool                  workerPoolStatsProvider
 	sizer                 queueSizer
 	failureLister         queue.FailureLister
@@ -166,9 +168,9 @@ func NewServer(
 			r.Get("/stream/status", srv.handleStreamStatus)
 
 			// Read-only endpoints accessible to all authenticated users.
-			r.Get("/rules", srv.handleListRules)
-			r.Get("/rules/{id}", srv.handleGetRule)
-			r.Get("/sources", srv.handleListSources)
+			r.Get("/x/rules", srv.handleListXRules)
+			r.Get("/x/rules/{id}", srv.handleGetXRule)
+			r.Get("/x/terms", srv.handleListXTerms)
 			r.Get("/signals", srv.handleListSignals)
 			r.Get("/signals/{id}", srv.handleGetSignal)
 			r.Get("/map", srv.handleListMapPins)
@@ -190,20 +192,34 @@ func NewServer(
 			r.Group(func(r chi.Router) {
 				r.Use(adminMw)
 
-				// Sources
-				r.Post("/sources", srv.handleCreateSource)
-				r.Put("/sources/{id}", srv.handleUpdateSource)
-				r.Delete("/sources", srv.handleBulkDeleteSources)
-				r.Delete("/sources/{id}", srv.handleDeleteSource)
-				r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
+				// X rule builder: terms (rule atoms) and rules
+				r.Post("/x/terms", srv.handleCreateXTerm)
+				r.Put("/x/terms/{id}", srv.handleUpdateXTerm)
+				r.Delete("/x/terms", srv.handleBulkDeleteXTerms)
+				r.Delete("/x/terms/{id}", srv.handleDeleteXTerm)
+				r.Post("/x/terms/{id}/deactivate", srv.handleDeactivateXTerm)
+				r.Post("/x/rules", srv.handleCreateXRule)
+				r.Put("/x/rules/{id}", srv.handleUpdateXRule)
+				r.Delete("/x/rules", srv.handleBulkDeleteXRules)
+				r.Delete("/x/rules/{id}", srv.handleDeleteXRule)
+				r.Post("/x/rules/{id}/activate", srv.handleActivateXRule)
+				r.Post("/x/rules/{id}/deactivate", srv.handleDeactivateXRule)
 
-				// Rules
-				r.Post("/rules", srv.handleCreateRule)
-				r.Put("/rules/{id}", srv.handleUpdateRule)
-				r.Delete("/rules", srv.handleBulkDeleteRules)
-				r.Delete("/rules/{id}", srv.handleDeleteRule)
-				r.Post("/rules/{id}/activate", srv.handleActivateRule)
-				r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
+				// Sources (configured connector instances)
+				r.Get("/sources", srv.handleListSources)
+				r.Post("/sources", srv.handleCreateSource)
+				r.Delete("/sources", srv.handleBulkDeleteSources)
+				r.Get("/sources/types", srv.handleListSourceTypes)
+				r.Get("/sources/status", srv.handleListSourceStatus)
+				r.Get("/sources/{id}", srv.handleGetSource)
+				r.Put("/sources/{id}", srv.handleUpdateSource)
+				r.Delete("/sources/{id}", srv.handleDeleteSource)
+				r.Post("/sources/{id}/activate", srv.handleActivateSource)
+				r.Post("/sources/{id}/deactivate", srv.handleDeactivateSource)
+				r.Post("/sources/{id}/fetch", srv.handleFetchSource)
+				r.Post("/sources/{id}/backfill", srv.handleBackfillSource)
+				r.Get("/sources/{id}/runs", srv.handleListSourceRuns)
+				r.Get("/source-runs/{id}", srv.handleGetSourceRun)
 
 				// Signals mutations
 				r.Delete("/signals", srv.handleDeleteSignals)
@@ -449,8 +465,8 @@ func (s *Server) makeRuleResolver(r *http.Request) stream.RuleResolver {
 }
 
 func (s *Server) resolverWithCtx(ctx context.Context) stream.SourceResolver {
-	return func(id int64) (*model.Source, error) {
-		src, err := s.store.GetSource(ctx, id)
+	return func(id int64) (*model.XTerm, error) {
+		src, err := s.store.GetXTerm(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -462,8 +478,8 @@ func (s *Server) resolverWithCtx(ctx context.Context) stream.SourceResolver {
 }
 
 func (s *Server) ruleResolverWithCtx(ctx context.Context) stream.RuleResolver {
-	return func(id int64) (*model.Rule, error) {
-		rule, err := s.store.GetRule(ctx, id)
+	return func(id int64) (*model.XRule, error) {
+		rule, err := s.store.GetXRule(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -494,7 +510,7 @@ func (s *Server) cascadeRecompile(ctx context.Context, changedID int64) {
 		current := queue[0]
 		queue = queue[1:]
 
-		deps, err := s.store.ListRulesDependingOn(ctx, current)
+		deps, err := s.store.ListXRulesDependingOn(ctx, current)
 		if err != nil {
 			s.logger.Error("cascade: list dependents", "rule_id", current, "error", err)
 			return
@@ -531,13 +547,13 @@ func (s *Server) cascadeRecompile(ctx context.Context, changedID int64) {
 					continue
 				}
 				dep.XRuleID = newXRuleID
-				if err := s.store.SetRuleActive(ctx, dep.ID, true, newXRuleID); err != nil {
+				if err := s.store.SetXRuleActive(ctx, dep.ID, true, newXRuleID); err != nil {
 					s.logger.Error("cascade: set rule active", "rule_id", dep.ID, "error", err)
 					continue
 				}
 			}
 
-			if err := s.store.UpdateRule(ctx, dep); err != nil {
+			if err := s.store.UpdateXRule(ctx, dep); err != nil {
 				s.logger.Error("cascade: update rule", "rule_id", dep.ID, "error", err)
 				continue
 			}

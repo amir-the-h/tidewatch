@@ -166,3 +166,23 @@ func exitIfError(err error) {
 		os.Exit(1)
 	}
 }
+
+// formatField converts an interface{} to a string for display.
+func formatField(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case float64:
+		return fmt.Sprintf("%.0f", val)
+	case string:
+		return val
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}

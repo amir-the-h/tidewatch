@@ -30,6 +30,8 @@ type Signal struct {
 	PublishedAt time.Time      `json:"published_at"`
 	FetchedAt   time.Time      `json:"fetched_at"`
 
+	// Sources lists the sources that saw the signal; populated by GetSignal only.
+	Sources []*SourceRef `json:"sources,omitempty"`
 	// XRules lists the X stream rules the signal matched; populated on read joins only.
-	XRules []*Rule `json:"x_rules,omitempty"`
+	XRules []*XRule `json:"x_rules,omitempty"`
 }
