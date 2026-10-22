@@ -38,8 +38,8 @@ function refresh() {
   fetchQueue()
 }
 
-// pending_tasks counts every queued task, Ollama ones included.
-const pending       = computed(() => queuesStore.pendingTasks)
+// pending_tasks excludes Ollama tasks (the API reports them separately), so sum both.
+const pending       = computed(() => queuesStore.pendingTasks + queuesStore.pendingOllama)
 const activeWorkers = computed(() => queuesStore.workers.filter(w => w.status === 'active').length)
 
 // ── Failure detail ───────────────────────────────────────────────────────────

@@ -19,8 +19,8 @@ const stream = useStreamStore()
 const queues = useQueuesStore()
 const failures = useFailuresStore()
 
-// pending_tasks counts every queued task, Ollama ones included.
-const pending = computed(() => queues.pendingTasks)
+// pending_tasks excludes Ollama tasks (the API reports them separately), so sum both.
+const pending = computed(() => queues.pendingTasks + queues.pendingOllama)
 const activeWorkers = computed(() => queues.workers.filter(w => w.status === 'active').length)
 
 // Show the larger of the two ETAs (both queues need to drain).
