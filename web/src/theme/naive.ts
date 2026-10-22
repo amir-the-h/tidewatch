@@ -3,7 +3,7 @@
 // var(--x) directly; the values are read from the document once at startup.
 import type { GlobalThemeOverrides } from 'naive-ui'
 
-function token(name: string): string {
+export function token(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim()
 }
 
