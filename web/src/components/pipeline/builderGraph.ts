@@ -4,7 +4,7 @@
 // writes them as inline SVG stroke values.
 import { inject, type ComputedRef, type InjectionKey } from 'vue'
 import type { Component } from 'vue'
-import type { Edge, EdgeChange, Node, NodeChange } from '@vue-flow/core'
+import { useVueFlow, type Edge, type EdgeChange, type Node, type NodeChange } from '@vue-flow/core'
 import { BellIcon, BotIcon, CpuIcon, GitBranchIcon, PlayIcon, SettingsIcon, WorkflowIcon } from '@lucide/vue'
 import { token } from '../../theme/naive'
 import type { Action, ActionType } from '../../api/actions'
@@ -50,6 +50,20 @@ export function useBuilder(): BuilderContext {
   const ctx = inject(builderKey)
   if (!ctx) throw new Error('pipeline builder: node rendered outside the builder')
   return ctx
+}
+
+/** Edge helpers for a node component: is an output connected, and right-click disconnect of inputs/outputs. */
+export function useNodeEdges(id: string) {
+  const { edges, removeEdges } = useVueFlow()
+  // `handle` limits outputs to one source handle (condition Pass/Fail); omitted means every output.
+  const outgoing = (handle?: string) =>
+    edges.value.filter(e => e.source === id && (handle === undefined || e.sourceHandle === handle))
+  const remove = (list: Edge[]) => { if (list.length) removeEdges(list.map(e => e.id)) }
+  return {
+    isConnected: (handle?: string) => outgoing(handle).length > 0,
+    disconnectSource: (handle?: string) => remove(outgoing(handle)),
+    disconnectTarget: () => remove(edges.value.filter(e => e.target === id)),
+  }
 }
 
 // ── Graph conversion ──────────────────────────────────────────────────────────

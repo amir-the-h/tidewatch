@@ -1,20 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Handle, Position, useVueFlow } from '@vue-flow/core'
+import { Handle, Position } from '@vue-flow/core'
 import AddStepButton from './AddStepButton.vue'
 import NodeHeader from './NodeHeader.vue'
-import { kindMeta, useBuilder } from './builderGraph'
+import { kindMeta, useBuilder, useNodeEdges } from './builderGraph'
 
 const props = defineProps<{ id: string }>()
 
-const { edges, removeEdges } = useVueFlow()
+const { isConnected, disconnectSource } = useNodeEdges(props.id)
 const { triggers } = useBuilder()
-const connected = computed(() => edges.value.some(e => e.source === props.id))
-
-function disconnectSource() {
-  const ids = edges.value.filter(e => e.source === props.id).map(e => e.id)
-  if (ids.length) removeEdges(ids)
-}
 </script>
 
 <template>
@@ -24,7 +17,7 @@ function disconnectSource() {
       {{ triggers.length ? triggers.join(', ') : 'No trigger linked' }}
     </div>
     <Handle type="source" :position="Position.Right" id="default"
-      @contextmenu.prevent="disconnectSource" />
-    <AddStepButton :node-id="id" handle="default" :connected="connected" />
+      @contextmenu.prevent="disconnectSource()" />
+    <AddStepButton :node-id="id" handle="default" :connected="isConnected()" />
   </div>
 </template>

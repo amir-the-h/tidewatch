@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Handle, Position, useVueFlow } from '@vue-flow/core'
+import { Handle, Position } from '@vue-flow/core'
 import AddStepButton from './AddStepButton.vue'
 import NodeHeader from './NodeHeader.vue'
-import { actionDetail, kindMeta, useBuilder } from './builderGraph'
+import { actionDetail, kindMeta, useBuilder, useNodeEdges } from './builderGraph'
 
 const props = defineProps<{
   id: string
   data: { label: string; actionId?: number | null }
 }>()
 
-const { edges, removeEdges } = useVueFlow()
+const { isConnected, disconnectSource, disconnectTarget } = useNodeEdges(props.id)
 const { actions } = useBuilder()
 
 const action    = computed(() => (props.data.actionId ? actions.value.get(props.data.actionId) : undefined))
@@ -21,17 +21,6 @@ const detail    = computed(() => {
   if (!a) return ''
   return a.name !== title.value ? a.name : actionDetail(a)
 })
-const connected = computed(() => edges.value.some(e => e.source === props.id))
-
-function disconnectSource() {
-  const ids = edges.value.filter(e => e.source === props.id).map(e => e.id)
-  if (ids.length) removeEdges(ids)
-}
-
-function disconnectTarget() {
-  const ids = edges.value.filter(e => e.target === props.id).map(e => e.id)
-  if (ids.length) removeEdges(ids)
-}
 </script>
 
 <template>
@@ -40,13 +29,13 @@ function disconnectTarget() {
     :class="[meta.border, { 'opacity-60': action && !action.active }]"
   >
     <Handle type="target" :position="Position.Left" id="input"
-      @contextmenu.prevent="disconnectTarget" />
+      @contextmenu.prevent="disconnectTarget()" />
     <NodeHeader :meta="meta" :inactive="action && !action.active" />
     <div class="mt-0.5 truncate font-semibold" :title="title">{{ title }}</div>
     <div v-if="!action" class="truncate text-small text-destructive">No action selected</div>
     <div v-else-if="detail" class="truncate font-mono text-small text-muted-foreground" :title="detail">{{ detail }}</div>
     <Handle type="source" :position="Position.Right" id="default"
-      @contextmenu.prevent="disconnectSource" />
-    <AddStepButton :node-id="id" handle="default" :connected="connected" />
+      @contextmenu.prevent="disconnectSource()" />
+    <AddStepButton :node-id="id" handle="default" :connected="isConnected()" />
   </div>
 </template>
