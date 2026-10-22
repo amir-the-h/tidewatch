@@ -130,12 +130,6 @@ async function load() {
 
     isDirty.value = false
     setGraph(graph)
-    if (!nodes.value.some(n => n.type === 'start')) {
-      addNodes([{
-        id: 'start-0', type: 'start', position: { x: 0, y: 0 }, deletable: false,
-        data: { label: 'Start' },
-      }])
-    }
   } catch (e: unknown) {
     loadError.value = errorMessage(e)
   } finally {
@@ -145,7 +139,15 @@ async function load() {
 
 function setGraph(graph: PipelineGraph) {
   fitAfterLayout = true
-  setNodes(toFlowNodes(graph.nodes))
+  const flowNodes = toFlowNodes(graph.nodes)
+  // A pipeline that was never saved has no Start node yet; add one without marking the graph dirty.
+  if (!flowNodes.some(n => n.type === 'start')) {
+    flowNodes.unshift({
+      id: 'start-0', type: 'start', position: { x: 0, y: 0 }, deletable: false,
+      data: { label: 'Start' },
+    })
+  }
+  setNodes(flowNodes)
   setEdges(toFlowEdges(graph.edges))
   // onNodesInitialized doesn't fire again when the replaced nodes keep their ids (Discard, Save).
   scheduleLayout()
