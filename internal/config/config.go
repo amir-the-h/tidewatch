@@ -11,10 +11,6 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	X struct {
-		BearerToken string `yaml:"bearer_token"`
-		Tier        string `yaml:"tier"` // "basic" or "pro"
-	} `yaml:"x"`
 	Redis struct {
 		Addr     string `yaml:"addr"`
 		Password string `yaml:"password"`
@@ -51,19 +47,6 @@ type Config struct {
 	Telegram struct {
 		BotToken string `yaml:"bot_token"`
 	} `yaml:"telegram"`
-	Stream struct {
-		AutoConnect bool `yaml:"auto_connect"`
-	} `yaml:"stream"`
-	Search struct {
-		Enabled     bool          `yaml:"enabled"`
-		Interval    time.Duration `yaml:"interval"`
-		MaxResults  int           `yaml:"max_results"`
-		Limit       int           `yaml:"limit"`
-		TweetFields []string      `yaml:"tweet_fields"`
-		UserFields  []string      `yaml:"user_fields"`
-		Expansions  []string      `yaml:"expansions"`
-		StartTime   string        `yaml:"start_time"`
-	} `yaml:"search"`
 	Auth struct {
 		JWTSecret     string `yaml:"jwt_secret"`
 		AdminUsername string `yaml:"admin_username"`
@@ -82,7 +65,6 @@ type Config struct {
 // defaults returns a Config populated with sensible default values.
 func defaults() *Config {
 	cfg := &Config{}
-	cfg.X.Tier = "basic"
 	cfg.Redis.Addr = "localhost:6379"
 	cfg.Redis.DB = 0
 	cfg.SQLite.Path = "./data/tidewatch.db"
@@ -92,13 +74,6 @@ func defaults() *Config {
 	cfg.Sources.MaxConcurrentPolls = 8
 	cfg.Log.Level = "info"
 	cfg.Log.Format = "text"
-	cfg.Search.Enabled = false
-	cfg.Search.Interval = 15 * time.Minute
-	cfg.Search.MaxResults = 100
-	cfg.Search.Limit = 0
-	cfg.Search.TweetFields = []string{"author_id", "created_at", "referenced_tweets", "text", "note_tweet"}
-	cfg.Search.UserFields = []string{"username"}
-	cfg.Search.Expansions = []string{"author_id", "referenced_tweets.id"}
 	cfg.Auth.AdminUsername = "admin"
 	cfg.Auth.AdminPassword = "changeme"
 	return cfg
@@ -134,12 +109,6 @@ func Load(path string) (*Config, error) {
 // applyEnv overrides cfg fields from TIDEWATCH_* environment variables.
 // Only non-empty env vars are applied.
 func applyEnv(cfg *Config) error {
-	if v := os.Getenv("TIDEWATCH_X_BEARER_TOKEN"); v != "" {
-		cfg.X.BearerToken = v
-	}
-	if v := os.Getenv("TIDEWATCH_X_TIER"); v != "" {
-		cfg.X.Tier = v
-	}
 	if v := os.Getenv("TIDEWATCH_REDIS_ADDR"); v != "" {
 		cfg.Redis.Addr = v
 	}
@@ -200,9 +169,6 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("TIDEWATCH_TELEGRAM_BOT_TOKEN"); v != "" {
 		cfg.Telegram.BotToken = v
-	}
-	if v := os.Getenv("TIDEWATCH_STREAM_AUTO_CONNECT"); v != "" {
-		cfg.Stream.AutoConnect = v == "true" || v == "1"
 	}
 	if v := os.Getenv("TIDEWATCH_AUTH_JWT_SECRET"); v != "" {
 		cfg.Auth.JWTSecret = v

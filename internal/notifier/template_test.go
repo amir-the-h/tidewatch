@@ -33,26 +33,12 @@ func TestRenderMessage_DefaultTemplates(t *testing.T) {
 			contains: "testuser",
 		},
 		{
-			name: EventStreamConnected,
+			name: EventDigestFailed,
 			event: NotificationEvent{
-				Type: EventStreamConnected,
+				Type:  EventDigestFailed,
+				Error: "backend unavailable",
 			},
-			contains: "Stream connected",
-		},
-		{
-			name: EventStreamDisconnected,
-			event: NotificationEvent{
-				Type: EventStreamDisconnected,
-			},
-			contains: "Stream disconnected",
-		},
-		{
-			name: EventStreamError,
-			event: NotificationEvent{
-				Type:  EventStreamError,
-				Error: "connection reset",
-			},
-			contains: "connection reset",
+			contains: "backend unavailable",
 		},
 	}
 
@@ -92,16 +78,17 @@ func TestRenderMessage_CustomTemplate(t *testing.T) {
 	}
 }
 
-func TestRenderMessage_StreamConnected(t *testing.T) {
+func TestRenderMessage_DigestFailed(t *testing.T) {
 	event := NotificationEvent{
-		Type: EventStreamConnected,
+		Type:  EventDigestFailed,
+		Error: "timeout",
 	}
 	msg, err := RenderMessage(event, nil)
 	if err != nil {
 		t.Fatalf("RenderMessage returned error: %v", err)
 	}
-	if msg != "Stream connected" {
-		t.Errorf("expected %q, got %q", "Stream connected", msg)
+	if msg != "Digest failed: timeout" {
+		t.Errorf("expected %q, got %q", "Digest failed: timeout", msg)
 	}
 }
 
@@ -135,7 +122,7 @@ func TestExpandURL_WithSignal(t *testing.T) {
 
 func TestExpandURL_NilSignal(t *testing.T) {
 	event := NotificationEvent{
-		Type:   EventStreamConnected,
+		Type:   EventDigestFailed,
 		Signal: nil,
 	}
 	urlTmpl := "https://example.com/{{.Signal.Author}}/{{.Signal.ExternalID}}"

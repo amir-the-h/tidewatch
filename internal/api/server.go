@@ -18,10 +18,9 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/notifier"
 	"github.com/amir-the-h/tidewatch/internal/pipeline"
 	"github.com/amir-the-h/tidewatch/internal/queue"
-	"github.com/amir-the-h/tidewatch/internal/search"
 	"github.com/amir-the-h/tidewatch/internal/source"
+	"github.com/amir-the-h/tidewatch/internal/source/x"
 	"github.com/amir-the-h/tidewatch/internal/store"
-	"github.com/amir-the-h/tidewatch/internal/stream"
 	"github.com/amir-the-h/tidewatch/internal/twitter"
 	"github.com/amir-the-h/tidewatch/internal/worker"
 )
@@ -46,25 +45,10 @@ type workerBufferFlusher interface {
 	FlushPipeline(name string) int
 }
 
-// searchScheduler is satisfied by *search.Scheduler.
-type searchScheduler interface {
-	RunOnce(ctx context.Context) (int, error)
-	RunWithParams(ctx context.Context, ruleIDs []int64, params search.SearchParams) (int, error)
-	DefaultParams() search.SearchParams
-}
-
-// ruleManagerInterface allows mocking of stream.RuleManager in tests.
-type ruleManagerInterface interface {
-	AddRule(ctx context.Context, tag, value string) (string, error)
-	DeleteRule(ctx context.Context, xRuleID string) error
-	ListRules(ctx context.Context) ([]stream.XRule, error)
-}
-
-// streamClientInterface allows mocking of stream.Client in tests.
-type streamClientInterface interface {
-	Connect(ctx context.Context) error
-	Disconnect()
-	Connected() bool
+// xRuleSyncer reaches the active x_stream source's rules API; satisfied by
+// *x.Stream. api is nil when no x_stream source is active.
+type xRuleSyncer interface {
+	WithRules(ctx context.Context, fn func(api x.RuleAPI, tier string) error) error
 }
 
 // Server is the REST API server.
@@ -75,15 +59,12 @@ type Server struct {
 	actionCache           *worker.ActionCache
 	pipelineRegistry      *pipeline.Registry
 	twitterClient         *twitter.Client // nil when Twitter not configured
-	rules                 ruleManagerInterface
-	stream                streamClientInterface
-	tier                  string
+	xRules                xRuleSyncer     // nil until WithXRules: rules are only stored
 	backendPool           *inference.BackendPool
 	ollamaFastWaitTimeout time.Duration
 	jwtSecret             string
 	dispatcher            *notifier.Dispatcher
 	toolExec              inference.ToolExecutor
-	searchScheduler       searchScheduler // nil if search not configured
 	sources               *source.Manager // nil until WithSources
 	pool                  workerPoolStatsProvider
 	sizer                 queueSizer
@@ -105,15 +86,11 @@ func NewServer(
 	cache *worker.ActionCache,
 	pipeReg *pipeline.Registry,
 	tc *twitter.Client,
-	rules ruleManagerInterface,
-	sc streamClientInterface,
-	tier string,
 	backendPool *inference.BackendPool,
 	ollamaFastWaitTimeout time.Duration,
 	jwtSecret string,
 	logger *slog.Logger,
 	dispatcher *notifier.Dispatcher,
-	ss searchScheduler,
 	pool workerPoolStatsProvider,
 	sizer queueSizer,
 	lister queue.FailureLister,
@@ -127,15 +104,11 @@ func NewServer(
 		actionCache:           cache,
 		pipelineRegistry:      pipeReg,
 		twitterClient:         tc,
-		rules:                 rules,
-		stream:                sc,
-		tier:                  tier,
 		backendPool:           backendPool,
 		ollamaFastWaitTimeout: ollamaFastWaitTimeout,
 		jwtSecret:             jwtSecret,
 		dispatcher:            dispatcher,
 		toolExec:              toolExec,
-		searchScheduler:       ss,
 		pool:                  pool,
 		sizer:                 sizer,
 		failureLister:         lister,
@@ -163,9 +136,8 @@ func NewServer(
 
 			r.Get("/auth/me", srv.handleMe)
 
-			// Health + stream status — viewers can see these for the status bar.
+			// Health — viewers can see it for the status bar.
 			r.Get("/health", srv.handleGetHealth)
-			r.Get("/stream/status", srv.handleStreamStatus)
 
 			// Read-only endpoints accessible to all authenticated users.
 			r.Get("/x/rules", srv.handleListXRules)
@@ -243,10 +215,6 @@ func NewServer(
 				r.Post("/triggers/links/{id}/activate", srv.handleActivateTriggerPipelineLink)
 				r.Post("/triggers/links/{id}/deactivate", srv.handleDeactivateTriggerPipelineLink)
 
-				// Stream control
-				r.Post("/stream/connect", srv.handleStreamConnect)
-				r.Post("/stream/disconnect", srv.handleStreamDisconnect)
-
 				// Tracked Entities mutations
 				r.Post("/tracked-entities", srv.handleCreateTrackedEntity)
 				r.Put("/tracked-entities/{id}", srv.handleUpdateTrackedEntity)
@@ -305,13 +273,6 @@ func NewServer(
 				r.Delete("/queue", srv.handleFlushQueue)
 				r.Delete("/workers/buffer", srv.handleFlushWorkerBuffer)
 				r.Delete("/workers/buffer/{pipeline}", srv.handleFlushPipelineBuffer)
-
-				// Search jobs
-				r.Get("/search", srv.handleListSearchJobs)
-				r.Post("/search/run", srv.handleSearchRun)
-				r.Get("/search/{id}", srv.handleGetSearchJob)
-				r.Delete("/search", srv.handleBulkDeleteSearchJobs)
-				r.Delete("/search/{id}", srv.handleDeleteSearchJob)
 
 				// Notification providers
 				r.Get("/notification-providers", srv.handleListNotificationProviders)
@@ -454,17 +415,17 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 
 // makeResolver returns a SourceResolver backed by the store,
 // returning only active sources.
-func (s *Server) makeResolver(r *http.Request) stream.SourceResolver {
+func (s *Server) makeResolver(r *http.Request) x.SourceResolver {
 	return s.resolverWithCtx(r.Context())
 }
 
 // makeRuleResolver returns a RuleResolver backed by the store,
 // returning only active local rules.
-func (s *Server) makeRuleResolver(r *http.Request) stream.RuleResolver {
+func (s *Server) makeRuleResolver(r *http.Request) x.RuleResolver {
 	return s.ruleResolverWithCtx(r.Context())
 }
 
-func (s *Server) resolverWithCtx(ctx context.Context) stream.SourceResolver {
+func (s *Server) resolverWithCtx(ctx context.Context) x.SourceResolver {
 	return func(id int64) (*model.XTerm, error) {
 		src, err := s.store.GetXTerm(ctx, id)
 		if err != nil {
@@ -477,7 +438,7 @@ func (s *Server) resolverWithCtx(ctx context.Context) stream.SourceResolver {
 	}
 }
 
-func (s *Server) ruleResolverWithCtx(ctx context.Context) stream.RuleResolver {
+func (s *Server) ruleResolverWithCtx(ctx context.Context) x.RuleResolver {
 	return func(id int64) (*model.XRule, error) {
 		rule, err := s.store.GetXRule(ctx, id)
 		if err != nil {
@@ -498,9 +459,21 @@ func (s *Server) ruleResolverWithCtx(ctx context.Context) stream.RuleResolver {
 // Intended to run in a background goroutine using the server's lifecycle
 // context (s.ctx) so it outlives the originating HTTP request.
 func (s *Server) cascadeRecompile(ctx context.Context, changedID int64) {
+	err := s.withXRules(ctx, func(api x.RuleAPI, _ string) error {
+		s.recompileDependents(ctx, api, changedID)
+		return nil
+	})
+	if err != nil {
+		s.logger.Error("cascade: x rules", "rule_id", changedID, "error", err)
+	}
+}
+
+// recompileDependents is cascadeRecompile's walk; api is nil when no x_stream
+// source is active (the next stream start syncs the new values).
+func (s *Server) recompileDependents(ctx context.Context, api x.RuleAPI, changedID int64) {
 	resolver := s.resolverWithCtx(ctx)
 	ruleResolver := s.ruleResolverWithCtx(ctx)
-	compiler := stream.NewRuleCompiler()
+	compiler := x.NewRuleCompiler()
 
 	// BFS over the dependency graph.
 	visited := map[int64]bool{changedID: true}
@@ -536,12 +509,12 @@ func (s *Server) cascadeRecompile(ctx context.Context, changedID int64) {
 
 			dep.CompiledValue = compiled
 
-			if !dep.Local && dep.Active && dep.XRuleID != "" {
-				if err := s.rules.DeleteRule(ctx, dep.XRuleID); err != nil {
+			if api != nil && !dep.Local && dep.Active && dep.XRuleID != "" {
+				if err := api.DeleteRule(ctx, dep.XRuleID); err != nil {
 					s.logger.Error("cascade: delete old x rule", "rule_id", dep.ID, "error", err)
 					continue
 				}
-				newXRuleID, err := s.rules.AddRule(ctx, dep.Name, compiled)
+				newXRuleID, err := api.AddRule(ctx, dep.Name, compiled)
 				if err != nil {
 					s.logger.Error("cascade: add new x rule", "rule_id", dep.ID, "error", err)
 					continue
@@ -564,30 +537,20 @@ func (s *Server) cascadeRecompile(ctx context.Context, changedID int64) {
 	}
 }
 
-// NewServerWithConcreteRules is a convenience constructor for production use
-// where a *stream.RuleManager and *stream.Client are available.
-func NewServerWithConcreteRules(
-	bind string,
-	s store.Store,
-	q queue.Producer,
-	reg *inference.Registry,
-	cache *worker.ActionCache,
-	pipeReg *pipeline.Registry,
-	tc *twitter.Client,
-	rules *stream.RuleManager,
-	sc *stream.Client,
-	tier string,
-	backendPool *inference.BackendPool,
-	ollamaFastWaitTimeout time.Duration,
-	jwtSecret string,
-	logger *slog.Logger,
-	dispatcher *notifier.Dispatcher,
-	ss searchScheduler,
-	pool workerPoolStatsProvider,
-	sizer queueSizer,
-	lister queue.FailureLister,
-	modelsDir string,
-	toolExec inference.ToolExecutor,
-) *Server {
-	return NewServer(bind, s, q, reg, cache, pipeReg, tc, rules, sc, tier, backendPool, ollamaFastWaitTimeout, jwtSecret, logger, dispatcher, ss, pool, sizer, lister, modelsDir, toolExec)
+// WithXRules wires the x_stream connector, through which the x_rules routes
+// reach the active x_stream source to sync rules with X.
+func (s *Server) WithXRules(r xRuleSyncer) *Server {
+	s.xRules = r
+	return s
+}
+
+// withXRules runs fn holding the X rule-sync lock, with the active x_stream
+// source's rules API and the tier rules are validated for. With no active
+// x_stream source api is nil and tier is "basic": rule changes are only
+// stored, and the stream syncs them with X when it next starts.
+func (s *Server) withXRules(ctx context.Context, fn func(api x.RuleAPI, tier string) error) error {
+	if s.xRules == nil {
+		return fn(nil, "basic")
+	}
+	return s.xRules.WithRules(ctx, fn)
 }

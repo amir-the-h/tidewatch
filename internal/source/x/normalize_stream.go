@@ -1,4 +1,4 @@
-package stream
+package x
 
 import (
 	"encoding/json"
@@ -55,7 +55,7 @@ type Event struct {
 func Normalize(data []byte) (*Event, error) {
 	var evt xStreamEvent
 	if err := json.Unmarshal(data, &evt); err != nil {
-		return nil, fmt.Errorf("stream: normalize: unmarshal event: %w", err)
+		return nil, fmt.Errorf("x_stream: normalize: unmarshal event: %w", err)
 	}
 
 	createdAt, err := time.Parse(time.RFC3339Nano, evt.Data.CreatedAt)
@@ -63,7 +63,7 @@ func Normalize(data []byte) (*Event, error) {
 		// Fallback: try without sub-second precision.
 		createdAt, err = time.Parse(time.RFC3339, evt.Data.CreatedAt)
 		if err != nil {
-			return nil, fmt.Errorf("stream: normalize: parse created_at %q: %w", evt.Data.CreatedAt, err)
+			return nil, fmt.Errorf("x_stream: normalize: parse created_at %q: %w", evt.Data.CreatedAt, err)
 		}
 	}
 

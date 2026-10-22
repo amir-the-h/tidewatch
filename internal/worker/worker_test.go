@@ -286,17 +286,6 @@ func (m *mockStore) ListDigestJobs(_ context.Context, _ int) ([]*model.DigestJob
 }
 func (m *mockStore) DeleteDigestJob(_ context.Context, _ string) error { return nil }
 
-// SearchJobs
-func (m *mockStore) SaveSearchJob(_ context.Context, _ *model.SearchJob) error { return nil }
-func (m *mockStore) GetSearchJob(_ context.Context, _ string) (*model.SearchJob, error) {
-	return nil, nil
-}
-func (m *mockStore) UpdateSearchJob(_ context.Context, _ *model.SearchJob) error { return nil }
-func (m *mockStore) ListSearchJobs(_ context.Context, _ int) ([]*model.SearchJob, error) {
-	return nil, nil
-}
-func (m *mockStore) DeleteSearchJob(_ context.Context, _ string) error { return nil }
-
 // Users
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error         { return nil }
 func (m *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error) { return nil, nil }
@@ -424,9 +413,6 @@ func (m *mockStore) BulkDeleteEntityCandidates(_ context.Context, _ store.BulkDe
 	return 0, nil
 }
 func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error) {
-	return 0, nil
-}
-func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSearchJobsFilter) (int64, error) {
 	return 0, nil
 }
 func (m *mockStore) BulkDeletePipelines(_ context.Context, _ store.BulkDeletePipelinesFilter) (int64, error) {

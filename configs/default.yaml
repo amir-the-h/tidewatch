@@ -1,5 +1,6 @@
-x:
-  tier: basic
+# X (stream and search) is configured as sources, not here:
+#   tidewatch source create --type x_stream --name "X stream" --set bearer_token=… --active
+# (see "tidewatch source types" for every connector's config fields).
 
 redis:
   addr: localhost:6379
@@ -45,23 +46,6 @@ ollama:
   #   - http://desktop:11434
   #   - http://macbook:11434
   # fast_wait_timeout: 5s                  # how long to wait for the fastest backend before falling back
-
-search:
-  enabled: false
-  interval: 15m
-  max_results: 100
-  limit: 0
-  tweet_fields:
-    - author_id
-    - created_at
-    - referenced_tweets
-    - text
-  user_fields:
-    - username
-  expansions:
-    - author_id
-    - referenced_tweets.id
-  start_time: ""
 
 # Twitter OAuth 2.0 PKCE — optional; enables retweet/like/quote actions.
 # Register callback_url in the Twitter developer portal.

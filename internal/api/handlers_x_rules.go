@@ -9,8 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/source/x"
 	"github.com/amir-the-h/tidewatch/internal/store"
-	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
 func (s *Server) handleListXRules(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +47,10 @@ func (s *Server) handleGetXRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
+	s.serveWithXRules(w, r, s.createXRule)
+}
+
+func (s *Server) createXRule(w http.ResponseWriter, r *http.Request, api x.RuleAPI, tier string) {
 	var req struct {
 		Name       string          `json:"name"`
 		Expression json.RawMessage `json:"expression"`
@@ -73,7 +77,7 @@ func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
 
 	resolver := s.makeResolver(r)
 	ruleResolver := s.makeRuleResolver(r)
-	validator := stream.NewRuleValidator(s.tier)
+	validator := x.NewRuleValidator(tier)
 
 	now := time.Now().UTC()
 	rule := &model.XRule{
@@ -89,7 +93,7 @@ func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		compiler := stream.NewRuleCompiler()
+		compiler := x.NewRuleCompiler()
 		compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -122,7 +126,7 @@ func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	compiler := stream.NewRuleCompiler()
+	compiler := x.NewRuleCompiler()
 	compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -137,11 +141,14 @@ func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	xRuleID, err := s.rules.AddRule(r.Context(), rule.Name, compiled)
-	if err != nil {
-		s.logger.Error("api: add x rule", "rule_id", rule.ID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to add stream rule to X")
-		return
+	xRuleID := ""
+	if api != nil {
+		xRuleID, err = api.AddRule(r.Context(), rule.Name, compiled)
+		if err != nil {
+			s.logger.Error("api: add x rule", "rule_id", rule.ID, "error", err)
+			writeError(w, http.StatusBadGateway, "failed to add stream rule to X: "+err.Error())
+			return
+		}
 	}
 	if err := s.store.SetXRuleActive(r.Context(), rule.ID, true, xRuleID); err != nil {
 		s.logger.Error("api: set rule active", "rule_id", rule.ID, "error", err)
@@ -158,6 +165,10 @@ func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateXRule(w http.ResponseWriter, r *http.Request) {
+	s.serveWithXRules(w, r, s.updateXRule)
+}
+
+func (s *Server) updateXRule(w http.ResponseWriter, r *http.Request, api x.RuleAPI, tier string) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
@@ -198,7 +209,7 @@ func (s *Server) handleUpdateXRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		validator := stream.NewRuleValidator(s.tier)
+		validator := x.NewRuleValidator(tier)
 		if existing.Local {
 			if err := validator.ValidateLocalRule(node, resolver, ruleResolver); err != nil {
 				writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -211,7 +222,7 @@ func (s *Server) handleUpdateXRule(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		compiler := stream.NewRuleCompiler()
+		compiler := x.NewRuleCompiler()
 		compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -223,18 +234,20 @@ func (s *Server) handleUpdateXRule(w http.ResponseWriter, r *http.Request) {
 		expressionChanged = true
 	}
 
-	if !existing.Local && existing.Active && expressionChanged {
+	// Without an active x_stream source the new value is synced when the
+	// stream next starts.
+	if api != nil && !existing.Local && existing.Active && expressionChanged {
 		if existing.XRuleID != "" {
-			if err := s.rules.DeleteRule(r.Context(), existing.XRuleID); err != nil {
+			if err := api.DeleteRule(r.Context(), existing.XRuleID); err != nil {
 				s.logger.Error("api: delete old x rule on update", "rule_id", id, "error", err)
-				writeError(w, http.StatusInternalServerError, "failed to update stream rule on X")
+				writeError(w, http.StatusBadGateway, "failed to update stream rule on X: "+err.Error())
 				return
 			}
 		}
-		xRuleID, err := s.rules.AddRule(r.Context(), existing.Name, existing.CompiledValue)
+		xRuleID, err := api.AddRule(r.Context(), existing.Name, existing.CompiledValue)
 		if err != nil {
 			s.logger.Error("api: add new x rule on update", "rule_id", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to update stream rule on X")
+			writeError(w, http.StatusBadGateway, "failed to update stream rule on X: "+err.Error())
 			return
 		}
 		existing.XRuleID = xRuleID
@@ -267,6 +280,10 @@ func (s *Server) handleUpdateXRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteXRule(w http.ResponseWriter, r *http.Request) {
+	s.serveWithXRules(w, r, s.deleteXRule)
+}
+
+func (s *Server) deleteXRule(w http.ResponseWriter, r *http.Request, api x.RuleAPI, tier string) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
@@ -290,10 +307,10 @@ func (s *Server) handleDeleteXRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !rule.Local && rule.Active && rule.XRuleID != "" {
-		if err := s.rules.DeleteRule(r.Context(), rule.XRuleID); err != nil {
+	if api != nil && !rule.Local && rule.Active && rule.XRuleID != "" {
+		if err := api.DeleteRule(r.Context(), rule.XRuleID); err != nil {
 			s.logger.Error("api: delete x rule", "rule_id", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to delete stream rule from X")
+			writeError(w, http.StatusBadGateway, "failed to delete stream rule from X: "+err.Error())
 			return
 		}
 	}
@@ -311,6 +328,10 @@ func (s *Server) handleDeleteXRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleActivateXRule(w http.ResponseWriter, r *http.Request) {
+	s.serveWithXRules(w, r, s.activateXRule)
+}
+
+func (s *Server) activateXRule(w http.ResponseWriter, r *http.Request, api x.RuleAPI, tier string) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
@@ -349,23 +370,26 @@ func (s *Server) handleActivateXRule(w http.ResponseWriter, r *http.Request) {
 	}
 	resolver := s.makeResolver(r)
 	ruleResolver := s.makeRuleResolver(r)
-	validator := stream.NewRuleValidator(s.tier)
+	validator := x.NewRuleValidator(tier)
 	if err := validator.Validate(node, resolver, ruleResolver); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "rule is no longer valid: "+err.Error())
 		return
 	}
-	compiler := stream.NewRuleCompiler()
+	compiler := x.NewRuleCompiler()
 	compiled, err := compiler.CompileWithRules(node, resolver, ruleResolver)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 
-	xRuleID, err := s.rules.AddRule(r.Context(), rule.Name, compiled)
-	if err != nil {
-		s.logger.Error("api: activate rule — add x rule", "rule_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to add stream rule to X")
-		return
+	xRuleID := ""
+	if api != nil {
+		xRuleID, err = api.AddRule(r.Context(), rule.Name, compiled)
+		if err != nil {
+			s.logger.Error("api: activate rule — add x rule", "rule_id", id, "error", err)
+			writeError(w, http.StatusBadGateway, "failed to add stream rule to X: "+err.Error())
+			return
+		}
 	}
 	if err := s.store.SetXRuleActive(r.Context(), id, true, xRuleID); err != nil {
 		s.logger.Error("api: activate rule — set active", "rule_id", id, "error", err)
@@ -382,6 +406,10 @@ func (s *Server) handleActivateXRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeactivateXRule(w http.ResponseWriter, r *http.Request) {
+	s.serveWithXRules(w, r, s.deactivateXRule)
+}
+
+func (s *Server) deactivateXRule(w http.ResponseWriter, r *http.Request, api x.RuleAPI, tier string) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
@@ -412,10 +440,10 @@ func (s *Server) handleDeactivateXRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rule.XRuleID != "" {
-		if err := s.rules.DeleteRule(r.Context(), rule.XRuleID); err != nil {
+	if api != nil && rule.XRuleID != "" {
+		if err := api.DeleteRule(r.Context(), rule.XRuleID); err != nil {
 			s.logger.Error("api: deactivate rule — delete x rule", "rule_id", id, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to remove stream rule from X")
+			writeError(w, http.StatusBadGateway, "failed to remove stream rule from X: "+err.Error())
 			return
 		}
 	}
@@ -438,9 +466,22 @@ func parseID(r *http.Request) (int64, error) {
 
 // handleBulkDeleteXRules DELETE /api/x/rules
 func (s *Server) handleBulkDeleteXRules(w http.ResponseWriter, r *http.Request) {
+	s.serveWithXRules(w, r, s.bulkDeleteXRules)
+}
+
+// bulkDeleteXRules deletes the matching rules, then removes the deleted ones
+// that were live from X. A rule X fails to drop is only logged: the next
+// stream start deletes whatever no rule claims.
+func (s *Server) bulkDeleteXRules(w http.ResponseWriter, r *http.Request, api x.RuleAPI, _ string) {
 	var f store.BulkDeleteXRulesFilter
 	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	before, err := s.store.ListXRules(r.Context(), store.XRuleFilter{})
+	if err != nil {
+		s.logger.Error("api: bulk delete rules — list", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to bulk delete rules")
 		return
 	}
 	n, err := s.store.BulkDeleteXRules(r.Context(), f)
@@ -449,5 +490,36 @@ func (s *Server) handleBulkDeleteXRules(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to bulk delete rules")
 		return
 	}
+	after, err := s.store.ListXRules(r.Context(), store.XRuleFilter{})
+	if err == nil {
+		s.broadcastEvent("x_rules", after)
+	}
+	if api != nil && err == nil {
+		kept := make(map[int64]bool, len(after))
+		for _, rule := range after {
+			kept[rule.ID] = true
+		}
+		for _, rule := range before {
+			if kept[rule.ID] || rule.Local || !rule.Active || rule.XRuleID == "" {
+				continue
+			}
+			if err := api.DeleteRule(r.Context(), rule.XRuleID); err != nil {
+				s.logger.Warn("api: bulk delete rules — delete x rule", "rule_id", rule.ID, "error", err)
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
+}
+
+// serveWithXRules runs an x_rules handler holding the rule-sync lock, with
+// the active x_stream source's rules API (nil when there is none).
+func (s *Server) serveWithXRules(w http.ResponseWriter, r *http.Request, h func(http.ResponseWriter, *http.Request, x.RuleAPI, string)) {
+	err := s.withXRules(r.Context(), func(api x.RuleAPI, tier string) error {
+		h(w, r, api, tier)
+		return nil
+	})
+	if err != nil {
+		s.logger.Error("api: x rules: find the x_stream source", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to find the x_stream source")
+	}
 }

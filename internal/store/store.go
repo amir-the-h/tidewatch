@@ -194,12 +194,6 @@ type BulkDeleteNotificationChannelsFilter struct {
 	ProviderID *int64
 }
 
-// BulkDeleteSearchJobsFilter defines filters for bulk-deleting search jobs.
-type BulkDeleteSearchJobsFilter struct {
-	IDs    []string
-	Status model.SearchJobStatus
-}
-
 // BulkDeleteDigestJobsFilter defines filters for bulk-deleting digest jobs.
 type BulkDeleteDigestJobsFilter struct {
 	IDs    []string
@@ -348,14 +342,6 @@ type Store interface {
 	ListDigestJobs(ctx context.Context, limit int) ([]*model.DigestJob, error)
 	DeleteDigestJob(ctx context.Context, id string) error
 	BulkDeleteDigestJobs(ctx context.Context, f BulkDeleteDigestJobsFilter) (int64, error)
-
-	// SearchJobs
-	SaveSearchJob(ctx context.Context, job *model.SearchJob) error
-	GetSearchJob(ctx context.Context, id string) (*model.SearchJob, error)
-	UpdateSearchJob(ctx context.Context, job *model.SearchJob) error
-	ListSearchJobs(ctx context.Context, limit int) ([]*model.SearchJob, error)
-	DeleteSearchJob(ctx context.Context, id string) error
-	BulkDeleteSearchJobs(ctx context.Context, f BulkDeleteSearchJobsFilter) (int64, error)
 
 	// Users
 	SaveUser(ctx context.Context, u *model.User) error

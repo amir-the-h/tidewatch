@@ -7,12 +7,9 @@ import (
 )
 
 var defaultTemplates = map[string]string{
-	EventSignalIngested:     `New signal from {{.Signal.Author}}: {{.Signal.Text}}`,
-	EventStreamConnected:    `Stream connected`,
-	EventStreamDisconnected: `Stream disconnected`,
-	EventStreamError:        `Stream error: {{.Error}}`,
-	EventDigestDone:         `Digest ready ({{.DigestJob.SignalCount}} signals): {{.DigestJob.Result}}`,
-	EventDigestFailed:       `Digest failed: {{.Error}}`,
+	EventSignalIngested: `New signal from {{.Signal.Author}}: {{.Signal.Text}}`,
+	EventDigestDone:     `Digest ready ({{.DigestJob.SignalCount}} signals): {{.DigestJob.Result}}`,
+	EventDigestFailed:   `Digest failed: {{.Error}}`,
 }
 
 func RenderMessage(event NotificationEvent, customTemplate *string) (string, error) {

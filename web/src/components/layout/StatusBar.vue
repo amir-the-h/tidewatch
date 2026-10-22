@@ -1,10 +1,10 @@
-<!-- Live system state: stream, queue, failures, workers, then the user. System state only, no page actions. -->
+<!-- Live system state: sources, queue, failures, workers, then the user. System state only, no page actions. -->
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { LogOutIcon, MenuIcon, WifiIcon, WifiOffIcon } from '@lucide/vue'
+import { LogOutIcon, MenuIcon } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
-import { useStreamStore } from '@/stores/stream'
+import { useSourceStatusStore } from '@/stores/sourceStatus'
 import { useQueuesStore } from '@/stores/queues'
 import { useFailuresStore } from '@/stores/failures'
 import { disconnect as wsDisconnect } from '@/composables/useWebSocket'
@@ -15,7 +15,7 @@ defineEmits<{ openMenu: [] }>()
 
 const router = useRouter()
 const auth = useAuthStore()
-const stream = useStreamStore()
+const sources = useSourceStatusStore()
 const queues = useQueuesStore()
 const failures = useFailuresStore()
 
@@ -32,12 +32,23 @@ const eta = computed(() => {
   return Math.max(t, o)
 })
 
-async function toggleStream() {
-  try {
-    if (stream.connected) await stream.disconnect()
-    else await stream.connect()
-  } catch { /* error visible via stream.error */ }
-}
+// Sources health until the Sources page (phase 1 step 6) gives it a link.
+const sourcesStatus = computed(() => {
+  if (sources.failing.length > 0) return 'destructive'
+  return sources.active.length > 0 ? 'success' : 'idle'
+})
+const sourcesLabel = computed(() => {
+  const n = sources.active.length
+  const label = `${n} ${n === 1 ? 'source' : 'sources'}`
+  const failing = sources.failing.length
+  return failing > 0 ? `${label} · ${failing} ${failing === 1 ? 'error' : 'errors'}` : label
+})
+const sourcesTooltip = computed(() => {
+  if (sources.failing.length === 0) return 'Active sources (tidewatch source status)'
+  return sources.failing.map(s => `${s.name}: ${s.last_error || s.state}`).join('\n')
+})
+
+onMounted(() => { if (auth.isAdmin) sources.fetch() })
 
 function logout() {
   wsDisconnect()
@@ -56,24 +67,9 @@ function logout() {
     </span>
 
     <template v-if="auth.isAdmin">
-      <div class="flex items-center gap-2">
-        <StatusIndicator :status="stream.connected ? 'success' : 'idle'">
-          {{ stream.connected ? 'Stream connected' : 'Stream disconnected' }}
-        </StatusIndicator>
-        <Tooltip :content="stream.connected ? 'Disconnect stream' : 'Connect stream'">
-          <Button
-            variant="ghost"
-            size="icon"
-            :loading="stream.loading"
-            :aria-label="stream.connected ? 'Disconnect stream' : 'Connect stream'"
-            @click="toggleStream"
-          >
-            <template #icon>
-              <component :is="stream.connected ? WifiOffIcon : WifiIcon" :stroke-width="1.75" />
-            </template>
-          </Button>
-        </Tooltip>
-      </div>
+      <Tooltip :content="sourcesTooltip">
+        <StatusIndicator :status="sourcesStatus">{{ sourcesLabel }}</StatusIndicator>
+      </Tooltip>
 
       <span class="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
 

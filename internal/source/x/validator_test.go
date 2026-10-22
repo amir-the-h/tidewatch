@@ -1,15 +1,15 @@
-package stream_test
+package x_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
-	"github.com/amir-the-h/tidewatch/internal/stream"
+	"github.com/amir-the-h/tidewatch/internal/source/x"
 )
 
 func TestValidateOK(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{AND: []model.ExprNode{
 		{Src: ptr[int64](1)}, // atom: from:BBCPersian
 		{Src: ptr[int64](4)}, // modifier: lang:fa
@@ -20,7 +20,7 @@ func TestValidateOK(t *testing.T) {
 }
 
 func TestValidateModifierOnly(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{Src: ptr[int64](4)} // lang:fa alone
 	if err := v.Validate(node, mockResolver(testSources), nil); err == nil {
 		t.Error("expected error for modifier-only rule")
@@ -28,7 +28,7 @@ func TestValidateModifierOnly(t *testing.T) {
 }
 
 func TestValidateInlineModifierOnly(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{Op: "is:retweet"}
 	if err := v.Validate(node, mockResolver(testSources), nil); err == nil {
 		t.Error("expected error for inline modifier-only rule")
@@ -36,7 +36,7 @@ func TestValidateInlineModifierOnly(t *testing.T) {
 }
 
 func TestValidateInlineAtomOnly(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{Op: "iran"}
 	if err := v.Validate(node, mockResolver(testSources), nil); err != nil {
 		t.Errorf("expected valid, got: %v", err)
@@ -44,7 +44,7 @@ func TestValidateInlineAtomOnly(t *testing.T) {
 }
 
 func TestValidateTooLong(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	src := &model.XTerm{ID: 99, Operator: "from:", Value: strings.Repeat("a", 1020), Class: model.XTermClassAtom}
 	sources := map[int64]*model.XTerm{99: src}
 	node := model.ExprNode{Src: ptr[int64](99)}
@@ -54,7 +54,7 @@ func TestValidateTooLong(t *testing.T) {
 }
 
 func TestValidateANDRequiresTwoChildren(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{AND: []model.ExprNode{{Src: ptr[int64](1)}}}
 	if err := v.Validate(node, mockResolver(testSources), nil); err == nil {
 		t.Error("expected error for AND with one child")
@@ -62,7 +62,7 @@ func TestValidateANDRequiresTwoChildren(t *testing.T) {
 }
 
 func TestValidateORRequiresTwoChildren(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{OR: []model.ExprNode{{Src: ptr[int64](1)}}}
 	if err := v.Validate(node, mockResolver(testSources), nil); err == nil {
 		t.Error("expected error for OR with one child")
@@ -70,7 +70,7 @@ func TestValidateORRequiresTwoChildren(t *testing.T) {
 }
 
 func TestValidateMissingSource(t *testing.T) {
-	v := stream.NewRuleValidator("basic")
+	v := x.NewRuleValidator("basic")
 	node := model.ExprNode{Src: ptr[int64](999)}
 	if err := v.Validate(node, mockResolver(testSources), nil); err == nil {
 		t.Error("expected error for missing source")

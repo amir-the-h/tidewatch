@@ -2,7 +2,7 @@
 
 Phase 1 of [vision.md](vision.md). It turns Tidewatch from an X monitor into a system where X is one source among many, and proves it with a second source type (RSS/Atom).
 
-**Status:** step 1 (schema reset and rename) and step 2 (connector framework) done; steps 3–7 not started. See [Step 1 notes](#step-1-notes) and [Step 2 notes](#step-2-notes) for where they depart from this design.
+**Status:** step 1 (schema reset and rename), step 2 (connector framework) and step 3 (X as connectors) done; steps 4–7 not started. See [Step 1 notes](#step-1-notes), [Step 2 notes](#step-2-notes) and [Step 3 notes](#step-3-notes) for where they depart from this design.
 
 ## Goals
 
@@ -445,6 +445,28 @@ What step 2 did differently from the design above, and what later steps inherit:
 - **API shape.** `PUT /api/sources/{id}` changes only the fields sent (`clear_poll_interval`, `clear_tier` reset those); the type can't change. Validation errors are 400, a duplicate name 409, more active sources than `MaxInstances` 400. MCP also has `sources_get`. Notification providers mask `app_token`, `user_key` and `bot_token` the same way.
 - **Shared HTTP client** sends `User-Agent: Tidewatch (+https://github.com/amir-the-h/tidewatch)`: the binary has no version string to include.
 - **Deferred:** source filters on digests and summaries go with step 5's trigger filters.
+
+### Step 3 notes
+
+What step 3 did differently from the design above, and what later steps inherit:
+
+- **Package.** Everything X lives in `internal/source/x` (package `x`): `Stream` (`x_stream`), `Search` (`x_search`), `NewXSignal`, both normalizers, the rule compiler and validator, and the rules API client (`RuleManager`, interface `RuleAPI`). `internal/stream` and `internal/search` are gone, and so are the shim and the search scheduler.
+- **Rule sync.** It's a reconcile, not a replay of individual changes. When `x_stream` starts, it lists X's rules. It keeps every active non-local `x_rule` whose `x_rule_id` is on X with the same value, adopts an unclaimed X rule with the same value, adds the rest, and deletes whatever no rule claims. While the stream runs, the `x_rules` handlers still add and delete single rules on X, through `Stream.WithRules`. That call finds the active `x_stream` source and holds the same mutex as the reconcile, so the two never race. With no active `x_stream` source, rule changes are only stored (activate clears `x_rule_id`), and the next stream start syncs them. A rule that X rejects during the reconcile is logged and left active with no `x_rule_id`. An X refusal through the API is now a 502 (it was 500). Bulk delete now also removes the deleted rules from X, which it never did before.
+- **`tier` config key.** Both connectors have a `tier` select (`basic`, `pro`, `enterprise`): the X API plan, labelled "X API tier". `enterprise` was added because the validator only raises the rule-length limit (1024 → 2048) for it. On `x_search`, `pro` and `enterprise` use full-archive search. The name overlaps with the source's 1–4 reliability `tier` column; step 6's form should label the two clearly.
+- **`x_search` details the design left open.**
+  - `query` and `rule_ids` are exclusive; with neither set, the source searches every active non-local rule, as the old scheduler did. `rule_ids` uses a new field type, `int_list`.
+  - The cursor is `{"since_ids": {"rule:<id>" | "query": "<newest_id>"}}`, and `start_time` is only sent until a query has a `since_id`.
+  - A query that fails keeps its old `since_id`, and the poll only fails when every query fails, so one broken rule can't make the others re-fetch.
+  - The default interval is 15 minutes and the minimum 5.
+  - A 429 sleeps until `x-rate-limit-reset` and retries once. The old client also did this on a successful response with `x-rate-limit-remaining: 0`, which threw that response away; that's fixed.
+  - `until_id` and the media, place and poll field lists from `/api/search/run` were not carried over.
+- **Stream connection.** `x_stream` has its own HTTP client (the shared one has a 60 s overall timeout): a 60 s header timeout, a 1 MB event limit and a 90 s idle watchdog, since X sends a keep-alive every 20 s. The old client never noticed a stalled connection. Reconnects are the manager's backoff; the connector's own retry loop is gone.
+- **Removed alongside.** The notifier events `stream_connected`, `stream_disconnected` and `stream_error` (the dispatcher only logged them), the `stream` field of `GET /api/health`, and the serve-time requirement for an X bearer token.
+- **UI until step 6** (decided with the user):
+  - The status bar's stream control became a read-only sources summary ("N sources · M errors", from `GET /api/sources/status` and the `source_status` event, in `stores/sourceStatus.ts`). Step 6 links it to the Sources page.
+  - The Signals page's Search tab was removed, and the Signals page has no tabs now. Backfills go through `tidewatch source backfill` or MCP `sources_backfill` until step 6's `x_search` backfill dialog.
+  - Sources are created with `tidewatch source create` or MCP.
+- **Web naming clash, left for step 6.** `web/src/stores/sources.ts` and `api/sources.ts` are still the X terms (rule atoms). The generic source status lives in `stores/sourceStatus.ts` and `api/sourceStatus.ts`.
 
 ## Testing
 

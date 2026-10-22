@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadEmpty_ReturnsDefaults(t *testing.T) {
-	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "")
+	t.Setenv("TIDEWATCH_REDIS_ADDR", "")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -23,11 +23,14 @@ func TestLoadEmpty_ReturnsDefaults(t *testing.T) {
 
 func TestLoadYAML_OverridesDefaults(t *testing.T) {
 	// Clear env vars so they don't override YAML values under test.
-	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "")
+	t.Setenv("TIDEWATCH_REDIS_ADDR", "")
 
 	content := `
+# Keys removed in phase 1 (x, stream, search) are ignored.
 x:
   bearer_token: "my-token"
+sqlite:
+  path: "/data/test.db"
 redis:
   addr: "redis:6380"
 `
@@ -40,8 +43,8 @@ redis:
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if cfg.X.BearerToken != "my-token" {
-		t.Errorf("expected X.BearerToken=my-token, got %q", cfg.X.BearerToken)
+	if cfg.SQLite.Path != "/data/test.db" {
+		t.Errorf("expected SQLite.Path=/data/test.db, got %q", cfg.SQLite.Path)
 	}
 	if cfg.Redis.Addr != "redis:6380" {
 		t.Errorf("expected Redis.Addr=redis:6380, got %q", cfg.Redis.Addr)
@@ -56,7 +59,7 @@ redis:
 }
 
 func TestLoadNonExistentPath_ReturnsDefaults(t *testing.T) {
-	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "")
+	t.Setenv("TIDEWATCH_REDIS_ADDR", "")
 
 	cfg, err := Load("nonexistent-path.yaml")
 	if err != nil {
@@ -70,15 +73,15 @@ func TestLoadNonExistentPath_ReturnsDefaults(t *testing.T) {
 	}
 }
 
-func TestEnvVar_BearerToken(t *testing.T) {
-	t.Setenv("TIDEWATCH_X_BEARER_TOKEN", "env-token")
+func TestEnvVar_RedisAddr(t *testing.T) {
+	t.Setenv("TIDEWATCH_REDIS_ADDR", "redis:6390")
 
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
-	if cfg.X.BearerToken != "env-token" {
-		t.Errorf("expected X.BearerToken=env-token, got %q", cfg.X.BearerToken)
+	if cfg.Redis.Addr != "redis:6390" {
+		t.Errorf("expected Redis.Addr=redis:6390, got %q", cfg.Redis.Addr)
 	}
 }
 

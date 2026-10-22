@@ -59,7 +59,7 @@ func newSourcesTestServer(t *testing.T, maxInstances int) (*Server, store.Store)
 	if err := mgr.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	srv := NewServer("127.0.0.1:0", st, nil, nil, nil, nil, nil, &mockRuleManager{}, nil, "basic", nil, 0, "", logger, nil, nil, nil, nil, nil, "", nil)
+	srv := NewServer("127.0.0.1:0", st, nil, nil, nil, nil, nil, nil, 0, "", logger, nil, nil, nil, nil, "", nil)
 	srv.WithSources(mgr)
 	return srv, st
 }

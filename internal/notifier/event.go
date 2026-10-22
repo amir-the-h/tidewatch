@@ -8,22 +8,16 @@ import (
 )
 
 const (
-	EventSignalIngested     = "signal_ingested"
-	EventStreamConnected    = "stream_connected"
-	EventStreamDisconnected = "stream_disconnected"
-	EventStreamError        = "stream_error"
-	EventDigestDone         = "digest_done"
-	EventDigestFailed       = "digest_failed"
+	EventSignalIngested = "signal_ingested"
+	EventDigestDone     = "digest_done"
+	EventDigestFailed   = "digest_failed"
 )
 
 // ValidEventTypes is the set of all valid event type values.
 var ValidEventTypes = map[string]bool{
-	EventSignalIngested:     true,
-	EventStreamConnected:    true,
-	EventStreamDisconnected: true,
-	EventStreamError:        true,
-	EventDigestDone:         true,
-	EventDigestFailed:       true,
+	EventSignalIngested: true,
+	EventDigestDone:     true,
+	EventDigestFailed:   true,
 }
 
 // NotificationEvent is the data emitted by components for the dispatcher.
@@ -38,7 +32,7 @@ type NotificationEvent struct {
 	Timestamp time.Time
 }
 
-// EventEmitter is the interface accepted by stream.Client and worker.Pool.
+// EventEmitter is the interface accepted by source.Ingester and worker.Manager.
 // Implementations must be safe for concurrent use. A nil EventEmitter is
 // valid — callers should check for nil before calling Emit.
 type EventEmitter interface {

@@ -9,7 +9,7 @@ import { usePipelinesStore } from '@/stores/pipelines'
 import { useSourcesStore } from '@/stores/sources'
 import { useEntitiesStore } from '@/stores/entities'
 import { useNotificationsStore } from '@/stores/notifications'
-import { useStreamStore } from '@/stores/stream'
+import { useSourceStatusStore } from '@/stores/sourceStatus'
 import { useFailuresStore } from '@/stores/failures'
 import { useAuthStore } from '@/stores/auth'
 import { useSignalsStore } from '@/stores/signals'
@@ -40,7 +40,8 @@ function buildHandlers() {
   const queuesStore = useQueuesStore()
   const ollamaStore = useOllamaStore()
   const executionsStore = useExecutionsStore()
-  const streamStore = useStreamStore()
+  const sourceStatusStore = useSourceStatusStore()
+  const authStore = useAuthStore()
   const failuresStore = useFailuresStore()
   const actionsStore = useActionsStore()
   const rulesStore = useRulesStore()
@@ -59,7 +60,9 @@ function buildHandlers() {
     worker_stats:           (p: any) => queuesStore.setWorkers(p.workers ?? []),
     queue_update:           (_: any) => scheduleQueueRefresh(),
     failed_count:           (p: any) => failuresStore.setTotal(p.count),
-    stream_status:          (p: any) => streamStore.setConnected(p.connected),
+    source_status:          (p: any) => sourceStatusStore.set(p),
+    // A created or deleted source changes the set; resync the statuses.
+    sources:                (_: any) => { if (authStore.isAdmin) void sourceStatusStore.fetch() },
     ollama_backends:        (p: any) => ollamaStore.setBackends(p),
     action_execution:       (p: any) => executionsStore.prepend(p),
     actions:                (p: any) => actionsStore.setAll(p),

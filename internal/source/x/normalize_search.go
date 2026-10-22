@@ -1,4 +1,4 @@
-package search
+package x
 
 import (
 	"encoding/json"
@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
-	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
 // xSearchResponse mirrors the X API v2 search response JSON structure.
@@ -63,7 +62,7 @@ type NormalizedPage struct {
 func NormalizeSearchResponse(body []byte) (*NormalizedPage, error) {
 	var resp xSearchResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("search: normalize: unmarshal response: %w", err)
+		return nil, fmt.Errorf("x_search: normalize: unmarshal response: %w", err)
 	}
 
 	// Build a lookup map for users by ID.
@@ -124,7 +123,7 @@ func NormalizeSearchResponse(body []byte) (*NormalizedPage, error) {
 		// Marshal just the individual tweet data object as RawJSON.
 		rawJSON, err := json.Marshal(d)
 		if err != nil {
-			return nil, fmt.Errorf("search: normalize: marshal raw tweet %s: %w", d.ID, err)
+			return nil, fmt.Errorf("x_search: normalize: marshal raw tweet %s: %w", d.ID, err)
 		}
 
 		var referenced map[string]string
@@ -135,7 +134,7 @@ func NormalizeSearchResponse(body []byte) (*NormalizedPage, error) {
 			referenced[ref.Type] = ref.ID
 		}
 
-		signals = append(signals, stream.NewXSignal(stream.XPost{
+		signals = append(signals, NewXSignal(XPost{
 			ID:         d.ID,
 			AuthorID:   d.AuthorID,
 			Handle:     authorHandle,

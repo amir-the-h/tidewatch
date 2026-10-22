@@ -59,3 +59,13 @@ func TestSourcesMigration(t *testing.T) {
 		t.Error("sources is created before the rule-atom table is renamed away")
 	}
 }
+
+func TestDropSearchJobsMigration(t *testing.T) {
+	content, err := FS.ReadFile("003_drop_search_jobs.sql")
+	if err != nil {
+		t.Fatalf("FS.ReadFile failed: %v", err)
+	}
+	if !strings.Contains(string(content), "DROP TABLE search_jobs") {
+		t.Error("003_drop_search_jobs.sql doesn't drop search_jobs")
+	}
+}

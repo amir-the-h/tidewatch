@@ -1,16 +1,16 @@
-package stream_test
+package x_test
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
-	"github.com/amir-the-h/tidewatch/internal/stream"
+	"github.com/amir-the-h/tidewatch/internal/source/x"
 )
 
 func ptr[T any](v T) *T { return &v }
 
-func mockResolver(sources map[int64]*model.XTerm) stream.SourceResolver {
+func mockResolver(sources map[int64]*model.XTerm) x.SourceResolver {
 	return func(id int64) (*model.XTerm, error) {
 		s, ok := sources[id]
 		if !ok {
@@ -29,7 +29,7 @@ var testSources = map[int64]*model.XTerm{
 }
 
 func TestCompileSingleSrc(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	result, err := c.Compile(model.ExprNode{Src: ptr[int64](1)}, mockResolver(testSources))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -40,7 +40,7 @@ func TestCompileSingleSrc(t *testing.T) {
 }
 
 func TestCompileInlineOp(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	result, err := c.Compile(model.ExprNode{Op: "is:retweet"}, mockResolver(testSources))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -51,7 +51,7 @@ func TestCompileInlineOp(t *testing.T) {
 }
 
 func TestCompileAND(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{AND: []model.ExprNode{{Src: ptr[int64](1)}, {Src: ptr[int64](3)}}}
 	result, err := c.Compile(node, mockResolver(testSources))
 	if err != nil {
@@ -63,7 +63,7 @@ func TestCompileAND(t *testing.T) {
 }
 
 func TestCompileOR(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{OR: []model.ExprNode{{Src: ptr[int64](1)}, {Src: ptr[int64](2)}}}
 	result, err := c.Compile(node, mockResolver(testSources))
 	if err != nil {
@@ -75,7 +75,7 @@ func TestCompileOR(t *testing.T) {
 }
 
 func TestCompileNOTSingleSource(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{NOT: &model.ExprNode{Src: ptr[int64](1)}}
 	result, err := c.Compile(node, mockResolver(testSources))
 	if err != nil {
@@ -87,7 +87,7 @@ func TestCompileNOTSingleSource(t *testing.T) {
 }
 
 func TestCompileNOTOfOR(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{NOT: &model.ExprNode{OR: []model.ExprNode{{Src: ptr[int64](1)}, {Src: ptr[int64](2)}}}}
 	result, err := c.Compile(node, mockResolver(testSources))
 	if err != nil {
@@ -99,7 +99,7 @@ func TestCompileNOTOfOR(t *testing.T) {
 }
 
 func TestCompileNOTOfAND(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{NOT: &model.ExprNode{AND: []model.ExprNode{{Src: ptr[int64](1)}, {Src: ptr[int64](3)}}}}
 	result, err := c.Compile(node, mockResolver(testSources))
 	if err != nil {
@@ -111,7 +111,7 @@ func TestCompileNOTOfAND(t *testing.T) {
 }
 
 func TestCompileNOTOfInlineOp(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{NOT: &model.ExprNode{Op: "is:retweet"}}
 	result, err := c.Compile(node, mockResolver(testSources))
 	if err != nil {
@@ -123,7 +123,7 @@ func TestCompileNOTOfInlineOp(t *testing.T) {
 }
 
 func TestCompileComplex(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	node := model.ExprNode{AND: []model.ExprNode{
 		{OR: []model.ExprNode{{Src: ptr[int64](1)}, {Src: ptr[int64](2)}}},
 		{Src: ptr[int64](4)},
@@ -139,7 +139,7 @@ func TestCompileComplex(t *testing.T) {
 }
 
 func TestCompileMissingSource(t *testing.T) {
-	c := stream.NewRuleCompiler()
+	c := x.NewRuleCompiler()
 	_, err := c.Compile(model.ExprNode{Src: ptr[int64](99)}, mockResolver(testSources))
 	if err == nil {
 		t.Error("expected error for missing source")

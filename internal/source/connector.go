@@ -33,6 +33,7 @@ const (
 	FieldURL        FieldType = "url"
 	FieldSelect     FieldType = "select" // one of Options
 	FieldStringList FieldType = "string_list"
+	FieldIntList    FieldType = "int_list"
 )
 
 // Field describes one key of a connector's config JSON.
