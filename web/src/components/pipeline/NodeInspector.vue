@@ -51,9 +51,6 @@ const meta = computed(() => {
   return kindMeta.internal
 })
 
-// Run-from-node needs a saved node id; nodes added since the last save have client ids.
-const canRun = computed(() => !!props.node && /^\d+$/.test(props.node.id))
-
 const conditions = computed<PipelineCondition[]>(() => props.node?.data.conditions ?? [])
 
 function set(field: 'label' | 'actionId' | 'subPipelineId', value: unknown) {
@@ -182,13 +179,10 @@ const handleLabel = (h: string | null | undefined) => (h === 'pass' ? 'Pass' : h
     </div>
 
     <div v-if="node.type !== 'start'" class="flex flex-col gap-2 border-t border-border p-4">
-      <Button v-if="node.type === 'action' || node.type === 'pipeline'" variant="outline" :disabled="!canRun" @click="emit('runFrom')">
+      <Button v-if="node.type === 'action' || node.type === 'pipeline'" variant="outline" @click="emit('runFrom')">
         <template #icon><PlayIcon :stroke-width="1.75" /></template>
         Run from here
       </Button>
-      <p v-if="(node.type === 'action' || node.type === 'pipeline') && !canRun" class="m-0 text-small text-muted-foreground">
-        Save the pipeline to run from this node.
-      </p>
       <Button variant="destructive" @click="emit('deleteNode')">
         <template #icon><Trash2Icon :stroke-width="1.75" /></template>
         Delete node

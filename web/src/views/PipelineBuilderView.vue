@@ -286,15 +286,41 @@ const runOpen      = ref(false)
 const runNodeId    = ref<string | null>(null)
 const runNodeLabel = ref('')
 
+// The backfill runs the saved graph, so unsaved changes are saved first (Run from here → save prompt).
+const saveBeforeRunOpen = ref(false)
+let pendingRunNodeId: string | null = null
+
 function openRunFrom() {
   if (!selectedNodeId.value) return
-  runNodeId.value    = selectedNodeId.value
-  runNodeLabel.value = nodeLabel(selectedNodeId.value)
+  if (isDirty.value) {
+    pendingRunNodeId = selectedNodeId.value
+    saveBeforeRunOpen.value = true
+    return
+  }
+  showRunDialog(selectedNodeId.value)
+}
+
+function showRunDialog(nodeId: string) {
+  runNodeId.value    = nodeId
+  runNodeLabel.value = nodeLabel(nodeId)
   runOpen.value      = true
 }
 
+async function onSaveAndRun() {
+  const nodeId = pendingRunNodeId
+  if (!nodeId) return
+  // Saving replaces every node row, so find the node again by its position in the request.
+  const index = nodes.value.findIndex(n => n.id === nodeId)
+  const saved = await onSave()
+  saveBeforeRunOpen.value = false
+  pendingRunNodeId = null
+  const savedNode = saved?.nodes[index]
+  if (savedNode) showRunDialog(String(savedNode.id))
+}
+
 // ── Save / discard ────────────────────────────────────────────────────────────
-async function onSave() {
+// Resolves the saved graph (nodes in request order), or null when saving failed.
+async function onSave(): Promise<PipelineGraph | null> {
   saving.value = true
   try {
     const { nodeRequests, edgeRequests } = toSaveRequest(nodes.value, edges.value)
@@ -303,8 +329,10 @@ async function onSave() {
     setGraph(saved)
     isDirty.value = false
     toast.success('Saved pipeline')
+    return saved
   } catch (e: unknown) {
     toast.error(`Could not save pipeline: ${errorMessage(e)}`)
+    return null
   } finally {
     saving.value = false
   }
@@ -472,6 +500,16 @@ watch(pipelineId, load, { immediate: true })
       :pipeline-id="pipelineId"
       :node-id="runNodeId"
       :node-label="runNodeLabel"
+    />
+
+    <AlertDialog
+      v-model:open="saveBeforeRunOpen"
+      title="Save before running?"
+      description="Running from a node uses the saved pipeline. Save your changes first so the run matches the canvas."
+      action-label="Save and continue"
+      variant="default"
+      :loading="saving"
+      @confirm="onSaveAndRun"
     />
 
     <AlertDialog
