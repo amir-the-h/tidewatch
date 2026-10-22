@@ -22,8 +22,9 @@ See [`docs/examples/geopolitical-monitoring`](docs/examples/geopolitical-monitor
 ## Architecture
 
 ```
-X Filtered Stream (SSE) ─┐   X search backfill ─┐   sources (source.Manager: stream / poll connectors)
-                         ▼                      ▼          ▼
+sources (source.Manager: x_stream = X Filtered Stream, x_search = X search, …)
+                         │ connectors emit signals
+                         ▼
                   source.Ingester ── saves each item as a signal in SQLite (deduped by ext_ns + external_id),
                          │           records which source saw it (signal_sources)
                          │ new signals: LPUSH one Task per linked new_signal pipeline entry
@@ -53,7 +54,7 @@ Every task an action runs gets a flat context map: the outputs of earlier action
 |---|---|
 | `signal_id` | integer signal ID |
 | `signal_kind` | `post` or `article` |
-| `source_id`, `source_name`, `source_type`, `source_tier` | the source that dispatched the signal; on reprocess and pipeline-run backfills, the first source that saw it. X signals have only `source_type` (`x_stream`, `x_search`) until X becomes a connector; `source_tier` is absent for unrated sources |
+| `source_id`, `source_name`, `source_type`, `source_tier` | the source that dispatched the signal; on reprocess and pipeline-run backfills, the first source that saw it; `source_tier` is absent for unrated sources |
 | `author`, `title`, `text`, `url`, `lang`, `published_at` | from the signal (`title` is empty for posts) |
 | `text_short` | `text` cut to 280 characters (`title` when there is no text) |
 | X signals only | `x_tweet_id`, `x_author_id`, `x_referenced` (retweeted/quoted/replied_to IDs), `x_rule_ids` |
@@ -62,12 +63,12 @@ ONNX and Ollama actions receive the text for posts and `title + "\n\n" + text` f
 
 ## Quickstart (Docker)
 
-Requirements: Docker, an X API bearer token with Filtered Stream access. Optional: an [Ollama](https://ollama.com) server, an NVIDIA GPU.
+Requirements: Docker, an X API bearer token (Filtered Stream access for `x_stream`). Optional: an [Ollama](https://ollama.com) server, an NVIDIA GPU.
 
 ```bash
 git clone https://github.com/amir-the-h/tidewatch && cd tidewatch
 cp .env.example .env
-# edit .env: TIDEWATCH_X_BEARER_TOKEN, TIDEWATCH_AUTH_JWT_SECRET (openssl rand -hex 32),
+# edit .env: TIDEWATCH_AUTH_JWT_SECRET (openssl rand -hex 32),
 #            TIDEWATCH_AUTH_ADMIN_PASSWORD
 
 # (optional) prepare a Nominatim extract for reverse geocoding
@@ -79,7 +80,22 @@ docker compose up -d --build                 # CPU
 
 Open http://localhost:3000 and sign in as the admin user. ONNX models go in `./models` (download with the HuggingFace `hf` CLI); Ollama backends are added at runtime from the UI.
 
-Later schema changes are numbered migrations (`002_sources.sql`, …) that apply on startup.
+X is configured as sources. Until the Sources page arrives, create them with the CLI (or the MCP `sources_create` tool):
+
+```bash
+tidewatch auth login --username admin --password …
+tidewatch source create --type x_stream --name "X stream" --set bearer_token=$X_BEARER_TOKEN --set tier=pro --active
+tidewatch source create --type x_search --name "X search" --set bearer_token=$X_BEARER_TOKEN --active   # optional
+tidewatch source status
+```
+
+An active `x_stream` source is a connected stream: it syncs the active X rules to X when it starts and stays connected (reconnecting with backoff) until it is deactivated.
+
+Later schema changes are numbered migrations (`002_sources.sql`, `003_drop_search_jobs.sql`, …) that apply on startup.
+
+### Upgrading from phase 1 step 2
+
+`x.bearer_token`, `x.tier`, `stream.auto_connect` and the `search.*` block (and `TIDEWATCH_X_BEARER_TOKEN`, `TIDEWATCH_X_TIER`, `TIDEWATCH_STREAM_AUTO_CONNECT`) are gone and ignored if still set. Create an `x_stream` source with the bearer token (and an `x_search` source if the search scheduler was enabled) as above.
 
 ### Upgrading from v0.2 or earlier
 
@@ -94,9 +110,6 @@ Docker is the preferred way to build and run tidewatch. Native builds require Go
 The server reads a YAML config (`configs/default.yaml`, copied into the image as `/configs/config.yaml`); every key can be overridden with a `TIDEWATCH_*` environment variable.
 
 ```yaml
-x:
-  tier: basic          # "basic" or "pro"
-
 redis:
   addr: localhost:6379
   db: 0
@@ -133,23 +146,12 @@ twitter:               # optional: OAuth 2.0 PKCE for retweet/like/quote actions
 log:
   level: info          # debug | info | warn | error
   format: text         # text | json
-
-stream:
-  auto_connect: false  # auto-connect to X stream on startup
-
-search:
-  enabled: false
-  interval: 15m
-  max_results: 100
-  limit: 0
 ```
 
 Key environment variables:
 
 | Env var | Config field |
 |---|---|
-| `TIDEWATCH_X_BEARER_TOKEN` | `x.bearer_token` |
-| `TIDEWATCH_X_TIER` | `x.tier` |
 | `TIDEWATCH_REDIS_ADDR` | `redis.addr` |
 | `TIDEWATCH_REDIS_PASSWORD` | `redis.password` |
 | `TIDEWATCH_SQLITE_PATH` | `sqlite.path` |
@@ -167,7 +169,6 @@ Key environment variables:
 | `TIDEWATCH_TWITTER_CALLBACK_URL` | `twitter.callback_url` |
 | `TIDEWATCH_LOG_LEVEL` | `log.level` |
 | `TIDEWATCH_LOG_FORMAT` | `log.format` |
-| `TIDEWATCH_STREAM_AUTO_CONNECT` | `stream.auto_connect` |
 
 UI container (`tidewatch-ui`) variables: `API_UPSTREAM` (backend URL, default `http://tidewatch:8080`), `API_BASE_URL` (default same-origin), `MAP_CENTER` (`"lat,lon"`) and `MAP_ZOOM` for the map's initial view, `UI_PORT` (host port, default `3000`).
 
@@ -187,7 +188,7 @@ tidewatch source create --type <type> --name "BBC World" --set url=https://… -
 tidewatch source update <id> --set key=value --interval 600
 tidewatch source activate|deactivate|delete <id>
 tidewatch source fetch <id>                 # poll once now
-tidewatch source backfill <id> --params '{…}'
+tidewatch source backfill <id> --params '{"start_time":"2026-10-01T00:00:00Z","end_time":"2026-10-08T00:00:00Z","limit":500}'   # x_search
 tidewatch source status
 tidewatch source runs <id>
 tidewatch source run <run-id>
@@ -247,17 +248,21 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 | `PUT` | `/api/users/{id}` | Update user (admin) |
 | `DELETE` | `/api/users/{id}` | Delete user (admin) |
 
-### Health & Stream
+### Health
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/health` | Health check |
 | `GET` | `/api/ws` | WebSocket live-update feed (`?token=<jwt>`) |
-| `GET` | `/api/stream/status` | Stream connection status |
-| `POST` | `/api/stream/connect` | Connect to X filtered stream |
-| `POST` | `/api/stream/disconnect` | Disconnect from X filtered stream |
 
 ### Sources
-A source is a configured instance of a connector type (admin only). Active sources run in the server: stream sources stay connected and restart with backoff (5 s doubling to 5 min), poll sources are fetched every interval ±10%. Secret config fields come back as `"••••"`; a `PUT` that sends `"••••"` keeps the stored value. Connector types are registered in code (X and RSS connectors arrive later in phase 1).
+A source is a configured instance of a connector type (admin only). Active sources run in the server: stream sources stay connected and restart with backoff (5 s doubling to 5 min), poll sources are fetched every interval ±10%. Secret config fields come back as `"••••"`; a `PUT` that sends `"••••"` keeps the stored value. Connector types are registered in code; the RSS connector arrives later in phase 1.
+
+| Type | Mode | Config | Notes |
+|---|---|---|---|
+| `x_stream` | stream | `bearer_token` (secret, required), `tier` (`basic`, `pro`, `enterprise`: the X API plan) | X Filtered Stream; at most one active. Syncs the active non-local X rules to X when it starts (keeps matching ones, adopts rules already on X by value, adds the rest, deletes rules nothing claims); rule changes through `/api/x/rules` reach X through it. A connection silent for 90 s is dropped and reconnected |
+| `x_search` | poll (default 15 min, minimum 5 min) | `bearer_token` (secret, required), `tier` (`pro`/`enterprise` use full-archive search), `query` or `rule_ids` (neither = every active non-local rule), `max_results`, `limit` (per query per poll), `start_time` (until a query has a `since_id`), `tweet_fields`, `user_fields`, `expansions` | The cursor keeps the newest tweet ID per query, so restarts don't re-fetch. A poll fails only when every query fails. Backfill params: `start_time`, `end_time` (RFC 3339), `limit` |
+
+Both emit `kind=post` signals in the `x` namespace, so a tweet seen by both is stored once with two `signal_sources` rows.
 
 | Method | Path | Description |
 |---|---|---|
@@ -293,8 +298,10 @@ Terms are the rule atoms (keyword, hashtag, `from:` account…) that X Filtered 
 | `PUT` | `/api/x/rules/{id}` | Update a rule |
 | `DELETE` | `/api/x/rules/{id}` | Delete a rule |
 | `DELETE` | `/api/x/rules` | Bulk delete rules |
-| `POST` | `/api/x/rules/{id}/activate` | Activate a rule (syncs to X) |
-| `POST` | `/api/x/rules/{id}/deactivate` | Deactivate a rule (removes from X) |
+| `POST` | `/api/x/rules/{id}/activate` | Activate a rule (adds it on X) |
+| `POST` | `/api/x/rules/{id}/deactivate` | Deactivate a rule (removes it from X) |
+
+Changes to non-local rules reach X through the active `x_stream` source (a refusal from X is a `502`). With no active `x_stream` source they are only stored, and the stream syncs them when it next starts. Rule length is validated for that source's `tier` (`basic` without one).
 
 ### Signals
 A signal is one ingested item (an X post today; RSS articles later in phase 1). `{id}` is the integer signal ID; the upstream ID (e.g. the tweet ID) is `external_id`.
@@ -440,13 +447,9 @@ Provider credentials (`app_token`, `user_key`, `bot_token`) come back as `"•�
 | `DELETE` | `/api/digest/{id}` | Delete a digest job |
 | `DELETE` | `/api/digest` | Bulk delete digest jobs |
 
-### Search & Map
+### Map
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/search/run` | Trigger a backfill search |
-| `GET` | `/api/search/{id}` | Get search job status |
-| `DELETE` | `/api/search/{id}` | Delete a search job |
-| `DELETE` | `/api/search` | Bulk delete search jobs |
 | `GET` | `/api/map` | List geo-event pins |
 
 ### Queue & Failures
@@ -484,11 +487,10 @@ internal/
                           reverse_geocoder, twitter_*, notification_*, entity_discovery)
   twitter/              → Twitter OAuth 2.0 PKCE client + API calls (Retweet/Like/Quote)
   source/               → Connector framework: registry, manager (supervised source goroutines), shared ingest
-  stream/               → X Filtered Stream SSE client
+    x/                  → X connectors (x_stream, x_search), rule compiler, validator, rules API client
   worker/               → Worker Manager + ActionCache (hot-reloadable)
   api/                  → REST API (chi)
   notifier/             → Async push notifications (Pushover, Telegram, Discord Bot)
-  search/               → X search API backfill scheduler
   transform/            → Output transforms (e.g. NER entity grouping)
   auth/                 → JWT (HS256) + bcrypt helpers + HTTP middleware
   hub/                  → WebSocket hub (fan-out broadcaster)
