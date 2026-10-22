@@ -1,0 +1,75 @@
+/* Vue Flow canvas chrome on the Pipeline builder, styled from the tokens in styles/main.css.
+   Replaces @vue-flow/core's theme-default.css; scoped under .tw-flow (the VueFlow root). Edge strokes are
+   set per edge from token() in builderGraph.ts, since Vue Flow writes them as inline SVG styles. */
+
+.tw-flow.vue-flow {
+  background: var(--background);
+  font-family: var(--font-sans);
+}
+
+.tw-flow .vue-flow__node {
+  cursor: pointer;
+}
+.tw-flow .vue-flow__node.selectable:focus,
+.tw-flow .vue-flow__node.selectable:focus-visible {
+  outline: none;
+}
+
+/* Selected node: foreground border, as on the Tracker graph. */
+.tw-flow .vue-flow__node.selected .tw-node {
+  border-color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+/* "+" after a connected output shows on hover, on keyboard focus and on the selected node (touch). */
+.tw-flow .tw-add-step-connected {
+  opacity: 0;
+}
+.tw-flow .vue-flow__node:hover .tw-add-step-connected,
+.tw-flow .vue-flow__node.selected .tw-add-step-connected,
+.tw-flow .tw-add-step-connected:focus-visible {
+  opacity: 1;
+}
+
+/* Handles: coloured like the edges they start. */
+.tw-flow .vue-flow__handle {
+  width: 10px;
+  height: 10px;
+  background: var(--input);
+  border: 2px solid var(--background);
+  border-radius: 100%;
+}
+.tw-flow .vue-flow__handle.tw-handle-pass {
+  background: var(--success);
+}
+.tw-flow .vue-flow__handle.tw-handle-fail {
+  background: var(--destructive);
+}
+.tw-flow .vue-flow__handle.connectable:hover {
+  border-color: var(--foreground);
+}
+
+/* Edges */
+.tw-flow .vue-flow__edge-path,
+.tw-flow .vue-flow__connection-path {
+  stroke: var(--input);
+  stroke-width: 1.5;
+}
+.tw-flow .vue-flow__edge.selected .vue-flow__edge-path,
+.tw-flow .vue-flow__edge:focus .vue-flow__edge-path,
+.tw-flow .vue-flow__edge:focus-visible .vue-flow__edge-path {
+  stroke-width: 3;
+}
+.tw-flow .vue-flow__edge-textbg {
+  fill: var(--popover);
+}
+.tw-flow .vue-flow__edge-text {
+  fill: var(--popover-foreground);
+  font-size: 11px;
+}
+
+/* Drag-to-select rectangle */
+.tw-flow .vue-flow__nodesselection-rect,
+.tw-flow .vue-flow__selection {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border: 1px dashed var(--primary);
+}

@@ -1,71 +1,46 @@
 <script setup lang="ts">
-import { Handle, Position } from '@vue-flow/core'
-import { NTag, NText } from 'naive-ui'
+import { computed } from 'vue'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
+import AddStepButton from './AddStepButton.vue'
+import NodeHeader from './NodeHeader.vue'
+import { kindMeta, useBuilder } from './builderGraph'
 
 const props = defineProps<{
   id: string
-  data: {
-    label: string
-    subPipelineId?: number
-    subPipelineName?: string
-    onRunFromNode?: (id: string) => void
-  }
-  selected?: boolean
+  data: { label: string; subPipelineId?: number | null }
 }>()
+
+const { edges, removeEdges } = useVueFlow()
+const { pipelines } = useBuilder()
+
+const sub       = computed(() => (props.data.subPipelineId ? pipelines.value.get(props.data.subPipelineId) : undefined))
+const title     = computed(() => props.data.label || sub.value?.name || 'Sub-pipeline')
+const connected = computed(() => edges.value.some(e => e.source === props.id))
+
+function disconnectSource() {
+  const ids = edges.value.filter(e => e.source === props.id).map(e => e.id)
+  if (ids.length) removeEdges(ids)
+}
+
+function disconnectTarget() {
+  const ids = edges.value.filter(e => e.target === props.id).map(e => e.id)
+  if (ids.length) removeEdges(ids)
+}
 </script>
 
 <template>
-  <div :class="['pipeline-node', { selected }]">
-    <Handle type="target" :position="Position.Top" />
-    <div class="pipeline-node__header">
-      <NTag type="info" size="small" :bordered="false">pipeline</NTag>
-    </div>
-    <NText class="pipeline-node__name">{{ data.subPipelineName || `Pipeline #${data.subPipelineId}` }}</NText>
-    <div v-if="data.label" class="pipeline-node__label">{{ data.label }}</div>
-    <button
-      v-if="typeof data.onRunFromNode === 'function'"
-      class="run-from-btn"
-      title="Run from here"
-      @mousedown.stop
-      @click.stop="data.onRunFromNode(id)"
-    >▶</button>
-    <Handle type="source" :position="Position.Bottom" />
+  <div
+    class="tw-node group relative w-60 rounded-md border border-l-4 border-border bg-card px-3 py-2 text-card-foreground"
+    :class="[kindMeta.pipeline.border, { 'opacity-60': sub && !sub.active }]"
+  >
+    <Handle type="target" :position="Position.Left" id="input"
+      @contextmenu.prevent="disconnectTarget" />
+    <NodeHeader :meta="kindMeta.pipeline" :inactive="sub && !sub.active" />
+    <div class="mt-0.5 truncate font-semibold" :title="title">{{ title }}</div>
+    <div v-if="!sub" class="truncate text-small text-destructive">No pipeline selected</div>
+    <div v-else-if="sub.name !== title" class="truncate text-small text-muted-foreground">{{ sub.name }}</div>
+    <Handle type="source" :position="Position.Right" id="default"
+      @contextmenu.prevent="disconnectSource" />
+    <AddStepButton :node-id="id" handle="default" :connected="connected" />
   </div>
 </template>
-
-<style scoped>
-.pipeline-node {
-  position: relative;
-  background: #2d1b69;
-  border: 2px solid #7c3aed;
-  border-radius: 8px;
-  padding: 8px 12px;
-  min-width: 140px;
-  cursor: pointer;
-}
-.pipeline-node.selected { border-color: #a78bfa; }
-.pipeline-node__header { margin-bottom: 4px; }
-.pipeline-node__name { font-size: 13px; font-weight: 600; display: block; }
-.pipeline-node__label { font-size: 11px; color: #a0a0a0; margin-top: 2px; }
-.run-from-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: transparent;
-  border: none;
-  color: #a78bfa80;
-  cursor: pointer;
-  font-size: 10px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-}
-.pipeline-node:hover .run-from-btn {
-  opacity: 1;
-}
-.run-from-btn:hover {
-  color: #a78bfa;
-  background: #3d2a7a;
-}
-</style>

@@ -1,13 +1,27 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import type { PipelineCondition } from '../../api/pipelines'
+import AddStepButton from './AddStepButton.vue'
+import NodeHeader from './NodeHeader.vue'
+import { conditionSummary, kindMeta } from './builderGraph'
 
 const props = defineProps<{
   id: string
-  data: { label: string; conditions?: PipelineCondition[]; selected?: boolean }
+  data: { label: string; conditions?: PipelineCondition[] }
 }>()
 
 const { edges, removeEdges } = useVueFlow()
+
+const rules   = computed(() => (props.data.conditions ?? []).filter(c => c.key.trim()))
+const outputs = [
+  { handle: 'pass', label: 'Pass', text: 'text-success' },
+  { handle: 'fail', label: 'Fail', text: 'text-destructive' },
+] as const
+
+function isConnected(handle: string) {
+  return edges.value.some(e => e.source === props.id && e.sourceHandle === handle)
+}
 
 function disconnectHandle(handleId: string) {
   const ids = edges.value
@@ -23,31 +37,27 @@ function disconnectTarget() {
 </script>
 
 <template>
-  <div style="
-    padding: 8px 12px;
-    background: #1e1e2e; border: 1px solid #f9e2af;
-    transform: rotate(45deg); width: 100px; height: 100px;
-    display: flex; align-items: center; justify-content: center;
-    position: relative;
-  " :style="{ borderColor: data.selected ? '#cba6f7' : '#f9e2af' }">
+  <!-- Each output is its own row, so its handle and "+" centre on that row's right edge. -->
+  <div class="tw-node group relative w-60 rounded-md border border-l-4 border-border bg-card text-card-foreground" :class="kindMeta.condition.border">
     <Handle type="target" :position="Position.Left" id="input"
-      style="background: #585b70; left: -6px; top: 50%; transform: rotate(-45deg)"
       @contextmenu.prevent="disconnectTarget" />
-
-    <div style="transform: rotate(-45deg); text-align: center; font-size: 11px; color: #f9e2af;">
-      <div style="font-weight: 600">{{ data.label || 'Condition' }}</div>
-      <div v-if="data.conditions?.length" style="font-size: 10px; color: #a6adc8; margin-top: 2px">
-        {{ data.conditions.length }} rule{{ data.conditions.length !== 1 ? 's' : '' }}
+    <div class="px-3 pt-2">
+      <NodeHeader :meta="kindMeta.condition" />
+      <div class="mt-0.5 truncate font-semibold">{{ data.label || 'Condition' }}</div>
+      <div class="truncate font-mono text-small text-muted-foreground">
+        <template v-if="rules.length">
+          {{ conditionSummary(rules[0]) }}<span v-if="rules.length > 1"> +{{ rules.length - 1 }}</span>
+        </template>
+        <span v-else class="font-sans">No rules · always passes</span>
       </div>
     </div>
-
-    <!-- pass handle: right side -->
-    <Handle type="source" :position="Position.Right" id="pass"
-      style="background: #a6e3a1; right: -6px; top: 50%; transform: rotate(-45deg)"
-      @contextmenu.prevent="disconnectHandle('pass')" />
-    <!-- fail handle: bottom -->
-    <Handle type="source" :position="Position.Bottom" id="fail"
-      style="background: #f38ba8; bottom: -6px; left: 50%; transform: rotate(-45deg)"
-      @contextmenu.prevent="disconnectHandle('fail')" />
+    <div class="mt-1 border-t border-border">
+      <div v-for="out in outputs" :key="out.handle" class="relative flex h-6 items-center justify-end px-3 text-small" :class="out.text">
+        {{ out.label }}
+        <Handle type="source" :position="Position.Right" :id="out.handle" :class="`tw-handle-${out.handle}`"
+          @contextmenu.prevent="disconnectHandle(out.handle)" />
+        <AddStepButton :node-id="id" :handle="out.handle" :connected="isConnected(out.handle)" />
+      </div>
+    </div>
   </div>
 </template>

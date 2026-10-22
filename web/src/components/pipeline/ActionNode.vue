@@ -1,17 +1,27 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Handle, Position, useVueFlow } from '@vue-flow/core'
+import AddStepButton from './AddStepButton.vue'
+import NodeHeader from './NodeHeader.vue'
+import { actionDetail, kindMeta, useBuilder } from './builderGraph'
 
 const props = defineProps<{
   id: string
-  data: {
-    label: string
-    pipelineType?: string
-    selected?: boolean
-    onRunFromNode?: (id: string) => void
-  }
+  data: { label: string; actionId?: number | null }
 }>()
 
 const { edges, removeEdges } = useVueFlow()
+const { actions } = useBuilder()
+
+const action    = computed(() => (props.data.actionId ? actions.value.get(props.data.actionId) : undefined))
+const meta      = computed(() => kindMeta[action.value?.type ?? 'internal'])
+const title     = computed(() => props.data.label || action.value?.name || 'Action')
+const detail    = computed(() => {
+  const a = action.value
+  if (!a) return ''
+  return a.name !== title.value ? a.name : actionDetail(a)
+})
+const connected = computed(() => edges.value.some(e => e.source === props.id))
 
 function disconnectSource() {
   const ids = edges.value.filter(e => e.source === props.id).map(e => e.id)
@@ -25,53 +35,18 @@ function disconnectTarget() {
 </script>
 
 <template>
-  <div class="action-node" :style="{ borderColor: data.selected ? '#cba6f7' : '#585b70' }">
-    <Handle type="target" :position="Position.Left" id="input" style="background: #585b70"
+  <div
+    class="tw-node group relative w-60 rounded-md border border-l-4 border-border bg-card px-3 py-2 text-card-foreground"
+    :class="[meta.border, { 'opacity-60': action && !action.active }]"
+  >
+    <Handle type="target" :position="Position.Left" id="input"
       @contextmenu.prevent="disconnectTarget" />
-    <div style="font-weight: 600; margin-bottom: 2px">{{ data.label }}</div>
-    <div v-if="data.pipelineType" style="font-size: 10px; color: #6c7086">{{ data.pipelineType }}</div>
-    <button
-      v-if="typeof data.onRunFromNode === 'function'"
-      class="run-from-btn"
-      title="Run from here"
-      @mousedown.stop
-      @click.stop="data.onRunFromNode(id)"
-    >▶</button>
-    <Handle type="source" :position="Position.Right" id="default" style="background: #a6e3a1"
+    <NodeHeader :meta="meta" :inactive="action && !action.active" />
+    <div class="mt-0.5 truncate font-semibold" :title="title">{{ title }}</div>
+    <div v-if="!action" class="truncate text-small text-destructive">No action selected</div>
+    <div v-else-if="detail" class="truncate font-mono text-small text-muted-foreground" :title="detail">{{ detail }}</div>
+    <Handle type="source" :position="Position.Right" id="default"
       @contextmenu.prevent="disconnectSource" />
+    <AddStepButton :node-id="id" handle="default" :connected="connected" />
   </div>
 </template>
-
-<style scoped>
-.action-node {
-  position: relative;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #1e1e2e;
-  border: 1px solid #585b70;
-  min-width: 120px;
-  font-size: 12px;
-  color: #cdd6f4;
-}
-.run-from-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: transparent;
-  border: none;
-  color: #6c7086;
-  cursor: pointer;
-  font-size: 10px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-}
-.action-node:hover .run-from-btn {
-  opacity: 1;
-}
-.run-from-btn:hover {
-  color: #a6e3a1;
-  background: #313244;
-}
-</style>
