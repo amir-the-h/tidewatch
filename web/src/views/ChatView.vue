@@ -1,41 +1,51 @@
-<!-- web/src/views/ChatView.vue -->
+<!-- web/src/views/ChatView.vue — Chat page (admin only): multi-turn LLM assistant over a chat action's tools. -->
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onMounted } from 'vue'
-import { useMessage } from 'naive-ui'
-import { SendOutline, StopCircleOutline } from '@vicons/ionicons5'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
+import { AlertDialog, Button, Select, Skeleton } from '@/components/ui'
+import PageHeader from '../components/PageHeader.vue'
+import ChatComposer from '../components/chat/ChatComposer.vue'
+import ChatMessage from '../components/chat/ChatMessage.vue'
 import { useChatStore } from '../stores/chat'
 import { listActions, type Action } from '../api/actions'
 
-const msg   = useMessage()
 const store = useChatStore()
-
-const input      = ref('')
-const messagesEl = ref<HTMLElement | null>(null)
-const inputEl    = ref<HTMLTextAreaElement | null>(null)
 
 // ── Chat actions ─────────────────────────────────────────────────────────────
 
-const chatActions     = ref<Action[]>([])
-const actionsLoading  = ref(false)
+const chatActions    = ref<Action[]>([])
+const actionsLoading = ref(true)
 
 const actionOptions = computed(() =>
   chatActions.value.map(a => ({ label: a.name, value: String(a.id) }))
 )
+const selectedName = computed(() =>
+  chatActions.value.find(a => String(a.id) === store.selectedActionId)?.name ?? 'this action'
+)
+
+// One error block for both failures; failedOp says which one Retry repeats.
+const error    = ref<string | null>(null)
+const failedOp = ref<'load' | 'send' | null>(null)
+let lastContent = ''
+
+function fail(op: 'load' | 'send', e: unknown) {
+  failedOp.value = op
+  error.value = e instanceof Error ? e.message : String(e)
+}
 
 async function fetchChatActions() {
   actionsLoading.value = true
+  error.value = null
   try {
     const all = await listActions({ active: true })
-    chatActions.value = all.filter(
-      a => a.type === 'ollama' && a.config?.usecase === 'chat'
-    )
+    chatActions.value = all.filter(a => a.type === 'ollama' && a.config?.usecase === 'chat')
     // If nothing is selected yet (or the stored ID is no longer valid), pick first.
     const ids = chatActions.value.map(a => String(a.id))
     if (!ids.includes(store.selectedActionId) && chatActions.value.length > 0) {
       store.selectAction(String(chatActions.value[0].id))
     }
-  } catch (e: any) {
-    msg.error('Failed to load chat actions: ' + e.message)
+  } catch (e: unknown) {
+    fail('load', e)
   } finally {
     actionsLoading.value = false
   }
@@ -43,261 +53,124 @@ async function fetchChatActions() {
 
 onMounted(fetchChatActions)
 
-// ── Scroll to bottom on new messages or streaming content ──────────────────
+// ── Messages ─────────────────────────────────────────────────────────────────
+
+const messagesEl = ref<HTMLElement | null>(null)
+const composer   = ref<{ focus: () => void } | null>(null)
 
 function scrollToBottom() {
   nextTick(() => {
-    if (messagesEl.value) {
-      messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-    }
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
   })
 }
 watch(() => store.messages[store.messages.length - 1]?.content, scrollToBottom)
 watch(() => store.messages.length, scrollToBottom)
 
-// ── Send ──────────────────────────────────────────────────────────────────
-
-async function send() {
-  const content = input.value.trim()
-  if (!content || store.isStreaming) return
-  input.value = ''
+async function send(content: string) {
+  lastContent = content
+  error.value = null
   try {
     await store.sendMessage(content)
-  } catch (e: any) {
-    msg.error(e.message ?? 'Chat error')
+  } catch (e: unknown) {
+    fail('send', e)
   }
-  nextTick(() => inputEl.value?.focus())
+  nextTick(() => composer.value?.focus())
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    send()
-  }
+function retry() {
+  if (failedOp.value === 'send') send(lastContent)
+  else fetchChatActions()
 }
 
-function formatArgs(args: Record<string, unknown>): string {
-  return JSON.stringify(args, null, 2)
-}
+// ── Clear ────────────────────────────────────────────────────────────────────
+// Conversations live only in the Pinia store (memory), so clearing can't be undone.
 
-function truncateResult(result: string): string {
-  const max = 500
-  return result.length > max ? result.slice(0, max) + '…' : result
+const showClear = ref(false)
+
+function onConfirmClear() {
+  store.clearSession()
+  showClear.value = false
 }
 </script>
 
 <template>
-  <div style="
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 400px;
-  ">
-    <!-- Header bar -->
-    <div style="
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 0 0 12px 0;
-      flex-shrink: 0;
-    ">
-      <n-text style="font-size: 16px; font-weight: 600; color: #cdd6f4;">Chat</n-text>
+  <div class="flex h-full min-h-96 flex-col gap-4">
+    <PageHeader title="Chat" description="Ask an LLM assistant about your data; it looks things up with Tidewatch's tools.">
+      <div class="w-56">
+        <Select
+          :model-value="store.selectedActionId || null"
+          :options="actionOptions"
+          :loading="actionsLoading"
+          :disabled="store.isStreaming"
+          placeholder="Select a chat action"
+          @update:model-value="(v: string | null) => v && store.selectAction(v)"
+        />
+      </div>
+      <Button v-if="store.messages.length > 0" variant="outline" @click="showClear = true">Clear chat</Button>
+    </PageHeader>
 
-      <!-- Action selector -->
-      <n-select
-        :value="store.selectedActionId"
-        :options="actionOptions"
-        :loading="actionsLoading"
-        placeholder="Select a chat action…"
-        size="small"
-        style="width: 220px;"
-        :disabled="store.isStreaming"
-        @update:value="(v: string) => store.selectAction(v)"
-      />
-
-      <n-button
-        v-if="store.messages.length > 0"
-        size="small"
-        quaternary
-        style="margin-left: auto; color: #6c7086;"
-        @click="store.clearSession()"
-      >
-        Clear chat
-      </n-button>
-    </div>
-
-    <!-- No actions warning -->
-    <n-alert
-      v-if="!actionsLoading && chatActions.length === 0"
-      type="warning"
-      style="margin-bottom: 12px; flex-shrink: 0;"
-    >
-      No active chat actions found. Create an Ollama action with usecase "Chat" in the Pipelines page.
-    </n-alert>
-
-    <!-- Messages area -->
     <div
-      ref="messagesEl"
-      style="
-        flex: 1;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        padding-right: 4px;
-        margin-bottom: 12px;
-      "
+      v-if="error"
+      class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive p-4 text-small"
     >
-      <!-- Empty state -->
-      <div
-        v-if="store.messages.length === 0"
-        style="
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          color: #6c7086;
-        "
-      >
-        <n-text depth="3" style="font-size: 13px;">Ask anything about your tidewatch data…</n-text>
-        <n-text depth="3" style="font-size: 12px;">The assistant can query tweets, rules, pipelines, entities, and more.</n-text>
+      <span class="text-destructive">
+        {{ failedOp === 'send' ? 'Could not get a reply' : 'Could not load chat actions' }}: {{ error }}
+      </span>
+      <div class="flex items-center gap-2">
+        <Button variant="outline" @click="retry">Retry</Button>
+        <Button variant="ghost" @click="error = null">Dismiss</Button>
       </div>
+    </div>
 
-      <!-- Message bubbles -->
-      <div
-        v-for="(m, i) in store.messages"
-        :key="i"
-        :style="{
-          display: 'flex',
-          justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
-        }"
-      >
-        <div :style="{
-          maxWidth: '80%',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '6px',
-        }">
-          <!-- Tool steps (assistant only) -->
-          <template v-if="m.role === 'assistant'">
-            <details
-              v-for="(step, si) in m.toolSteps"
-              :key="si"
-              style="
-                font-size: 12px;
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 8px;
-                padding: 6px 10px;
-                background: rgba(255,255,255,0.03);
-                color: #a6adc8;
-                cursor: pointer;
-              "
-            >
-              <summary style="list-style: none; display: flex; align-items: center; gap: 6px; user-select: none;">
-                <span style="color: #89b4fa;">⚙</span>
-                <span>Called <code style="color: #cba6f7;">{{ step.name }}</code></span>
-              </summary>
-              <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
-                <div>
-                  <n-text depth="3" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;">Arguments</n-text>
-                  <pre style="margin: 4px 0 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #cdd6f4;">{{ formatArgs(step.args) }}</pre>
-                </div>
-                <div>
-                  <n-text depth="3" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;">Result</n-text>
-                  <pre style="margin: 4px 0 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #cdd6f4;">{{ truncateResult(step.result) }}</pre>
-                </div>
-              </div>
-            </details>
-          </template>
+    <div v-if="actionsLoading" class="flex flex-col gap-3">
+      <Skeleton class="h-16 w-2/3 rounded-lg" />
+      <Skeleton class="ml-auto h-10 w-1/3 rounded-lg" />
+    </div>
 
-          <!-- Message bubble -->
-          <div
-            v-if="m.role === 'user' || m.content || (store.isStreaming && i === store.messages.length - 1)"
-            :style="{
-              padding: '10px 14px',
-              borderRadius: m.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-              background: m.role === 'user' ? 'rgba(137,180,250,0.18)' : 'rgba(255,255,255,0.05)',
-              border: m.role === 'user' ? '1px solid rgba(137,180,250,0.25)' : '1px solid rgba(255,255,255,0.08)',
-              fontSize: '13px',
-              lineHeight: '1.6',
-              color: '#cdd6f4',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }"
-          >
-            <span v-if="m.content">{{ m.content }}</span>
-            <!-- Spinner while waiting for first chunk (no content yet) -->
-            <n-spin
-              v-if="!m.content && m.role === 'assistant' && store.isStreaming && i === store.messages.length - 1"
-              size="small"
-            />
-            <!-- Streaming cursor (shown after first token arrives) -->
-            <span
-              v-else-if="m.content && store.isStreaming && i === store.messages.length - 1 && m.role === 'assistant'"
-              style="
-                display: inline-block;
-                width: 2px; height: 14px;
-                background: #89b4fa;
-                margin-left: 2px;
-                vertical-align: text-bottom;
-                animation: blink 1s step-end infinite;
-              "
-            />
-          </div>
+    <div
+      v-else-if="chatActions.length === 0 && failedOp !== 'load'"
+      class="flex flex-col items-center gap-3 rounded-lg border border-border py-8 text-center"
+    >
+      <p class="m-0 text-muted-foreground">
+        No chat actions yet. Create an Ollama action with use case Chat on the Actions page to start a conversation.
+      </p>
+      <RouterLink to="/actions" custom v-slot="{ navigate }">
+        <Button variant="outline" @click="navigate">Go to Actions</Button>
+      </RouterLink>
+    </div>
+
+    <template v-else-if="chatActions.length > 0">
+      <div ref="messagesEl" class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+        <div
+          v-if="store.messages.length === 0"
+          class="flex flex-1 flex-col items-center justify-center gap-1 text-center text-muted-foreground"
+        >
+          <p class="m-0">Ask anything about your Tidewatch data.</p>
+          <p class="m-0 text-small">The assistant can query tweets, rules, pipelines, tracked entities and more.</p>
         </div>
+        <ChatMessage
+          v-for="(m, i) in store.messages"
+          :key="i"
+          :message="m"
+          :streaming="store.isStreaming && i === store.messages.length - 1"
+        />
       </div>
-    </div>
 
-    <!-- Input row -->
-    <div style="
-      flex-shrink: 0;
-      display: flex;
-      gap: 8px;
-      align-items: flex-end;
-      border-top: 1px solid rgba(255,255,255,0.08);
-      padding-top: 12px;
-    ">
-      <n-input
-        ref="inputEl"
-        v-model:value="input"
-        type="textarea"
-        :autosize="{ minRows: 1, maxRows: 5 }"
-        placeholder="Ask anything… (Enter to send, Shift+Enter for newline)"
-        style="flex: 1;"
-        :disabled="!store.selectedActionId || store.isStreaming"
-        @keydown="onKeydown"
+      <ChatComposer
+        ref="composer"
+        :disabled="!store.selectedActionId"
+        :streaming="store.isStreaming"
+        @send="send"
+        @stop="store.stopStreaming()"
       />
-      <n-tooltip v-if="!store.isStreaming" trigger="hover">
-        <template #trigger>
-          <n-button
-            type="primary"
-            :disabled="!input.trim() || !store.selectedActionId"
-            @click="send"
-          >
-            <template #icon><n-icon><SendOutline /></n-icon></template>
-          </n-button>
-        </template>
-        Send (Enter)
-      </n-tooltip>
-      <n-tooltip v-else trigger="hover">
-        <template #trigger>
-          <n-button type="error" @click="store.stopStreaming()">
-            <template #icon><n-icon><StopCircleOutline /></n-icon></template>
-          </n-button>
-        </template>
-        Stop generating
-      </n-tooltip>
-    </div>
+    </template>
+
+    <AlertDialog
+      v-model:open="showClear"
+      title="Clear this conversation?"
+      :description="`Removes the ${store.messages.length} messages exchanged with ${selectedName}${store.isStreaming ? ' and stops the reply in progress' : ''}. Conversations are only kept in this browser tab, so they can't be recovered.`"
+      action-label="Clear chat"
+      @confirm="onConfirmClear"
+    />
   </div>
 </template>
-
-<style scoped>
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
-}
-
-details > summary::-webkit-details-marker { display: none; }
-</style>

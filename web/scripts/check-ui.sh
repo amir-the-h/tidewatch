@@ -6,7 +6,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-CONVERTED="src/App.vue src/components/layout src/components/ui src/components/PageHeader.vue src/views/PipelinesView.vue src/components/tabs/PipelinesTab.vue src/components/tabs/TriggersTab.vue src/components/tabs/ExecutionsTab.vue src/views/SourcesView.vue src/components/tabs/SourcesTab.vue src/components/tabs/RulesTab.vue src/components/RuleExprBuilder.vue src/views/ActionsView.vue src/components/tabs/ActionsTab.vue src/components/tabs/OllamaTab.vue src/components/actions src/views/UsersView.vue src/views/TrackerView.vue src/components/tracker src/views/NotificationsView.vue src/components/notifications src/views/QueueView.vue src/components/queue src/views/TweetsView.vue src/components/tweets src/views/SummarizeView.vue src/components/digest src/views/LoginView.vue src/components/MarkdownContent.vue"
+CONVERTED="src/App.vue src/components/layout src/components/ui src/components/PageHeader.vue src/views/PipelinesView.vue src/components/tabs/PipelinesTab.vue src/components/tabs/TriggersTab.vue src/components/tabs/ExecutionsTab.vue src/views/SourcesView.vue src/components/tabs/SourcesTab.vue src/components/tabs/RulesTab.vue src/components/RuleExprBuilder.vue src/views/ActionsView.vue src/components/tabs/ActionsTab.vue src/components/tabs/OllamaTab.vue src/components/actions src/views/UsersView.vue src/views/TrackerView.vue src/components/tracker src/views/NotificationsView.vue src/components/notifications src/views/QueueView.vue src/components/queue src/views/TweetsView.vue src/components/tweets src/views/SummarizeView.vue src/components/digest src/views/LoginView.vue src/components/MarkdownContent.vue src/views/ChatView.vue src/components/chat"
 
 fail=0
 report() { echo "check-ui: $1"; echo "$2"; fail=1; }
