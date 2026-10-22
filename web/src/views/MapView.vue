@@ -1,229 +1,73 @@
+<!-- web/src/views/MapView.vue — Map page (viewers and admins): geo-event pins coloured by tweet date. -->
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-import { listMapPins, MAP_PAGE_SIZE } from '../api/map'
+import { ref } from 'vue'
+import { RouterLink } from 'vue-router'
+import { LoaderCircleIcon } from '@lucide/vue'
+import { Badge, Button } from '@/components/ui'
+import PageHeader from '../components/PageHeader.vue'
+import MapLegend from '../components/map/MapLegend.vue'
+import { usePinMap } from '../components/map/usePinMap'
+import { useAuthStore } from '../stores/auth'
 
-// Fix Leaflet's default icon paths broken by Vite bundling
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
-import markerIcon from 'leaflet/dist/images/marker-icon.png'
-import markerShadow from 'leaflet/dist/images/marker-shadow.png'
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({ iconUrl: markerIcon, iconRetinaUrl: markerIcon2x, shadowUrl: markerShadow })
-
-const mapEl    = ref<HTMLDivElement | null>(null)
-const loading  = ref(true)
-const pinCount = ref(0)
-const error    = ref<string | null>(null)
-const oldestDate = ref<string>('')
-const newestDate = ref<string>('')
-
-// Initial view comes from runtime config (MAP_CENTER="lat,lon", MAP_ZOOM) — defaults to a world view.
-const runtimeEnv = (window as Window & { __ENV__?: { MAP_CENTER?: string; MAP_ZOOM?: string } }).__ENV__ ?? {}
-const parsedCenter = (runtimeEnv.MAP_CENTER ?? '').split(',').map(Number)
-const initialCenter: L.LatLngExpression =
-  parsedCenter.length === 2 && parsedCenter.every(Number.isFinite) ? [parsedCenter[0], parsedCenter[1]] : [20, 0]
-const initialZoom = Number(runtimeEnv.MAP_ZOOM) || 2
-
-let map: L.Map | null = null
-
-// Maps a normalized t ∈ [0,1] (0=oldest, 1=newest) to a hex color
-// Spectrum: blue → cyan → green → yellow → red
-function tToColor(t: number): string {
-  const hue = Math.round((1 - t) * 240)
-  return `hsl(${hue},90%,60%)`
-}
-
-onMounted(async () => {
-  if (!mapEl.value) return
-
-  map = L.map(mapEl.value, {
-    center: initialCenter,
-    zoom: initialZoom,
-  })
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 18,
-  }).addTo(map)
-
-  try {
-    let offset = 0
-    let minMs = Infinity
-    let maxMs = -Infinity
-    const allMarkers: { marker: L.CircleMarker; ms: number }[] = []
-
-    while (true) {
-      const page = await listMapPins(MAP_PAGE_SIZE, offset)
-      if (!page || page.length === 0) break
-
-      // Update date range from this page
-      for (const pin of page) {
-        const ms = new Date(pin.tweet_created_at).getTime()
-        if (ms < minMs) minMs = ms
-        if (ms > maxMs) maxMs = ms
-      }
-      const range = maxMs - minMs
-
-      // Render this page's pins immediately
-      for (const pin of page) {
-        for (const coords of pin.coordinates ?? []) {
-          if (coords?.length !== 2) continue
-          const [lat, lon] = coords
-          const ms = new Date(pin.tweet_created_at).getTime()
-          const t = range === 0 ? 0.5 : (ms - minMs) / range
-          const color = tToColor(t)
-
-          const marker = L.circleMarker([lat, lon], {
-            radius: 6,
-            color,
-            fillColor: color,
-            fillOpacity: 0.85,
-            weight: 1.5,
-          })
-          marker.bindPopup(buildPopup(pin, color), { maxWidth: 280 })
-          marker.addTo(map!)
-          allMarkers.push({ marker, ms })
-        }
-      }
-
-      pinCount.value = allMarkers.length
-      if (minMs !== Infinity) {
-        oldestDate.value = fmtDate(new Date(minMs))
-        newestDate.value = fmtDate(new Date(maxMs))
-      }
-      loading.value = false
-
-      if (page.length === 0) break
-      offset += MAP_PAGE_SIZE
-      // yield to browser between pages
-      await new Promise(r => setTimeout(r, 0))
-    }
-
-    // Final recolor pass with the complete date range
-    const finalRange = maxMs - minMs
-    for (const { marker, ms } of allMarkers) {
-      const t = finalRange === 0 ? 0.5 : (ms - minMs) / finalRange
-      const color = tToColor(t)
-      marker.setStyle({ color, fillColor: color })
-    }
-  } catch (e: any) {
-    error.value = e?.message ?? 'Failed to load data'
-  } finally {
-    loading.value = false
-  }
-})
-
-onUnmounted(() => {
-  map?.remove()
-  map = null
-})
-
-function escHtml(s: string): string {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-}
-
-function fmtDate(d: Date): string {
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-// buildPopup returns the HTML string for a pin popup.
-// If the pin has a popup_template, ${key} placeholders are substituted with
-// HTML-escaped values from metadata and built-in variables.
-// Built-ins: ${tweet_id}, ${tweet_created_at}, ${model_name}.
-// Without a template the default layout is rendered.
-function buildPopup(pin: import('../api/map').MapPin, color: string): string {
-  const builtins: Record<string, string> = {
-    tweet_id:        pin.tweet_id,
-    tweet_created_at: fmtDate(new Date(pin.tweet_created_at)),
-    tweet_text:      pin.tweet_text ?? '',
-    model_name:      pin.model_name,
-  }
-  if (pin.popup_template) {
-    const vars = { ...pin.metadata, ...builtins }
-    return pin.popup_template.replace(/\$\{([^}]+)\}/g, (_, key: string) =>
-      key in vars ? escHtml(vars[key] ?? '') : `\${${key}}`
-    )
-  }
-  const lines: string[] = []
-  if (pin.metadata?.location_names) {
-    try {
-      const names: string[] = JSON.parse(pin.metadata.location_names)
-      const filtered = names.filter(n => n)
-      if (filtered.length) lines.push(`<span style="color:#89dceb;font-size:12px">📍 ${filtered.map(escHtml).join(' · ')}</span>`)
-    } catch { /* ignore parse errors */ }
-  }
-  if (pin.metadata?.description) lines.push(escHtml(pin.metadata.description))
-  if (pin.tweet_text) {
-    const truncated = pin.tweet_text.length > 120 ? pin.tweet_text.slice(0, 120) + '…' : pin.tweet_text
-    lines.push(`<span style="color:#cdd6f4;font-size:12px">${escHtml(truncated)}</span>`)
-  }
-  lines.push(`<a href="/tweets?tweet=${pin.tweet_id}" style="color:${color}">Tweet ${pin.tweet_id}</a>`)
-  lines.push(`<span style="color:#a6adc8;font-size:11px">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
-  lines.push(`<span style="color:#6c7086;font-size:11px">${escHtml(pin.model_name)}</span>`)
-  return lines.join('<br>')
-}
+const auth  = useAuthStore()
+const mapEl = ref<HTMLDivElement | null>(null)
+const { loading, pinCount, error, oldestDate, newestDate, loadPins } = usePinMap(mapEl)
 </script>
 
 <template>
-  <div style="display: flex; flex-direction: column; height: 100%;">
+  <div class="flex h-full min-h-0 flex-col">
+    <div class="px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
+      <PageHeader title="Map" description="Locations extracted from tweets, coloured by when the tweet was posted.">
+        <div class="flex flex-wrap items-center gap-3">
+          <MapLegend v-if="pinCount > 0 && oldestDate" :oldest="oldestDate" :newest="newestDate" />
+          <Badge v-if="pinCount > 0" variant="outline">
+            <span class="tabular">{{ pinCount.toLocaleString() }}</span>&nbsp;pin{{ pinCount === 1 ? '' : 's' }}
+          </Badge>
+          <span v-if="loading && pinCount > 0" class="flex items-center gap-1 text-small text-muted-foreground">
+            <LoaderCircleIcon class="size-3.5 animate-spin" :stroke-width="1.75" /> Loading more
+          </span>
+        </div>
+      </PageHeader>
 
-    <!-- Header bar -->
-    <div style="
-      display: flex; align-items: center; gap: 12px;
-      padding: 0 0 12px 0;
-      flex-shrink: 0;
-    ">
-      <h2 style="margin: 0; font-size: 16px; font-weight: 600; color: #cdd6f4;">Map</h2>
-      <span v-if="!loading" style="font-size: 12px; color: #a6adc8;">
-        {{ pinCount }} location{{ pinCount === 1 ? '' : 's' }}
-      </span>
-      <span v-if="loading" style="font-size: 12px; color: #a6adc8;">Loading…</span>
-      <span v-if="error" style="font-size: 12px; color: #f38ba8;">{{ error }}</span>
-
-      <!-- Date spectrum legend -->
-      <div v-if="!loading && pinCount > 0 && oldestDate" style="
-        display: flex; align-items: center; gap: 6px; margin-left: auto;
-        font-size: 11px; color: #a6adc8;
-      ">
-        <span>{{ oldestDate }}</span>
-        <div style="
-          width: 80px; height: 8px; border-radius: 4px;
-          background: linear-gradient(to right, hsl(240,90%,60%), hsl(180,90%,60%), hsl(120,90%,60%), hsl(60,90%,60%), hsl(0,90%,60%));
-        "/>
-        <span>{{ newestDate }}</span>
+      <div
+        v-if="error"
+        class="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive p-4 text-small"
+      >
+        <span class="text-destructive">Could not load map pins: {{ error }}</span>
+        <div class="flex items-center gap-2">
+          <Button variant="outline" @click="loadPins">Retry</Button>
+          <Button variant="ghost" @click="error = null">Dismiss</Button>
+        </div>
       </div>
     </div>
 
-    <!-- Map container -->
-    <div
-      ref="mapEl"
-      style="
-        flex: 1;
-        border-radius: 6px;
-        overflow: hidden;
-        border: 1px solid rgba(255,255,255,0.08);
-        min-height: 0;
-      "
-    />
+    <!-- Overlays sit above Leaflet's panes and controls (z-index up to 1000). -->
+    <div class="relative min-h-0 flex-1 border-t border-border">
+      <div ref="mapEl" class="tw-map absolute inset-0" />
+
+      <div
+        v-if="loading && pinCount === 0"
+        class="pointer-events-none absolute inset-0 z-[1001] flex items-center justify-center bg-background/60"
+      >
+        <span class="flex items-center gap-2 rounded-md border border-border bg-popover px-3 py-2 text-muted-foreground">
+          <LoaderCircleIcon class="size-4 animate-spin" :stroke-width="1.75" /> Loading pins…
+        </span>
+      </div>
+
+      <div
+        v-else-if="!loading && !error && pinCount === 0"
+        class="absolute inset-x-4 top-4 z-[1001] mx-auto max-w-md rounded-lg border border-border bg-popover p-4 text-center"
+      >
+        <p class="m-0 font-medium">No pins yet</p>
+        <p v-if="auth.isAdmin" class="m-0 mt-1 text-muted-foreground">
+          Set a coordinate key and type in an action's Map output section on the
+          <RouterLink to="/actions" class="text-primary underline underline-offset-2">Actions</RouterLink>
+          page. Pins appear once that action has run on tweets.
+        </p>
+        <p v-else class="m-0 mt-1 text-muted-foreground">
+          Pins appear once an admin sets up an action that extracts locations from tweets.
+        </p>
+      </div>
+    </div>
   </div>
 </template>
-
-<style>
-/* Leaflet popups: override to match dark theme */
-.leaflet-popup-content-wrapper {
-  background: #1e1e2e;
-  color: #cdd6f4;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.leaflet-popup-tip {
-  background: #1e1e2e;
-}
-.leaflet-popup-close-button {
-  color: #a6adc8 !important;
-}
-</style>

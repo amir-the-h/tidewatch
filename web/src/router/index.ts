@@ -9,7 +9,7 @@ export default createRouter({
   routes: [
     { path: '/login',   component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/',        redirect: '/map' },
-    { path: '/map',     component: () => import('../views/MapView.vue') },
+    { path: '/map',     component: () => import('../views/MapView.vue'), meta: { fullBleed: true } },
     { path: '/tweets',  component: () => import('../views/TweetsView.vue') },
     { path: '/sources', component: () => import('../views/SourcesView.vue') },
     { path: '/actions', component: () => import('../views/ActionsView.vue') },
