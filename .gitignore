@@ -21,6 +21,9 @@ nominatim-data/*
 # Nominatim PBF extracts
 nominatim-pbf/*
 
+# Local deployment overrides (host-specific networks, ports)
+docker-compose.override.yml
+
 # Environment files
 .env
 *.env
