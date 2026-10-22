@@ -40,12 +40,15 @@ export const useDigestStore = defineStore('digest', () => {
     }
   }
 
-  async function generate(req: DigestRequest): Promise<void> {
+  /** Creates a digest job and polls it to completion. Resolves true once the job exists, even if a later poll fails. */
+  async function generate(req: DigestRequest): Promise<boolean> {
     loading.value = true
     error.value   = null
+    let created = false
 
     try {
       const job = await runDigest(req)
+      created = true
       jobs.value = [job, ...jobs.value]
 
       // Poll until the job reaches a terminal state.
@@ -64,6 +67,7 @@ export const useDigestStore = defineStore('digest', () => {
     } finally {
       loading.value = false
     }
+    return created
   }
 
   async function deleteJob(id: string): Promise<void> {

@@ -29,8 +29,9 @@ async function loadJobs() {
 
 async function onGenerate(req: DigestRequest) {
   lastRequest = req
-  await store.generate(req)
-  if (store.error) failedOp.value = 'generate'
+  const created = await store.generate(req)
+  // If the job exists and only polling failed, Retry reloads the list instead of creating a second job.
+  if (store.error) failedOp.value = created ? 'load' : 'generate'
 }
 
 function retry() {
