@@ -22,9 +22,10 @@ See [`docs/examples/geopolitical-monitoring`](docs/examples/geopolitical-monitor
 ## Architecture
 
 ```
-X Filtered Stream (SSE) ─┐   X search backfill ─┐
-                         ▼                      ▼
-                  stream.Client  ── saves the post as a signal in SQLite (deduped)
+X Filtered Stream (SSE) ─┐   X search backfill ─┐   sources (source.Manager: stream / poll connectors)
+                         ▼                      ▼          ▼
+                  source.Ingester ── saves each item as a signal in SQLite (deduped by ext_ns + external_id),
+                         │           records which source saw it (signal_sources)
                          │ new signals: LPUSH one Task per linked new_signal pipeline entry
                          ▼
           Redis  tidewatch:tasks:{action_id}   (one list per action)
@@ -52,7 +53,7 @@ Every task an action runs gets a flat context map: the outputs of earlier action
 |---|---|
 | `signal_id` | integer signal ID |
 | `signal_kind` | `post` or `article` |
-| `source_type` | the ingest path (`x_stream`, `x_search`); absent on reprocess and backfill runs |
+| `source_id`, `source_name`, `source_type`, `source_tier` | the source that dispatched the signal; on reprocess and pipeline-run backfills, the first source that saw it. X signals have only `source_type` (`x_stream`, `x_search`) until X becomes a connector; `source_tier` is absent for unrated sources |
 | `author`, `title`, `text`, `url`, `lang`, `published_at` | from the signal (`title` is empty for posts) |
 | `text_short` | `text` cut to 280 characters (`title` when there is no text) |
 | X signals only | `x_tweet_id`, `x_author_id`, `x_referenced` (retweeted/quoted/replied_to IDs), `x_rule_ids` |
@@ -77,6 +78,8 @@ docker compose up -d --build                 # CPU
 ```
 
 Open http://localhost:3000 and sign in as the admin user. ONNX models go in `./models` (download with the HuggingFace `hf` CLI); Ollama backends are added at runtime from the UI.
+
+Later schema changes are numbered migrations (`002_sources.sql`, …) that apply on startup.
 
 ### Upgrading from v0.2 or earlier
 
@@ -106,6 +109,9 @@ api:
 
 worker:
   count: 0             # 0 = one worker per active action (min 1)
+
+sources:
+  max_concurrent_polls: 8  # poll-source fetches running at once, across all sources
 
 inference:
   models_dir: ./models
@@ -149,6 +155,7 @@ Key environment variables:
 | `TIDEWATCH_SQLITE_PATH` | `sqlite.path` |
 | `TIDEWATCH_API_BIND` | `api.bind` |
 | `TIDEWATCH_WORKER_COUNT` | `worker.count` |
+| `TIDEWATCH_SOURCES_MAX_CONCURRENT_POLLS` | `sources.max_concurrent_polls` |
 | `TIDEWATCH_ONNX_LIB_PATH` | `inference.onnx_lib_path` |
 | `TIDEWATCH_MODELS_DIR` | `inference.models_dir` |
 | `TIDEWATCH_OLLAMA_BASE_URL` | `ollama.base_url` |
@@ -173,17 +180,27 @@ The `tidewatch` binary exposes a Cobra CLI to manage the running server:
 tidewatch auth login --username admin --password secret
 tidewatch auth logout
 
-# Sources (stream filter rules)
-tidewatch source list
-tidewatch source add --type account --value @username
-tidewatch source add --type keyword --value "nuclear"
-tidewatch source remove <id>
+# Sources (configured connector instances)
+tidewatch source types
+tidewatch source list [--type rss] [--active true]
+tidewatch source create --type <type> --name "BBC World" --set url=https://… --tier 2 --active
+tidewatch source update <id> --set key=value --interval 600
+tidewatch source activate|deactivate|delete <id>
+tidewatch source fetch <id>                 # poll once now
+tidewatch source backfill <id> --params '{…}'
+tidewatch source status
+tidewatch source runs <id>
+tidewatch source run <run-id>
 
-# Stream filter rules
-tidewatch rule list
-tidewatch rule add --value "keyword lang:fa"
-tidewatch rule activate <id>
-tidewatch rule deactivate <id>
+# X rule builder: terms (rule atoms) and Filtered Stream rules
+tidewatch x term list
+tidewatch x term add --type account --value @username
+tidewatch x term add --type keyword --value "nuclear"
+tidewatch x term remove <id>
+tidewatch x rule list
+tidewatch x rule add iran --expr '{"OR":[{"src":1},{"src":2}]}'
+tidewatch x rule activate <id>
+tidewatch x rule deactivate <id>
 
 # Actions (execution units)
 tidewatch action list
@@ -239,31 +256,53 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 | `POST` | `/api/stream/connect` | Connect to X filtered stream |
 | `POST` | `/api/stream/disconnect` | Disconnect from X filtered stream |
 
-### Sources & Rules
+### Sources
+A source is a configured instance of a connector type (admin only). Active sources run in the server: stream sources stay connected and restart with backoff (5 s doubling to 5 min), poll sources are fetched every interval ±10%. Secret config fields come back as `"••••"`; a `PUT` that sends `"••••"` keeps the stored value. Connector types are registered in code (X and RSS connectors arrive later in phase 1).
+
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/sources` | List sources |
-| `POST` | `/api/sources` | Add a source |
-| `PUT` | `/api/sources/{id}` | Update a source |
-| `DELETE` | `/api/sources/{id}` | Remove a source |
-| `DELETE` | `/api/sources` | Bulk delete sources |
-| `POST` | `/api/sources/{id}/deactivate` | Deactivate a source |
-| `GET` | `/api/rules` | List stream filter rules |
-| `POST` | `/api/rules` | Create a rule |
-| `GET` | `/api/rules/{id}` | Get a rule |
-| `PUT` | `/api/rules/{id}` | Update a rule |
-| `DELETE` | `/api/rules/{id}` | Delete a rule |
-| `DELETE` | `/api/rules` | Bulk delete rules |
-| `POST` | `/api/rules/{id}/activate` | Activate a rule (syncs to X) |
-| `POST` | `/api/rules/{id}/deactivate` | Deactivate a rule (removes from X) |
+| `GET` | `/api/sources` | List sources (filter: `type`, `active`) |
+| `POST` | `/api/sources` | Create a source: `name`, `type`, `config`, `poll_interval_s`, `tier` (1–4), `state_affiliated`, `region`, `language`, `active` |
+| `GET` | `/api/sources/{id}` | Get a source |
+| `PUT` | `/api/sources/{id}` | Update the fields sent (`clear_poll_interval`, `clear_tier` reset those); the type can't change |
+| `DELETE` | `/api/sources/{id}` | Delete a source (its signals stay) |
+| `DELETE` | `/api/sources` | Bulk delete (`ids`, `active`, `type`) |
+| `POST` | `/api/sources/{id}/activate` | Start a source (refused past the connector's `max_instances`) |
+| `POST` | `/api/sources/{id}/deactivate` | Stop a source |
+| `POST` | `/api/sources/{id}/fetch` | Poll once now, active or not → 202 with a source run |
+| `POST` | `/api/sources/{id}/backfill` | Historical fetch with connector-defined params → 202 with a source run |
+| `GET` | `/api/sources/types` | Connector types: mode, config fields, intervals, backfill support |
+| `GET` | `/api/sources/status` | Runtime status per source: state (`running`, `idle`, `backoff`, `error`, `stopped`), last run/success/error, next run, fetched/new counters |
+| `GET` | `/api/sources/{id}/runs` | A source's runs, newest first (`limit`) |
+| `GET` | `/api/source-runs/{id}` | One run: `status` (`pending`, `running`, `done`, `error`), `fetched_count`, `new_count` |
+
+### X rules and terms
+Terms are the rule atoms (keyword, hashtag, `from:` account…) that X Filtered Stream rules combine.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/x/terms` | List terms |
+| `POST` | `/api/x/terms` | Add a term |
+| `PUT` | `/api/x/terms/{id}` | Update a term |
+| `DELETE` | `/api/x/terms/{id}` | Remove a term |
+| `DELETE` | `/api/x/terms` | Bulk delete terms |
+| `POST` | `/api/x/terms/{id}/deactivate` | Deactivate a term |
+| `GET` | `/api/x/rules` | List rules |
+| `POST` | `/api/x/rules` | Create a rule |
+| `GET` | `/api/x/rules/{id}` | Get a rule |
+| `PUT` | `/api/x/rules/{id}` | Update a rule |
+| `DELETE` | `/api/x/rules/{id}` | Delete a rule |
+| `DELETE` | `/api/x/rules` | Bulk delete rules |
+| `POST` | `/api/x/rules/{id}/activate` | Activate a rule (syncs to X) |
+| `POST` | `/api/x/rules/{id}/deactivate` | Deactivate a rule (removes from X) |
 
 ### Signals
 A signal is one ingested item (an X post today; RSS articles later in phase 1). `{id}` is the integer signal ID; the upstream ID (e.g. the tweet ID) is `external_id`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/signals` | List signals, newest first (filter: kind, rule_id, from, to, page, per_page) → `{signals, total}` |
-| `GET` | `/api/signals/{id}` | Get a signal, its matched X rules and its action executions |
+| `GET` | `/api/signals` | List signals, newest first (filter: kind, rule_id, source_id, source_type, from, to, page, per_page) → `{signals, total}` |
+| `GET` | `/api/signals/{id}` | Get a signal, the sources that saw it, its matched X rules and its action executions |
 | `DELETE` | `/api/signals` | Delete signals by `ids` (executions, metadata, rule matches and entity tracks cascade) |
 | `POST` | `/api/signals/reprocess` | Re-enqueue `signal_ids` through the `new_signal` pipelines, or through `action_ids` |
 | `DELETE` | `/api/signals/noise` | Delete X signals that match no rule, or only local rules |
@@ -369,6 +408,8 @@ A signal is one ingested item (an X post today; RSS articles later in phase 1). 
 | `GET` | `/api/entity-connections/subgraph` | BFS subgraph for a given entity |
 
 ### Notifications
+Provider credentials (`app_token`, `user_key`, `bot_token`) come back as `"••••"`; an update that sends `"••••"` keeps the stored value.
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/notification-providers` | List providers |
@@ -442,6 +483,7 @@ internal/
   pipeline/             → Internal pipeline registry (entity_matcher, entity_cooccurrence,
                           reverse_geocoder, twitter_*, notification_*, entity_discovery)
   twitter/              → Twitter OAuth 2.0 PKCE client + API calls (Retweet/Like/Quote)
+  source/               → Connector framework: registry, manager (supervised source goroutines), shared ingest
   stream/               → X Filtered Stream SSE client
   worker/               → Worker Manager + ActionCache (hot-reloadable)
   api/                  → REST API (chi)
