@@ -29,6 +29,10 @@ type Config struct {
 	Worker struct {
 		Count int `yaml:"count"`
 	} `yaml:"worker"`
+	Sources struct {
+		// MaxConcurrentPolls caps how many poll-source fetches run at once.
+		MaxConcurrentPolls int `yaml:"max_concurrent_polls"`
+	} `yaml:"sources"`
 	Inference struct {
 		ONNXLibPath string `yaml:"onnx_lib_path"`
 		ModelsDir   string `yaml:"models_dir"`
@@ -85,6 +89,7 @@ func defaults() *Config {
 	cfg.API.Bind = "127.0.0.1:8080"
 	cfg.Inference.ModelsDir = "./models"
 	cfg.Ollama.FastWaitTimeout = 5 * time.Second
+	cfg.Sources.MaxConcurrentPolls = 8
 	cfg.Log.Level = "info"
 	cfg.Log.Format = "text"
 	cfg.Search.Enabled = false
@@ -160,6 +165,13 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("config: TIDEWATCH_WORKER_COUNT: %w", err)
 		}
 		cfg.Worker.Count = n
+	}
+	if v := os.Getenv("TIDEWATCH_SOURCES_MAX_CONCURRENT_POLLS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("config: TIDEWATCH_SOURCES_MAX_CONCURRENT_POLLS: %w", err)
+		}
+		cfg.Sources.MaxConcurrentPolls = n
 	}
 	if v := os.Getenv("TIDEWATCH_ONNX_LIB_PATH"); v != "" {
 		cfg.Inference.ONNXLibPath = v

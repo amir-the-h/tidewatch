@@ -81,7 +81,7 @@ func (c *Client) searchURL() string {
 
 // buildQuery constructs url.Values from SearchParams plus the rule query string.
 // nextToken is appended as pagination_token when non-empty.
-func (c *Client) buildQuery(rule *model.Rule, params SearchParams, nextToken string) url.Values {
+func (c *Client) buildQuery(rule *model.XRule, params SearchParams, nextToken string) url.Values {
 	maxResults := params.MaxResults
 	if maxResults <= 0 {
 		maxResults = defaultMaxResults
@@ -204,7 +204,7 @@ func (c *Client) fetchPage(ctx context.Context, endpoint string, params url.Valu
 // Returns the total number of tweets fetched and the newest tweet ID seen
 // (meta.newest_id from the first page), which callers can use as since_id
 // on subsequent runs to avoid re-fetching already-processed tweets.
-func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params SearchParams) (int, string, error) {
+func (c *Client) RunForRule(ctx context.Context, rule *model.XRule, params SearchParams) (int, string, error) {
 	endpoint := c.searchURL()
 	fetched := 0
 	nextToken := ""

@@ -111,3 +111,23 @@ func TestEnvVar_WorkerCount_Invalid(t *testing.T) {
 		t.Fatal("expected error for invalid TIDEWATCH_WORKER_COUNT, got nil")
 	}
 }
+
+func TestSourcesMaxConcurrentPolls(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sources.MaxConcurrentPolls != 8 {
+		t.Errorf("default: %d, want 8", cfg.Sources.MaxConcurrentPolls)
+	}
+
+	t.Setenv("TIDEWATCH_SOURCES_MAX_CONCURRENT_POLLS", "3")
+	if cfg, _ = Load(""); cfg.Sources.MaxConcurrentPolls != 3 {
+		t.Errorf("env: %d, want 3", cfg.Sources.MaxConcurrentPolls)
+	}
+
+	t.Setenv("TIDEWATCH_SOURCES_MAX_CONCURRENT_POLLS", "many")
+	if _, err := Load(""); err == nil {
+		t.Error("invalid TIDEWATCH_SOURCES_MAX_CONCURRENT_POLLS: want error")
+	}
+}

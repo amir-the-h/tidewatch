@@ -2,7 +2,7 @@
 
 Phase 1 of [vision.md](vision.md). It turns Tidewatch from an X monitor into a system where X is one source among many, and proves it with a second source type (RSS/Atom).
 
-**Status:** step 1 (schema reset and rename) done; steps 2–7 not started. See [Step 1 notes](#step-1-notes) for where it departs from this design.
+**Status:** step 1 (schema reset and rename) and step 2 (connector framework) done; steps 3–7 not started. See [Step 1 notes](#step-1-notes) and [Step 2 notes](#step-2-notes) for where they depart from this design.
 
 ## Goals
 
@@ -45,7 +45,7 @@ Today `sources` are **X rule atoms** (keyword, hashtag, `from:` account…) that
 | `sources_*`, `rules_*` MCP tools | `x_terms_*`, `x_rules_*` |
 | `model.Source`, `model.Rule` | `model.XTerm`, `model.XRule` |
 
-`sources`, `/api/sources`, `tidewatch source` and `sources_*` are then free for generic sources.
+`sources`, `/api/sources`, `tidewatch source` and `sources_*` are then free for generic sources. (Done in step 2, not step 3; see [Step 2 notes](#step-2-notes).)
 
 ## Schema
 
@@ -411,8 +411,8 @@ The user-level skills (`tidewatch-flow-builder`, `tidewatch-pipeline-checker`, `
 Each step is one PR that leaves `main` green and deployable.
 
 1. **Schema reset and rename.** New `001_schema.sql`; `model.Signal`; store, queue, worker, inference, internal handlers, API, CLI, MCP and UI renamed from tweets to signals; integer `signal_id`; context keys. X ingestion keeps working through a temporary shim in `internal/stream` that builds a `model.Signal`. Large but mechanical.
-2. **Connector framework.** `sources`, `source_state`, `source_runs`; registry, manager, ingest; sources API, CLI and MCP; WebSocket `source_status`.
-3. **X as connectors.** `x_stream` and `x_search`; the X tables renamed to `x_terms`/`x_rules`/`x_rule_matches` and the `/api/x/…` routes; removal of `/api/stream`, `/api/search`, the search scheduler and the removed config keys.
+2. **Connector framework.** `sources`, `source_state`, `source_runs`; registry, manager, ingest; sources API, CLI and MCP; WebSocket `source_status`. (Also did the X rename planned for step 3.)
+3. **X as connectors.** `x_stream` and `x_search`; removal of `/api/stream`, `/api/search`, the search scheduler and the removed config keys.
 4. **RSS connector and starter feeds.** The `rss` connector, `configs/feeds/starter.yaml` with every URL checked by hand, the import endpoint, and the weekly feed-check workflow.
 5. **Trigger filters, source requirements, retention, base URL.** Link `filter`, `skipped` executions, handler `SourceTypes()`, the retention job, `ui.base_url` and `signal_url`.
 6. **UI.** Sources page, X source detail, status bar, builder filter UI (the Signals page rename happens in step 1).
@@ -431,6 +431,20 @@ What step 1 did differently from the design above, and what later steps inherit:
 - **The X shim** lives in `internal/stream/signal.go` (`NewXSignal`, `Ingest`), not in a new package. Search imports it. `x_referenced` is a map of reference type to tweet ID.
 - **Removed, not renamed:** the `source_id` filter on tweets, summaries and digests (it joined a `tweet_sources` table that no longer existed, so it never worked; step 2 adds real source filters), the unused notifier events `tweet_categorized` and `categorization_failed` (`tweet_matched` is now `signal_ingested`), and the broken `tidewatch tweet` command (rewritten as `tidewatch signal list|show|reprocess|delete`).
 - **Dead-letter UI.** The Queue page now reads the real `{task, failed_models}` shape. Nothing calls `PushFailed` yet, so the dead-letter list stays empty; that predates phase 1.
+
+### Step 2 notes
+
+What step 2 did differently from the design above, and what later steps inherit:
+
+- **The X rename moved here from step 3.** Freeing the name `sources` meant moving the rule atoms anyway, and terms and rules are coupled, so `002_sources.sql` renames `sources → x_terms` and `rules → x_rules` (SQLite repoints `x_rule_matches.rule_id` itself), and the code follows: `model.XTerm`/`model.XRule`, store `*XTerm*`/`*XRule*` methods, `/api/x/terms` and `/api/x/rules`, `tidewatch x term|rule`, MCP `x_terms_*`/`x_rules_*`, WebSocket list events `x_terms`/`x_rules`. The web UI only changed its API paths and event names; the rule-builder page still sits at `/sources` until step 6. Expression JSON still references terms as `src`/`srcs`.
+- **Migration order.** `002_sources.sql`: the two renames, then `sources`, `source_state`, `source_runs`, then `DROP`/`CREATE signal_sources` with `source_id REFERENCES sources(id) ON DELETE CASCADE`. Deleting a source keeps its signals.
+- **No connectors are registered yet.** `GET /api/sources/types` is `[]` and creating a source is refused until step 3 (`x_stream`, `x_search`) and step 4 (`rss`) register theirs in `cli/cmd/serve.go`.
+- **X still runs on the shim**, now routed through `source.Ingester` with no source row: X signals get no `signal_sources` row, `SignalEvent.SourceID` stays 0 and only `source_type` reaches the context. `stream_status` and the `stream.auto_connect`/`search.*` config stay until step 3, alongside the new `source_status`.
+- **Context keys** `source_id`, `source_name`, `source_type`, `source_tier` are read from the source row per task (one indexed read, no in-memory source cache). Events without a source (reprocess, pipeline-run backfills) fall back to the signal's first `signal_sources` row. Step 5's trigger filters can reuse `dispatchingSource` or add the cache the design mentions.
+- **Manager details the design left open.** The first poll after a (re)start waits until `last_run_at + interval`, so restarts don't re-poll every feed at once. A stream `Run` that returns `nil` counts as a failure ("stream ended") and is restarted with backoff. Polls time out after 5 minutes, backfills after an hour. Only a successful poll writes the cursor; a backfill never does. Fetch works on inactive sources (useful for trying a feed before activating it) and shares the per-source poll lock. Runs left `pending`/`running` by a previous process are marked `error: interrupted by restart` at startup. A finished run is pushed as WebSocket `source_run`.
+- **API shape.** `PUT /api/sources/{id}` changes only the fields sent (`clear_poll_interval`, `clear_tier` reset those); the type can't change. Validation errors are 400, a duplicate name 409, more active sources than `MaxInstances` 400. MCP also has `sources_get`. Notification providers mask `app_token`, `user_key` and `bot_token` the same way.
+- **Shared HTTP client** sends `User-Agent: Tidewatch (+https://github.com/amir-the-h/tidewatch)`: the binary has no version string to include.
+- **Deferred:** source filters on digests and summaries go with step 5's trigger filters.
 
 ## Testing
 

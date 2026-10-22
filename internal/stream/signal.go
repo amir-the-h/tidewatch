@@ -1,8 +1,8 @@
 package stream
 
-// Temporary X ingest shim (phase 1 step 1): the X stream and search build a
-// model.Signal here and share one ingest path. Phase 1 step 3 replaces it with
-// the x_stream / x_search connectors and the generic source ingest.
+// Temporary X ingest shim (phase 1 steps 1–2): the X stream and search build a
+// model.Signal here and hand it to the generic source ingest. Phase 1 step 3
+// replaces it with the x_stream / x_search connectors.
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/model"
 	"github.com/amir-the-h/tidewatch/internal/notifier"
 	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/source"
 	"github.com/amir-the-h/tidewatch/internal/store"
 	"github.com/amir-the-h/tidewatch/internal/worker"
 )
@@ -81,50 +82,19 @@ type IngestDeps struct {
 	Logger      *slog.Logger
 }
 
-// Ingest persists sig and its X rule matches. When the signal is new it
-// broadcasts a new_signal WebSocket event and dispatches new_signal pipeline
-// tasks; a signal already stored (e.g. search finding a tweet the stream
-// delivered) only gains the rule matches. Reports whether the signal was new.
+// Ingest persists sig and its X rule matches through the shared source ingest
+// path (source.Ingester) without a source row: until phase 1 step 3 the X
+// stream and search have no sources, so no signal_sources row is written and
+// the dispatched event carries only sourceType. Reports whether the signal
+// was new.
 func Ingest(ctx context.Context, d IngestDeps, sig *model.Signal, ruleIDs []int64, sourceType string) (bool, error) {
-	if sig.Attrs == nil {
-		sig.Attrs = map[string]any{}
+	in := source.Ingester{
+		Store:       d.Store,
+		Producer:    d.Producer,
+		Cache:       d.Cache,
+		Broadcaster: d.Broadcaster,
+		Emitter:     d.Emitter,
+		Logger:      d.Logger,
 	}
-	if ruleIDs == nil {
-		ruleIDs = []int64{}
-	}
-	sig.Attrs["x_rule_ids"] = ruleIDs
-
-	isNew, err := d.Store.SaveSignal(ctx, sig)
-	if err != nil {
-		return false, fmt.Errorf("stream: save signal %s: %w", sig.ExternalID, err)
-	}
-
-	for _, ruleID := range ruleIDs {
-		if err := d.Store.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: ruleID}); err != nil && d.Logger != nil {
-			d.Logger.Warn("stream: save x rule match failed",
-				"signal_id", sig.ID, "rule_id", ruleID, "error", err)
-		}
-	}
-
-	if !isNew {
-		return false, nil
-	}
-
-	if d.Emitter != nil {
-		d.Emitter.Emit(notifier.NotificationEvent{
-			Type:      notifier.EventSignalIngested,
-			Signal:    sig,
-			RuleIDs:   ruleIDs,
-			Timestamp: time.Now(),
-		})
-	}
-	if d.Broadcaster != nil {
-		d.Broadcaster.Broadcast(hub.Event{Type: "new_signal", Payload: sig})
-	}
-
-	ev := queue.SignalEvent{SignalID: sig.ID, Kind: string(sig.Kind), SourceType: sourceType}
-	if err := worker.PushInitialPipelineTasks(ctx, d.Store, d.Producer, d.Cache, "new_signal", ev, d.Logger, 0); err != nil && d.Logger != nil {
-		d.Logger.Warn("stream: pipeline dispatch failed", "signal_id", sig.ID, "error", err)
-	}
-	return true, nil
+	return in.Ingest(ctx, nil, sourceType, sig, source.WithXRuleMatches(ruleIDs))
 }

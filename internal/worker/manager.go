@@ -319,7 +319,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		mergedCtx[k] = v
 	}
 	// Signal keys go last so an action's output can't overwrite them.
-	for k, v := range signalContext(sig, ev) {
+	for k, v := range signalContext(sig, ev, dispatchingSource(ctx, m.store, ev)) {
 		mergedCtx[k] = v
 	}
 

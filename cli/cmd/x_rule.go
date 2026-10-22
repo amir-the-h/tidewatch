@@ -10,18 +10,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var ruleCmd = &cobra.Command{
+var xRuleCmd = &cobra.Command{
 	Use:   "rule",
-	Short: "Manage stream filter rules",
+	Short: "Manage X Filtered Stream rules",
 }
 
-var ruleListCmd = &cobra.Command{
+var xRuleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all rules",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		resp, err := apiGet(baseURL + "/api/rules")
+		resp, err := apiGet(baseURL + "/api/x/rules")
 		if err != nil {
-			return fmt.Errorf("rule list: %w", err)
+			return fmt.Errorf("x rule list: %w", err)
 		}
 		defer resp.Body.Close()
 		if err := handleAPIError(cmd, resp); err != nil {
@@ -29,7 +29,7 @@ var ruleListCmd = &cobra.Command{
 		}
 		var rules []map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&rules); err != nil {
-			return fmt.Errorf("rule list: decode: %w", err)
+			return fmt.Errorf("x rule list: decode: %w", err)
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "ID\tNAME\tACTIVE\tX_RULE_ID\tCOMPILED")
@@ -46,15 +46,15 @@ var ruleListCmd = &cobra.Command{
 	},
 }
 
-var ruleShowCmd = &cobra.Command{
+var xRuleShowCmd = &cobra.Command{
 	Use:   "show <id>",
 	Short: "Show a rule with expression and compiled syntax",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := apiGet(baseURL + "/api/rules/" + id)
+		resp, err := apiGet(baseURL + "/api/x/rules/" + id)
 		if err != nil {
-			return fmt.Errorf("rule show: %w", err)
+			return fmt.Errorf("x rule show: %w", err)
 		}
 		defer resp.Body.Close()
 		if err := handleAPIError(cmd, resp); err != nil {
@@ -62,7 +62,7 @@ var ruleShowCmd = &cobra.Command{
 		}
 		var rule map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&rule); err != nil {
-			return fmt.Errorf("rule show: decode: %w", err)
+			return fmt.Errorf("x rule show: decode: %w", err)
 		}
 		exprBytes, _ := json.MarshalIndent(rule["expression"], "  ", "  ")
 		fmt.Fprintf(cmd.OutOrStdout(), "Name:     %s\nActive:   %s\nX Rule:   %s\n\nExpression:\n  %s\n\nCompiled:\n  %s\n",
@@ -96,14 +96,14 @@ func parseRuleExpr(exprStr, exprFile string) (json.RawMessage, error) {
 	return nil, fmt.Errorf("one of --expr or --file is required")
 }
 
-var ruleAddCmd = &cobra.Command{
+var xRuleAddCmd = &cobra.Command{
 	Use:   "add <name>",
 	Short: "Create a new rule",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		expr, err := parseRuleExpr(ruleExprStr, ruleExprFile)
 		if err != nil {
-			return fmt.Errorf("rule add: %w", err)
+			return fmt.Errorf("x rule add: %w", err)
 		}
 		body := map[string]interface{}{
 			"name":       args[0],
@@ -111,11 +111,11 @@ var ruleAddCmd = &cobra.Command{
 		}
 		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("rule add: %w", err)
+			return fmt.Errorf("x rule add: %w", err)
 		}
-		resp, err := apiPost(baseURL+"/api/rules", r)
+		resp, err := apiPost(baseURL+"/api/x/rules", r)
 		if err != nil {
-			return fmt.Errorf("rule add: %w", err)
+			return fmt.Errorf("x rule add: %w", err)
 		}
 		defer resp.Body.Close()
 		if err := handleAPIError(cmd, resp); err != nil {
@@ -123,7 +123,7 @@ var ruleAddCmd = &cobra.Command{
 		}
 		var created map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
-			return fmt.Errorf("rule add: decode: %w", err)
+			return fmt.Errorf("x rule add: decode: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Rule created: id=%s name=%s compiled=%s\n",
 			formatField(created["id"]),
@@ -134,7 +134,7 @@ var ruleAddCmd = &cobra.Command{
 	},
 }
 
-var ruleUpdateCmd = &cobra.Command{
+var xRuleUpdateCmd = &cobra.Command{
 	Use:   "update <id>",
 	Short: "Update a rule's name or expression",
 	Args:  cobra.ExactArgs(1),
@@ -147,17 +147,17 @@ var ruleUpdateCmd = &cobra.Command{
 		if ruleExprStr != "" || ruleExprFile != "" {
 			expr, err := parseRuleExpr(ruleExprStr, ruleExprFile)
 			if err != nil {
-				return fmt.Errorf("rule update: %w", err)
+				return fmt.Errorf("x rule update: %w", err)
 			}
 			body["expression"] = expr
 		}
 		r, err := jsonBody(body)
 		if err != nil {
-			return fmt.Errorf("rule update: %w", err)
+			return fmt.Errorf("x rule update: %w", err)
 		}
-		resp, err := apiPut(baseURL+"/api/rules/"+id, r)
+		resp, err := apiPut(baseURL+"/api/x/rules/"+id, r)
 		if err != nil {
-			return fmt.Errorf("rule update: %w", err)
+			return fmt.Errorf("x rule update: %w", err)
 		}
 		defer resp.Body.Close()
 		if err := handleAPIError(cmd, resp); err != nil {
@@ -168,15 +168,15 @@ var ruleUpdateCmd = &cobra.Command{
 	},
 }
 
-var ruleRemoveCmd = &cobra.Command{
+var xRuleRemoveCmd = &cobra.Command{
 	Use:   "remove <id>",
 	Short: "Delete a rule (only if no signal matched it)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := apiDelete(baseURL + "/api/rules/" + id)
+		resp, err := apiDelete(baseURL + "/api/x/rules/" + id)
 		if err != nil {
-			return fmt.Errorf("rule remove: %w", err)
+			return fmt.Errorf("x rule remove: %w", err)
 		}
 		defer resp.Body.Close()
 		if err := handleAPIError(cmd, resp); err != nil {
@@ -187,14 +187,14 @@ var ruleRemoveCmd = &cobra.Command{
 	},
 }
 
-var ruleActivateCmd = &cobra.Command{
+var xRuleActivateCmd = &cobra.Command{
 	Use:   "activate <id>",
 	Short: "Activate a rule (push to X)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  ruleLifecycleAction("activate"),
 }
 
-var ruleDeactivateCmd = &cobra.Command{
+var xRuleDeactivateCmd = &cobra.Command{
 	Use:   "deactivate <id>",
 	Short: "Deactivate a rule (remove from X, keep locally)",
 	Args:  cobra.ExactArgs(1),
@@ -204,7 +204,7 @@ var ruleDeactivateCmd = &cobra.Command{
 func ruleLifecycleAction(action string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])
-		resp, err := apiPost(baseURL+"/api/rules/"+id+"/"+action, nil)
+		resp, err := apiPost(baseURL+"/api/x/rules/"+id+"/"+action, nil)
 		if err != nil {
 			return fmt.Errorf("rule %s: %w", action, err)
 		}
@@ -218,19 +218,19 @@ func ruleLifecycleAction(action string) func(*cobra.Command, []string) error {
 }
 
 func init() {
-	ruleAddCmd.Flags().StringVar(&ruleExprStr, "expr", "", "Expression JSON string")
-	ruleAddCmd.Flags().StringVar(&ruleExprFile, "file", "", "Path to expression JSON file")
+	xRuleAddCmd.Flags().StringVar(&ruleExprStr, "expr", "", "Expression JSON string")
+	xRuleAddCmd.Flags().StringVar(&ruleExprFile, "file", "", "Path to expression JSON file")
 
-	ruleUpdateCmd.Flags().StringVar(&ruleName, "name", "", "New name")
-	ruleUpdateCmd.Flags().StringVar(&ruleExprStr, "expr", "", "New expression JSON string")
-	ruleUpdateCmd.Flags().StringVar(&ruleExprFile, "file", "", "Path to new expression JSON file")
+	xRuleUpdateCmd.Flags().StringVar(&ruleName, "name", "", "New name")
+	xRuleUpdateCmd.Flags().StringVar(&ruleExprStr, "expr", "", "New expression JSON string")
+	xRuleUpdateCmd.Flags().StringVar(&ruleExprFile, "file", "", "Path to new expression JSON file")
 
-	ruleCmd.AddCommand(ruleListCmd)
-	ruleCmd.AddCommand(ruleShowCmd)
-	ruleCmd.AddCommand(ruleAddCmd)
-	ruleCmd.AddCommand(ruleUpdateCmd)
-	ruleCmd.AddCommand(ruleRemoveCmd)
-	ruleCmd.AddCommand(ruleActivateCmd)
-	ruleCmd.AddCommand(ruleDeactivateCmd)
-	rootCmd.AddCommand(ruleCmd)
+	xRuleCmd.AddCommand(xRuleListCmd)
+	xRuleCmd.AddCommand(xRuleShowCmd)
+	xRuleCmd.AddCommand(xRuleAddCmd)
+	xRuleCmd.AddCommand(xRuleUpdateCmd)
+	xRuleCmd.AddCommand(xRuleRemoveCmd)
+	xRuleCmd.AddCommand(xRuleActivateCmd)
+	xRuleCmd.AddCommand(xRuleDeactivateCmd)
+	xCmd.AddCommand(xRuleCmd)
 }

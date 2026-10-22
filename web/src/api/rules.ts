@@ -24,13 +24,13 @@ export interface Rule {
 
 export const listRules = (active?: boolean) => {
   const qs = active !== undefined ? `?active=${active}` : ''
-  return apiFetch<Rule[]>(`/api/rules${qs}`)
+  return apiFetch<Rule[]>(`/api/x/rules${qs}`)
 }
-export const getRule = (id: number) => apiFetch<Rule>(`/api/rules/${id}`)
+export const getRule = (id: number) => apiFetch<Rule>(`/api/x/rules/${id}`)
 export const createRule = (body: { name: string; expression: ExprNode; local?: boolean }) =>
-  apiFetch<Rule>('/api/rules', { method: 'POST', body: JSON.stringify(body) })
+  apiFetch<Rule>('/api/x/rules', { method: 'POST', body: JSON.stringify(body) })
 export const updateRule = (id: number, body: { name?: string; expression?: ExprNode; local?: boolean }) =>
-  apiFetch<Rule>(`/api/rules/${id}`, { method: 'PUT', body: JSON.stringify(body) })
-export const deleteRule     = (id: number) => apiFetch<void>(`/api/rules/${id}`, { method: 'DELETE' })
-export const activateRule   = (id: number) => apiFetch<Rule>(`/api/rules/${id}/activate`,   { method: 'POST' })
-export const deactivateRule = (id: number) => apiFetch<void>(`/api/rules/${id}/deactivate`, { method: 'POST' })
+  apiFetch<Rule>(`/api/x/rules/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+export const deleteRule     = (id: number) => apiFetch<void>(`/api/x/rules/${id}`, { method: 'DELETE' })
+export const activateRule   = (id: number) => apiFetch<Rule>(`/api/x/rules/${id}/activate`,   { method: 'POST' })
+export const deactivateRule = (id: number) => apiFetch<void>(`/api/x/rules/${id}/deactivate`, { method: 'POST' })

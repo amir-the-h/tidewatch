@@ -13,8 +13,8 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
-func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {
-	filter := store.RuleFilter{}
+func (s *Server) handleListXRules(w http.ResponseWriter, r *http.Request) {
+	filter := store.XRuleFilter{}
 	if a := r.URL.Query().Get("active"); a != "" {
 		active, err := strconv.ParseBool(a)
 		if err != nil {
@@ -23,7 +23,7 @@ func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.Active = &active
 	}
-	rules, err := s.store.ListRules(r.Context(), filter)
+	rules, err := s.store.ListXRules(r.Context(), filter)
 	if err != nil {
 		s.logger.Error("api: list rules", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list rules")
@@ -32,13 +32,13 @@ func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rules)
 }
 
-func (s *Server) handleGetRule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetXRule(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
 		return
 	}
-	rule, err := s.store.GetRule(r.Context(), id)
+	rule, err := s.store.GetXRule(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -46,7 +46,7 @@ func (s *Server) handleGetRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rule)
 }
 
-func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateXRule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name       string          `json:"name"`
 		Expression json.RawMessage `json:"expression"`
@@ -76,7 +76,7 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	validator := stream.NewRuleValidator(s.tier)
 
 	now := time.Now().UTC()
-	rule := &model.Rule{
+	rule := &model.XRule{
 		Name:       req.Name,
 		Expression: req.Expression,
 		Local:      req.Local,
@@ -98,20 +98,20 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		rule.CompiledValue = compiled
 		rule.Active = true
 
-		if err := s.store.SaveRule(r.Context(), rule); err != nil {
+		if err := s.store.SaveXRule(r.Context(), rule); err != nil {
 			s.logger.Error("api: save local rule", "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to save rule")
 			return
 		}
-		if err := s.store.SetRuleActive(r.Context(), rule.ID, true, ""); err != nil {
+		if err := s.store.SetXRuleActive(r.Context(), rule.ID, true, ""); err != nil {
 			s.logger.Error("api: set local rule active", "rule_id", rule.ID, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to activate rule")
 			return
 		}
 		rule.Active = true
 
-		if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-			s.broadcastEvent("rules", list)
+		if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+			s.broadcastEvent("x_rules", list)
 		}
 		writeJSON(w, http.StatusCreated, rule)
 		return
@@ -131,7 +131,7 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	rule.CompiledValue = compiled
 	rule.Active = false
 
-	if err := s.store.SaveRule(r.Context(), rule); err != nil {
+	if err := s.store.SaveXRule(r.Context(), rule); err != nil {
 		s.logger.Error("api: save rule", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to save rule")
 		return
@@ -143,7 +143,7 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to add stream rule to X")
 		return
 	}
-	if err := s.store.SetRuleActive(r.Context(), rule.ID, true, xRuleID); err != nil {
+	if err := s.store.SetXRuleActive(r.Context(), rule.ID, true, xRuleID); err != nil {
 		s.logger.Error("api: set rule active", "rule_id", rule.ID, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to activate rule")
 		return
@@ -151,20 +151,20 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	rule.XRuleID = xRuleID
 	rule.Active = true
 
-	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-		s.broadcastEvent("rules", list)
+	if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+		s.broadcastEvent("x_rules", list)
 	}
 	writeJSON(w, http.StatusCreated, rule)
 }
 
-func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateXRule(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
 		return
 	}
 
-	existing, err := s.store.GetRule(r.Context(), id)
+	existing, err := s.store.GetXRule(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -240,14 +240,14 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		existing.XRuleID = xRuleID
 	}
 
-	if err := s.store.UpdateRule(r.Context(), existing); err != nil {
+	if err := s.store.UpdateXRule(r.Context(), existing); err != nil {
 		s.logger.Error("api: update rule", "rule_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to update rule")
 		return
 	}
 
 	if !existing.Local && existing.Active && expressionChanged {
-		if err := s.store.SetRuleActive(r.Context(), id, true, existing.XRuleID); err != nil {
+		if err := s.store.SetXRuleActive(r.Context(), id, true, existing.XRuleID); err != nil {
 			s.logger.Error("api: set rule active after update", "rule_id", id, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to sync rule x_rule_id")
 			return
@@ -260,20 +260,20 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		go s.cascadeRecompile(s.ctx, id)
 	}
 
-	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-		s.broadcastEvent("rules", list)
+	if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+		s.broadcastEvent("x_rules", list)
 	}
 	writeJSON(w, http.StatusOK, existing)
 }
 
-func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteXRule(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
 		return
 	}
 
-	rule, err := s.store.GetRule(r.Context(), id)
+	rule, err := s.store.GetXRule(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -298,26 +298,26 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.store.DeleteRule(r.Context(), id); err != nil {
+	if err := s.store.DeleteXRule(r.Context(), id); err != nil {
 		s.logger.Error("api: delete rule", "rule_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete rule")
 		return
 	}
 
-	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-		s.broadcastEvent("rules", list)
+	if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+		s.broadcastEvent("x_rules", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleActivateXRule(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
 		return
 	}
 
-	rule, err := s.store.GetRule(r.Context(), id)
+	rule, err := s.store.GetXRule(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -329,14 +329,14 @@ func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
 
 	// Local rules: just flip the DB flag, no X API calls.
 	if rule.Local {
-		if err := s.store.SetRuleActive(r.Context(), id, true, ""); err != nil {
+		if err := s.store.SetXRuleActive(r.Context(), id, true, ""); err != nil {
 			s.logger.Error("api: activate local rule", "rule_id", id, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to activate rule")
 			return
 		}
 		rule.Active = true
-		if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-			s.broadcastEvent("rules", list)
+		if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+			s.broadcastEvent("x_rules", list)
 		}
 		writeJSON(w, http.StatusOK, rule)
 		return
@@ -367,7 +367,7 @@ func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to add stream rule to X")
 		return
 	}
-	if err := s.store.SetRuleActive(r.Context(), id, true, xRuleID); err != nil {
+	if err := s.store.SetXRuleActive(r.Context(), id, true, xRuleID); err != nil {
 		s.logger.Error("api: activate rule — set active", "rule_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to activate rule")
 		return
@@ -375,20 +375,20 @@ func (s *Server) handleActivateRule(w http.ResponseWriter, r *http.Request) {
 	rule.Active = true
 	rule.XRuleID = xRuleID
 
-	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-		s.broadcastEvent("rules", list)
+	if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+		s.broadcastEvent("x_rules", list)
 	}
 	writeJSON(w, http.StatusOK, rule)
 }
 
-func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeactivateXRule(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid rule ID")
 		return
 	}
 
-	rule, err := s.store.GetRule(r.Context(), id)
+	rule, err := s.store.GetXRule(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -400,13 +400,13 @@ func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
 
 	// Local rules: just flip the DB flag, no X API calls.
 	if rule.Local {
-		if err := s.store.SetRuleActive(r.Context(), id, false, ""); err != nil {
+		if err := s.store.SetXRuleActive(r.Context(), id, false, ""); err != nil {
 			s.logger.Error("api: deactivate local rule", "rule_id", id, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to deactivate rule")
 			return
 		}
-		if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-			s.broadcastEvent("rules", list)
+		if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+			s.broadcastEvent("x_rules", list)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -419,14 +419,14 @@ func (s *Server) handleDeactivateRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.SetRuleActive(r.Context(), id, false, ""); err != nil {
+	if err := s.store.SetXRuleActive(r.Context(), id, false, ""); err != nil {
 		s.logger.Error("api: deactivate rule — set inactive", "rule_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to deactivate rule")
 		return
 	}
 
-	if list, err := s.store.ListRules(r.Context(), store.RuleFilter{}); err == nil {
-		s.broadcastEvent("rules", list)
+	if list, err := s.store.ListXRules(r.Context(), store.XRuleFilter{}); err == nil {
+		s.broadcastEvent("x_rules", list)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -436,14 +436,14 @@ func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 }
 
-// handleBulkDeleteRules DELETE /api/rules
-func (s *Server) handleBulkDeleteRules(w http.ResponseWriter, r *http.Request) {
-	var f store.BulkDeleteRulesFilter
+// handleBulkDeleteXRules DELETE /api/x/rules
+func (s *Server) handleBulkDeleteXRules(w http.ResponseWriter, r *http.Request) {
+	var f store.BulkDeleteXRulesFilter
 	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	n, err := s.store.BulkDeleteRules(r.Context(), f)
+	n, err := s.store.BulkDeleteXRules(r.Context(), f)
 	if err != nil {
 		s.logger.Error("api: bulk delete rules", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to bulk delete rules")

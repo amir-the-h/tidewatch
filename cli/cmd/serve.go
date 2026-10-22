@@ -22,6 +22,7 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/pipeline"
 	"github.com/amir-the-h/tidewatch/internal/queue"
 	"github.com/amir-the-h/tidewatch/internal/search"
+	"github.com/amir-the-h/tidewatch/internal/source"
 	"github.com/amir-the-h/tidewatch/internal/store"
 	"github.com/amir-the-h/tidewatch/internal/stream"
 	"github.com/amir-the-h/tidewatch/internal/twitter"
@@ -202,6 +203,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	mgr := worker.NewManager(workerCount, q, q, s, cache, logger).WithDispatcher(dispatcher).WithBroadcaster(h)
 
+	// Sources: connector types are registered here (x_stream / x_search arrive
+	// in phase 1 step 3, rss in step 4); the manager runs the active sources.
+	sourceReg := source.NewRegistry()
+	ingester := &source.Ingester{Store: s, Producer: q, Cache: cache, Broadcaster: h, Emitter: emitter, Logger: logger}
+	sourceMgr := source.NewManager(s, sourceReg, ingester, h, logger, source.Options{
+		MaxConcurrentPolls: cfg.Sources.MaxConcurrentPolls,
+	})
+
 	jwtSecret := cfg.Auth.JWTSecret
 	if jwtSecret == "" {
 		// Refuse to start — a missing or well-known secret makes all tokens trivially forgeable.
@@ -225,6 +234,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir, toolExec)
 	srv.WithHub(h)
+	srv.WithSources(sourceMgr)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -246,6 +256,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			errCh <- fmt.Errorf("worker: %w", err)
 		}
 	}()
+
+	if err := sourceMgr.Start(ctx); err != nil {
+		return fmt.Errorf("serve: start sources: %w", err)
+	}
 
 	go func() {
 		logger.Info("serve: starting notification dispatcher", "component", "notifier")
@@ -278,6 +292,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	cancel()
 
 	streamClient.Disconnect()
+	sourceMgr.Stop()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()

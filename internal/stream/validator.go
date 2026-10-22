@@ -143,14 +143,14 @@ func hasAtom(node model.ExprNode, resolve SourceResolver, resolveRule RuleResolv
 		if err != nil {
 			return false
 		}
-		return src.Class == model.SourceClassAtom
+		return src.Class == model.XTermClassAtom
 	}
 	for _, id := range node.Srcs {
 		src, err := resolve(id)
 		if err != nil {
 			continue
 		}
-		if src.Class == model.SourceClassAtom {
+		if src.Class == model.XTermClassAtom {
 			return true
 		}
 	}

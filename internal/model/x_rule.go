@@ -17,7 +17,7 @@ type ExprNode struct {
 	Rule *int64     `json:"rule,omitempty"` // reference to another local rule by ID; inlined at compile time
 }
 
-type Rule struct {
+type XRule struct {
 	ID            int64           `json:"id"`
 	Name          string          `json:"name"`
 	Expression    json.RawMessage `json:"expression"`

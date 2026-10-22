@@ -30,6 +30,15 @@ func (s *Server) handleListSignals(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.RuleID = &id
 	}
+	if v := q.Get("source_id"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid source_id")
+			return
+		}
+		filter.SourceID = &id
+	}
+	filter.SourceType = q.Get("source_type")
 	if v := q.Get("kind"); v != "" {
 		kind := model.SignalKind(v)
 		if kind != model.SignalKindPost && kind != model.SignalKindArticle {

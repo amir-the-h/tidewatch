@@ -72,11 +72,11 @@ func (s *Scheduler) RunOnce(ctx context.Context) (int, error) {
 // After each successful rule fetch, the newest tweet ID is recorded and used as
 // the since_id on the next call for that rule.
 func (s *Scheduler) RunWithParams(ctx context.Context, ruleIDs []int64, params SearchParams) (int, error) {
-	var rules []*model.Rule
+	var rules []*model.XRule
 
 	if len(ruleIDs) > 0 {
 		for _, id := range ruleIDs {
-			r, err := s.store.GetRule(ctx, id)
+			r, err := s.store.GetXRule(ctx, id)
 			if err != nil {
 				return 0, fmt.Errorf("search: scheduler: get rule %d: %w", id, err)
 			}
@@ -87,7 +87,7 @@ func (s *Scheduler) RunWithParams(ctx context.Context, ruleIDs []int64, params S
 	} else {
 		active := true
 		local := false
-		all, err := s.store.ListRules(ctx, store.RuleFilter{Active: &active, Local: &local})
+		all, err := s.store.ListXRules(ctx, store.XRuleFilter{Active: &active, Local: &local})
 		if err != nil {
 			return 0, fmt.Errorf("search: scheduler: list rules: %w", err)
 		}
