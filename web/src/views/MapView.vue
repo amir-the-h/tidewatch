@@ -166,7 +166,7 @@ function buildPopup(pin: import('../api/map').MapPin, color: string): string {
 </script>
 
 <template>
-  <div style="display: flex; flex-direction: column; height: calc(100vh - 48px - 48px);">
+  <div style="display: flex; flex-direction: column; height: 100%;">
 
     <!-- Header bar -->
     <div style="

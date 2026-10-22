@@ -406,7 +406,7 @@ const pipelineOptions = computed(() =>
 </script>
 
 <template>
-  <div style="display: flex; flex-direction: column; height: 100vh; background: #181825;">
+  <div style="display: flex; flex-direction: column; height: 100%;">
     <!-- Header bar -->
     <div style="
       height: 48px; display: flex; align-items: center; gap: 12px;

@@ -14,7 +14,7 @@ export default createRouter({
     { path: '/sources', component: () => import('../views/SourcesView.vue') },
     { path: '/actions', component: () => import('../views/ActionsView.vue') },
     { path: '/pipelines', component: () => import('../views/PipelinesView.vue') },
-    { path: '/pipelines/:id/build', component: () => import('../views/PipelineBuilderView.vue') },
+    { path: '/pipelines/:id/build', component: () => import('../views/PipelineBuilderView.vue'), meta: { fullBleed: true } },
     { path: '/notifications', component: () => import('../views/NotificationsView.vue') },
     { path: '/tracked-entities', redirect: '/tracker' },
     { path: '/tracker', component: () => import('../views/TrackerView.vue') },
