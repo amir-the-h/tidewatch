@@ -117,8 +117,13 @@ async function reprocessOne(id: string) {
     const { requeued } = await store.reprocess({ tweet_ids: [id] })
     if (requeued) {
       toast.success('Tweet queued for reprocessing')
-      // Refresh detail after a brief delay so the worker has time to run
-      setTimeout(async () => { detail.value = await store.getTweet(id) }, 2000)
+      // Refresh detail after a brief delay so the worker has time to run, unless another tweet is open by then
+      setTimeout(async () => {
+        try {
+          const fresh = await store.getTweet(id)
+          if (detail.value?.tweet.id === id) detail.value = fresh
+        } catch { /* the next open refetches it */ }
+      }, 2000)
     } else {
       toast.info('Nothing to run: no active action has the new_tweet trigger.')
     }
