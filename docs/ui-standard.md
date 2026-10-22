@@ -30,7 +30,7 @@ Rules that keep the move cheap:
 - **No hex values and no inline `style=""` for colour, spacing or type** in `.vue` files. Use tokens through Tailwind classes (`bg-card`, `text-muted-foreground`, `gap-3`). A CI grep enforces this.
 - **Wrapper props follow shadcn-vue**, even where Naive names differ: `variant` not `type`, `size: 'sm' | 'default' | 'lg' | 'icon'`, `v-model:open` for overlays.
 - **Icons are `@lucide/vue`**, shadcn-vue's icon set, replacing `@vicons/ionicons5`. 16px in controls, 14px inline with `small` text, stroke width 1.75.
-- **Components with no shadcn equivalent** (vue-flow pipeline canvas, Leaflet map, vis-network graph) are styled from tokens directly and stay as they are.
+- **Components with no shadcn equivalent** (vue-flow pipeline canvas, Leaflet map, vis-network graph) are styled from tokens directly: concrete colours via `token()` at render time, CSS via `var(--token)` in a stylesheet scoped under the canvas (`components/map/leaflet-theme.css`, `components/pipeline/flow-theme.css`).
 
 Mapping of Naive pieces to their wrapper and future replacement:
 
