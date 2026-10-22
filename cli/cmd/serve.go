@@ -21,10 +21,9 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/notifier"
 	"github.com/amir-the-h/tidewatch/internal/pipeline"
 	"github.com/amir-the-h/tidewatch/internal/queue"
-	"github.com/amir-the-h/tidewatch/internal/search"
 	"github.com/amir-the-h/tidewatch/internal/source"
+	"github.com/amir-the-h/tidewatch/internal/source/x"
 	"github.com/amir-the-h/tidewatch/internal/store"
-	"github.com/amir-the-h/tidewatch/internal/stream"
 	"github.com/amir-the-h/tidewatch/internal/twitter"
 	"github.com/amir-the-h/tidewatch/internal/worker"
 	"github.com/amir-the-h/tidewatch/migrations"
@@ -60,10 +59,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
-
-	if cfg.X.BearerToken == "" {
-		return fmt.Errorf("X bearer token is required; set via config or TIDEWATCH_X_BEARER_TOKEN env var")
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -175,37 +170,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	dispatcher := notifier.NewDispatcher(s, logger)
 	var emitter notifier.EventEmitter = dispatcher
 
-	rules := stream.NewRuleManager(cfg.X.BearerToken, nil)
-	streamClient := stream.NewClient(cfg.X.BearerToken, s, q, cache, rules, emitter, logger)
-	streamClient.WithBroadcaster(h)
-
 	workerCount := cfg.Worker.Count
 	if workerCount < 1 {
 		workerCount = 1
 	}
 
-	// Build search scheduler (nil when search is disabled).
-	searchParams := search.SearchParams{
-		MaxResults:  cfg.Search.MaxResults,
-		Limit:       cfg.Search.Limit,
-		TweetFields: cfg.Search.TweetFields,
-		UserFields:  cfg.Search.UserFields,
-		Expansions:  cfg.Search.Expansions,
-	}
-	if cfg.Search.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, cfg.Search.StartTime); err == nil {
-			searchParams.StartTime = t
-		}
-	}
-	searchClient := search.NewClient(cfg.X.BearerToken, cfg.X.Tier, s, q, logger)
-	searchClient.WithActionCache(cache)
-	searchScheduler := search.NewScheduler(searchClient, s, cfg.Search.Interval, searchParams, logger)
-
 	mgr := worker.NewManager(workerCount, q, q, s, cache, logger).WithDispatcher(dispatcher).WithBroadcaster(h)
 
-	// Sources: connector types are registered here (x_stream / x_search arrive
-	// in phase 1 step 3, rss in step 4); the manager runs the active sources.
+	// Sources: connector types are registered here (rss arrives in phase 1
+	// step 4); the manager runs the active sources.
+	xStream := x.NewStream(s)
 	sourceReg := source.NewRegistry()
+	sourceReg.Register(xStream)
+	sourceReg.Register(x.NewSearch(s))
 	ingester := &source.Ingester{Store: s, Producer: q, Cache: cache, Broadcaster: h, Emitter: emitter, Logger: logger}
 	sourceMgr := source.NewManager(s, sourceReg, ingester, h, logger, source.Options{
 		MaxConcurrentPolls: cfg.Sources.MaxConcurrentPolls,
@@ -232,23 +209,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		cfg.Auth.AdminPassword,
 	)
 
-	srv := api.NewServerWithConcreteRules(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, rules, streamClient, cfg.X.Tier, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, searchScheduler, mgr, q, q, cfg.Inference.ModelsDir, toolExec)
+	srv := api.NewServer(cfg.API.Bind, s, q, infReg, cache, pipeReg, twitterClient, pool, cfg.Ollama.FastWaitTimeout, jwtSecret, logger, dispatcher, mgr, q, q, cfg.Inference.ModelsDir, toolExec)
 	srv.WithHub(h)
 	srv.WithSources(sourceMgr)
+	srv.WithXRules(xStream)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	errCh := make(chan error, 2)
-
-	if cfg.Stream.AutoConnect {
-		logger.Info("serve: auto-connecting stream", "component", "stream")
-		if err := streamClient.Connect(ctx); err != nil {
-			logger.Error("serve: stream auto-connect failed", "component", "stream", "error", err)
-		}
-	} else {
-		logger.Info("serve: stream is disconnected; use API or CLI to connect", "component", "stream")
-	}
 
 	go func() {
 		logger.Info("serve: starting worker manager", "component", "worker", "count", workerCount)
@@ -266,15 +235,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		dispatcher.Start(ctx)
 	}()
 
-	if cfg.Search.Enabled {
-		go func() {
-			logger.Info("serve: starting search scheduler", "component", "search", "interval", cfg.Search.Interval)
-			if err := searchScheduler.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				logger.Error("serve: search scheduler stopped", "error", err)
-			}
-		}()
-	}
-
 	go func() {
 		logger.Info("serve: starting api server", "component", "api", "bind", cfg.API.Bind)
 		if err := srv.Start(ctx); err != nil {
@@ -291,7 +251,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	cancel()
 
-	streamClient.Disconnect()
 	sourceMgr.Stop()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -235,7 +235,11 @@ func sourceBody(cmd *cobra.Command, base map[string]any) (map[string]any, error)
 var sourceCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a source",
-	Example: `  tidewatch source create --type rss --name "BBC World" \
+	Example: `  tidewatch source create --type x_stream --name "X stream" \
+    --set bearer_token=$X_BEARER_TOKEN --set tier=pro --active
+  tidewatch source create --type x_search --name "X search" \
+    --set bearer_token=$X_BEARER_TOKEN --set 'rule_ids=[1,2]' --active
+  tidewatch source create --type rss --name "BBC World" \
     --set url=https://feeds.bbci.co.uk/news/world/rss.xml --tier 2 --region global --language en --active`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		body, err := sourceBody(cmd, nil)
@@ -337,7 +341,9 @@ var sourceBackfillParams string
 var sourceBackfillCmd = &cobra.Command{
 	Use:   "backfill <id>",
 	Short: "Run a historical fetch (connectors that support backfill)",
-	Args:  cobra.ExactArgs(1),
+	Example: `  tidewatch source backfill 2 \
+    --params '{"start_time":"2026-10-01T00:00:00Z","end_time":"2026-10-08T00:00:00Z","limit":500}'`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		params := map[string]any{}
 		if sourceBackfillParams != "" {

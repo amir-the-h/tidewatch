@@ -17,8 +17,8 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/auth"
 	"github.com/amir-the-h/tidewatch/internal/model"
 	"github.com/amir-the-h/tidewatch/internal/queue"
+	"github.com/amir-the-h/tidewatch/internal/source/x"
 	"github.com/amir-the-h/tidewatch/internal/store"
-	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
 // ---------------------------------------------------------------------------
@@ -323,16 +323,6 @@ func (m *mockStore) ListDigestJobs(_ context.Context, _ int) ([]*model.DigestJob
 }
 func (m *mockStore) DeleteDigestJob(_ context.Context, _ string) error { return nil }
 
-func (m *mockStore) SaveSearchJob(_ context.Context, _ *model.SearchJob) error { return nil }
-func (m *mockStore) GetSearchJob(_ context.Context, _ string) (*model.SearchJob, error) {
-	return nil, fmt.Errorf("not found")
-}
-func (m *mockStore) UpdateSearchJob(_ context.Context, _ *model.SearchJob) error { return nil }
-func (m *mockStore) ListSearchJobs(_ context.Context, _ int) ([]*model.SearchJob, error) {
-	return []*model.SearchJob{}, nil
-}
-func (m *mockStore) DeleteSearchJob(_ context.Context, _ string) error { return nil }
-
 func (m *mockStore) ListNERSuggestionsForEntity(_ context.Context, _ int64) ([]string, error) {
 	return nil, nil
 }
@@ -505,9 +495,6 @@ func (m *mockStore) BulkDeleteNotificationProviders(_ context.Context, _ store.B
 func (m *mockStore) BulkDeleteNotificationChannels(_ context.Context, _ store.BulkDeleteNotificationChannelsFilter) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSearchJobsFilter) (int64, error) {
-	return 0, nil
-}
 func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error) {
 	return 0, nil
 }
@@ -582,7 +569,18 @@ func (m *mockRuleManager) DeleteRule(_ context.Context, _ string) error {
 	m.deleteRuleCalled = true
 	return nil
 }
-func (m *mockRuleManager) ListRules(_ context.Context) ([]stream.XRule, error) { return nil, nil }
+func (m *mockRuleManager) ListRules(_ context.Context) ([]x.XRule, error) { return nil, nil }
+
+// fakeXRules stands in for the x_stream connector; a nil api means no
+// x_stream source is active.
+type fakeXRules struct {
+	api  x.RuleAPI
+	tier string
+}
+
+func (f *fakeXRules) WithRules(_ context.Context, fn func(api x.RuleAPI, tier string) error) error {
+	return fn(f.api, f.tier)
+}
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -594,7 +592,8 @@ func newTestServer(t *testing.T) (*Server, *mockStore, *mockProducer, *mockRuleM
 	mp := &mockProducer{}
 	mr := &mockRuleManager{}
 	logger := slog.Default()
-	srv := NewServer("127.0.0.1:0", ms, mp, nil, nil, nil, nil, mr, nil, "basic", nil, 0, "", logger, nil, nil, nil, nil, nil, "", nil)
+	srv := NewServer("127.0.0.1:0", ms, mp, nil, nil, nil, nil, nil, 0, "", logger, nil, nil, nil, nil, "", nil)
+	srv.WithXRules(&fakeXRules{api: mr, tier: "basic"})
 	return srv, ms, mp, mr
 }
 

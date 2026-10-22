@@ -8,9 +8,6 @@ services:
     restart: unless-stopped
 
     environment:
-      # Required
-      TIDEWATCH_X_BEARER_TOKEN: "${TIDEWATCH_X_BEARER_TOKEN}"
-
       # Port
       TIDEWATCH_API_BIND: "${TIDEWATCH_API_BIND:-0.0.0.0:8080}"
 
@@ -29,9 +26,6 @@ services:
       # Optional Pushover notifications
       TIDEWATCH_PUSHOVER_APP_TOKEN: "${TIDEWATCH_PUSHOVER_APP_TOKEN:-}"
       TIDEWATCH_PUSHOVER_USER_KEY: "${TIDEWATCH_PUSHOVER_USER_KEY:-}"
-
-      # Stream
-      TIDEWATCH_STREAM_AUTO_CONNECT: "${TIDEWATCH_STREAM_AUTO_CONNECT:-true}"
 
       # Nominatim reverse geocoding
       TIDEWATCH_NOMINATIM_URL: "${TIDEWATCH_NOMINATIM_URL:-http://nominatim:8080}"

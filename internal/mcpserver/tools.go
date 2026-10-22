@@ -37,30 +37,12 @@ func AllTools() []ToolDef {
 			Path:        "/api/auth/me",
 		},
 
-		// ── Health / Stream ──────────────────────────────────────────────────
+		// ── Health ───────────────────────────────────────────────────────────
 		{
 			Name:        "health_get",
 			Description: "Return API health status.",
 			Method:      "GET",
 			Path:        "/api/health",
-		},
-		{
-			Name:        "stream_status_get",
-			Description: "Return current X filtered stream connection status.",
-			Method:      "GET",
-			Path:        "/api/stream/status",
-		},
-		{
-			Name:        "stream_connect",
-			Description: "Connect to the X filtered stream (admin only).",
-			Method:      "POST",
-			Path:        "/api/stream/connect",
-		},
-		{
-			Name:        "stream_disconnect",
-			Description: "Disconnect from the X filtered stream (admin only).",
-			Method:      "POST",
-			Path:        "/api/stream/disconnect",
 		},
 
 		// ── X rules ──────────────────────────────────────────────────────────
@@ -114,7 +96,7 @@ func AllTools() []ToolDef {
 		},
 		{
 			Name:        "x_rules_activate",
-			Description: "Activate an X rule (pushes it to the X Filtered Stream unless local).",
+			Description: "Activate an X rule. A non-local rule is pushed to X through the active x_stream source; with none active it is synced when the stream next starts.",
 			Method:      "POST",
 			Path:        "/api/x/rules/{id}/activate",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Rule ID", Required: true}},
@@ -258,7 +240,7 @@ func AllTools() []ToolDef {
 			Path:        "/api/sources/{id}/backfill",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Source ID", Required: true}},
 			Body: &BodyDef{
-				Description: "Connector-defined backfill params (object).",
+				Description: "Connector-defined backfill params (object). x_search: start_time and end_time (RFC 3339), limit (tweets per query).",
 			},
 		},
 		{
@@ -922,47 +904,6 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 			Method:      "DELETE",
 			Path:        "/api/workers/buffer/{pipeline}",
 			PathParams:  []ParamDef{{Name: "pipeline", Type: "string", Description: "Pipeline name", Required: true}},
-		},
-
-		// ── Search Jobs ──────────────────────────────────────────────────────
-		{
-			Name:        "search_jobs_list",
-			Description: "List X search backfill jobs.",
-			Method:      "GET",
-			Path:        "/api/search",
-		},
-		{
-			Name:        "search_run",
-			Description: "Trigger an X search backfill job. Returns 202 with job ID immediately; poll search_job_get until done or error.",
-			Method:      "POST",
-			Path:        "/api/search/run",
-			Body: &BodyDef{
-				Description: "Optional object with fields: rule_ids (array of integers), query (string), start_time (RFC3339), end_time (RFC3339).",
-			},
-		},
-		{
-			Name:        "search_job_get",
-			Description: "Get a search job by ID. Poll until status is done or error.",
-			Method:      "GET",
-			Path:        "/api/search/{id}",
-			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Search job ID", Required: true}},
-		},
-		{
-			Name:        "search_job_delete",
-			Description: "Delete a search job.",
-			Method:      "DELETE",
-			Path:        "/api/search/{id}",
-			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Search job ID", Required: true}},
-		},
-
-		{
-			Name:        "search_jobs_bulk_delete",
-			Description: "Bulk-delete search jobs. All filters optional — omit all to delete every search job. Filters combine with AND.",
-			Method:      "DELETE",
-			Path:        "/api/search",
-			Body: &BodyDef{
-				Description: "ids ([]string, optional), status (string: pending/done/error, optional). All optional.",
-			},
 		},
 
 		// ── Summaries ────────────────────────────────────────────────────────
