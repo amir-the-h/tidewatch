@@ -90,7 +90,7 @@ function truncateResult(result: string): string {
   <div style="
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 48px - 48px);
+    height: 100%;
     min-height: 400px;
   ">
     <!-- Header bar -->

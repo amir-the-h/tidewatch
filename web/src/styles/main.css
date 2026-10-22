@@ -1,0 +1,161 @@
+/*
+ * Tidewatch Console — design tokens and base styles.
+ * See docs/ui-standard.md. This file is the single source of truth for colour,
+ * type, radius and size; src/theme/naive.ts reads these variables at runtime to
+ * build Naive UI's theme overrides. Variable names follow shadcn-vue so a future
+ * move to it needs no renaming.
+ */
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --background: #0e1217;
+  --foreground: #e6ebf1;
+  --card: #151a21;
+  --card-foreground: var(--foreground);
+  --popover: #1a2029;
+  --popover-foreground: var(--foreground);
+  --muted: #1f2630;
+  --muted-foreground: #93a0b0;
+  --secondary: #222a35;
+  --secondary-foreground: var(--foreground);
+  --accent: #1f2630; /* neutral hover fill (shadcn naming), not the brand colour */
+  --accent-foreground: var(--foreground);
+
+  /* Brand and status */
+  --primary: #2fb5a8;
+  --primary-foreground: #04201d;
+  --destructive: #f0616d;
+  --destructive-foreground: #2a0508;
+  --success: #3fbf7f;
+  --warning: #e8b04a;
+  --info: #5aa9e6;
+
+  /* Lines */
+  --border: #2a323d;
+  --input: #5f6b7a;
+  --ring: var(--primary);
+
+  /* Sidebar */
+  --sidebar: #11161c;
+  --sidebar-foreground: #b4bfcc;
+  --sidebar-primary: var(--primary);
+  --sidebar-accent: #1c232c;
+  --sidebar-border: var(--border);
+
+  /* Data */
+  --chart-1: #2fb5a8;
+  --chart-2: #e8b04a;
+  --chart-3: #8f8ff0;
+  --chart-4: #e9789f;
+  --chart-5: #7cc3e8;
+  --heat-0: #3b6fd8;
+  --heat-1: #25adc4;
+  --heat-2: #4cb86b;
+  --heat-3: #e3c13b;
+  --heat-4: #e0533f;
+
+  /* Sizes */
+  --control-sm: 28px;
+  --control-md: 32px;
+  --statusbar-h: 40px;
+  --sidebar-w: 224px;
+  --sidebar-w-collapsed: 52px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-heat-0: var(--heat-0);
+  --color-heat-1: var(--heat-1);
+  --color-heat-2: var(--heat-2);
+  --color-heat-3: var(--heat-3);
+  --color-heat-4: var(--heat-4);
+
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control-md: var(--control-md);
+  --spacing-statusbar: var(--statusbar-h);
+  --spacing-sidebar: var(--sidebar-w);
+  --spacing-sidebar-collapsed: var(--sidebar-w-collapsed);
+}
+
+/* static: always emitted on :root, since src/theme/naive.ts reads them at runtime */
+@theme static {
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+@theme {
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Type scale (docs/ui-standard.md → Type) */
+  --text-label: 11px;
+  --text-label--line-height: 16px;
+  --text-label--letter-spacing: 0.04em;
+  --text-small: 12px;
+  --text-small--line-height: 16px;
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-title: 16px;
+  --text-title--line-height: 24px;
+  --text-page-title: 20px;
+  --text-page-title--line-height: 28px;
+  --text-display: 24px;
+  --text-display--line-height: 32px;
+}
+
+/* Unlayered and `html body` so it beats the body rule Naive UI injects at runtime. */
+html,
+html body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
