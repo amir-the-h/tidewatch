@@ -36,7 +36,7 @@ configs/                → Default config files
 .github/dependabot.yml  → Weekly grouped dependency updates (gomod, npm /web), monthly Actions + Docker base images; ignores (bumped by hand): nvidia/cuda, onnxruntime_go, daulet/tokenizers, TypeScript majors
 docs/examples/          → Worked pipeline examples (geopolitical-monitoring detector/extractor flows)
 docs/ui-standard.md     → Web UI standard ("Tidewatch Console"): tokens, layout, components, rules
-web/                    → Vue 3 SPA (Naive UI + Tailwind v4); tokens in web/src/styles/main.css, UI kit in web/src/components/ui, shell in web/src/components/layout, page-specific pieces in web/src/components/<page> (e.g. actions/ — the action form split by type; tracker/ — the Tracker page's Entities, Candidates and Connections tabs)
+web/                    → Vue 3 SPA (Naive UI + Tailwind v4); tokens in web/src/styles/main.css, UI kit in web/src/components/ui, shell in web/src/components/layout, page-specific pieces in web/src/components/<page> (e.g. actions/ — the action form split by type; tracker/ — the Tracker page's Entities, Candidates and Connections tabs; notifications/ — the Providers and Channels tabs and their Sheets)
 scripts/                → prepare-nominatim.sh (Geofabrik PBF download + merge; regions via GEOFABRIK_REGIONS)
 docker-compose.gpu.yml  → Optional NVIDIA GPU override (ONNX falls back to CPU without it)
 ```
