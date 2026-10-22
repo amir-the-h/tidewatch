@@ -78,8 +78,10 @@ async function send(content: string) {
 }
 
 function retry() {
-  if (failedOp.value === 'send') send(lastContent)
-  else fetchChatActions()
+  if (failedOp.value === 'send') {
+    store.discardLastTurn()
+    send(lastContent)
+  } else fetchChatActions()
 }
 
 // ── Clear ────────────────────────────────────────────────────────────────────

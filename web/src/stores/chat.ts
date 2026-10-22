@@ -118,6 +118,14 @@ export const useChatStore = defineStore('chat', () => {
     pendingStep = null
   }
 
+  /** Drop the last user + assistant pair (a failed send) so it can be re-sent without duplicating it. */
+  function discardLastTurn() {
+    const conv = conversations.value[selectedActionId.value]
+    if (conv && conv.length >= 2 && conv[conv.length - 1].role === 'assistant' && conv[conv.length - 2].role === 'user') {
+      conv.splice(-2)
+    }
+  }
+
   /** Clear the conversation for the currently selected action. */
   function clearSession() {
     stopStreaming()
@@ -134,6 +142,7 @@ export const useChatStore = defineStore('chat', () => {
     selectAction,
     sendMessage,
     stopStreaming,
+    discardLastTurn,
     clearSession,
   }
 })
