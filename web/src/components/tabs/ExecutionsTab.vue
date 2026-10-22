@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, h, onMounted } from 'vue'
+import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from '@lucide/vue'
 import {
-  NFlex, NDataTable, NSelect, NInput, NButton, NTag, NPagination, NDatePicker,
-  useMessage, type DataTableColumns,
-} from 'naive-ui'
+  Button, DataTable, DatePicker, Input, Select, StatusIndicator, type DataTableColumns,
+} from '@/components/ui'
+import { useToast } from '@/composables/useToast'
 import { listAllExecutions, listActions, type ActionExecution, type Action } from '../../api/actions'
 
-const msg = useMessage()
+const toast = useToast()
+
+const PER_PAGE = 50
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
@@ -22,11 +25,17 @@ const execFilterActionId = ref<number | null>(null)
 const execFilterTweet    = ref('')
 const execFilterFrom     = ref<number | null>(null)
 const execFilterTo       = ref<number | null>(null)
-const execFilterStatus   = ref('')
+const execFilterStatus   = ref<'success' | 'error' | null>(null)
 
 const actionOptions = computed(() =>
   actions.value.map(a => ({ label: a.name, value: a.id }))
 )
+const statusOptions = [
+  { label: 'Success', value: 'success' as const },
+  { label: 'Error', value: 'error' as const },
+]
+
+const hasNextPage = computed(() => executions.value.length === PER_PAGE)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,19 +50,19 @@ async function loadExecutions() {
   try {
     executions.value = await listAllExecutions({
       page:      execsPage.value,
-      per_page:  50,
+      per_page:  PER_PAGE,
       action_id: execFilterActionId.value ?? undefined,
-      tweet_id:  execFilterTweet.value    || undefined,
+      tweet_id:  execFilterTweet.value.trim() || undefined,
       from:      execFilterFrom.value ? new Date(execFilterFrom.value).toISOString() : undefined,
       to:        execFilterTo.value   ? new Date(execFilterTo.value).toISOString()   : undefined,
-      status:    execFilterStatus.value   || undefined,
-    })
-  } catch (e: any) { msg.error(e.message) }
+      status:    execFilterStatus.value ?? undefined,
+    }) ?? []
+  } catch (e: any) { toast.error(`Could not load executions: ${e.message}`) }
   finally { execsLoading.value = false }
 }
 
 function onSearch() { execsPage.value = 1; loadExecutions() }
-function onExecsPageChange(page: number) { execsPage.value = page; loadExecutions() }
+function goToPage(page: number) { execsPage.value = page; loadExecutions() }
 
 onMounted(async () => {
   try { actions.value = await listActions() } catch {}
@@ -63,63 +72,80 @@ onMounted(async () => {
 // ── Table columns ─────────────────────────────────────────────────────────────
 
 const execColumns: DataTableColumns<ActionExecution> = [
-  { title: 'ID',            key: 'id',            width: 60 },
+  {
+    title: 'ID', key: 'id', width: 72,
+    render: (row) => h('span', { class: 'font-mono tabular text-muted-foreground' }, String(row.id)),
+  },
   {
     title: 'Action', key: 'action_name', ellipsis: { tooltip: true },
     render: (row) => actionName(row.action_id),
   },
   {
     title: 'Pipeline', key: 'pipeline_name', ellipsis: { tooltip: true },
-    render: (row) => row.pipeline_name || '—',
+    render: (row) => row.pipeline_name || h('span', { class: 'text-muted-foreground' }, '—'),
   },
-  { title: 'Tweet ID', key: 'tweet_id', width: 200, ellipsis: { tooltip: true } },
   {
-    title: 'Status', key: 'status', width: 90,
-    render: (row) => h(NTag, { size: 'small', type: row.status === 'success' ? 'success' : 'error' },
-      { default: () => row.status }),
+    title: 'Tweet ID', key: 'tweet_id', width: 190, ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'font-mono tabular' }, row.tweet_id),
   },
-  { title: 'Error', key: 'error', ellipsis: { tooltip: true } },
   {
-    title: 'Executed', key: 'executed_at', width: 160,
-    render: (row) => new Date(row.executed_at).toLocaleString(),
+    title: 'Status', key: 'status', width: 100,
+    render: (row) => h(StatusIndicator, { status: row.status === 'success' ? 'success' : 'destructive' },
+      () => row.status === 'success' ? 'Success' : 'Error'),
+  },
+  {
+    title: 'Error', key: 'error', ellipsis: { tooltip: true },
+    render: (row) => row.error ? h('span', { class: 'font-mono text-small text-destructive' }, row.error) : null,
+  },
+  {
+    title: 'Executed', key: 'executed_at', width: 170,
+    render: (row) => h('span', { class: 'tabular text-muted-foreground' }, new Date(row.executed_at).toLocaleString()),
   },
 ]
 </script>
 
 <template>
-  <n-flex style="margin-bottom: 12px;" :size="12" align="center" wrap>
-    <n-select
-      v-model:value="execFilterActionId"
-      :options="actionOptions"
-      placeholder="All actions"
-      clearable
-      filterable
-      style="width: 180px"
-    />
-    <n-input v-model:value="execFilterTweet" placeholder="Tweet ID…" clearable style="width: 180px" />
-    <n-date-picker v-model:value="execFilterFrom" type="datetime" placeholder="From" clearable style="width: 200px" />
-    <n-date-picker v-model:value="execFilterTo"   type="datetime" placeholder="To"   clearable style="width: 200px" />
-    <n-select
-      v-model:value="execFilterStatus"
-      :options="[{ label: 'All', value: '' }, { label: 'Success', value: 'success' }, { label: 'Error', value: 'error' }]"
-      style="width: 120px"
-    />
-    <n-button size="small" type="primary" @click="onSearch">Search</n-button>
-  </n-flex>
+  <div class="flex flex-col gap-4">
+    <form class="flex flex-wrap items-center gap-2" @submit.prevent="onSearch">
+      <div class="w-48">
+        <Select v-model="execFilterActionId" :options="actionOptions" placeholder="All actions" clearable filterable />
+      </div>
+      <div class="w-48">
+        <Input v-model="execFilterTweet" placeholder="Tweet ID" clearable @enter="onSearch" />
+      </div>
+      <div class="w-52">
+        <DatePicker v-model="execFilterFrom" placeholder="From" clearable />
+      </div>
+      <div class="w-52">
+        <DatePicker v-model="execFilterTo" placeholder="To" clearable />
+      </div>
+      <div class="w-32">
+        <Select v-model="execFilterStatus" :options="statusOptions" placeholder="Any status" clearable />
+      </div>
+      <Button native-type="submit">
+        <template #icon><SearchIcon :stroke-width="1.75" /></template>
+        Search
+      </Button>
+    </form>
 
-  <n-data-table
-    :columns="execColumns"
-    :data="executions"
-    :loading="execsLoading"
-    :bordered="false"
-    size="small"
-  />
-  <n-flex justify="end" style="margin-top: 12px">
-    <n-pagination
-      :page="execsPage"
-      :page-size="50"
-      :item-count="executions.length === 50 ? execsPage * 50 + 1 : (execsPage - 1) * 50 + executions.length"
-      @update:page="onExecsPageChange"
+    <DataTable
+      :columns="execColumns"
+      :data="executions"
+      :loading="execsLoading"
+      :row-key="(row: ActionExecution) => row.id"
+      empty-text="No executions match these filters. Executions appear here as actions run on tweets."
     />
-  </n-flex>
+
+    <nav class="flex items-center justify-end gap-2 text-small" aria-label="Executions pages">
+      <Button variant="outline" :disabled="execsPage <= 1 || execsLoading" @click="goToPage(execsPage - 1)">
+        <template #icon><ChevronLeftIcon :stroke-width="1.75" /></template>
+        Previous
+      </Button>
+      <span class="tabular text-muted-foreground">Page {{ execsPage }}</span>
+      <Button variant="outline" :disabled="!hasNextPage || execsLoading" @click="goToPage(execsPage + 1)">
+        Next
+        <template #icon><ChevronRightIcon :stroke-width="1.75" /></template>
+      </Button>
+    </nav>
+  </div>
 </template>

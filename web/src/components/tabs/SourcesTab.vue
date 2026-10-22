@@ -1,32 +1,37 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
+import { PauseIcon, PencilIcon, TrashIcon } from '@lucide/vue'
+import {
+  AlertDialog, Badge, Button, Checkbox, DataTable, FormField, IconButton, Input, Select, Sheet,
+  StatusIndicator, type DataTableColumns,
+} from '@/components/ui'
+import { useToast } from '@/composables/useToast'
 import { useSourcesStore } from '../../stores/sources'
-import { useMessage, NSpace } from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
 import type { Source } from '../../api/sources'
 import { ApiError } from '../../api/client'
-import { CreateOutline, PauseCircleOutline, TrashOutline } from '@vicons/ionicons5'
-import { iconBtn, activeTag } from '../../utils/renderActions'
 
 // SourceType → operator mapping (mirrors Go model)
 const SOURCE_TYPES = [
   { label: 'keyword',        value: 'keyword',        operator: '' },
-  { label: 'phrase',         value: 'phrase',          operator: '' },
-  { label: 'hashtag',        value: 'hashtag',         operator: '' },
-  { label: 'cashtag',        value: 'cashtag',         operator: '' },
-  { label: 'mention',        value: 'mention',         operator: '' },
-  { label: 'account (from)', value: 'account',         operator: 'from:' },
-  { label: 'to_account',     value: 'to_account',      operator: 'to:' },
-  { label: 'retweets_of',    value: 'retweets_of',     operator: 'retweets_of:' },
-  { label: 'url',            value: 'url',             operator: 'url:' },
-  { label: 'url_contains',   value: 'url_contains',    operator: 'url_contains:' },
-  { label: 'lang',           value: 'lang',            operator: 'lang:' },
-  { label: 'is',             value: 'is',              operator: 'is:' },
-  { label: 'has',            value: 'has',             operator: 'has:' },
+  { label: 'phrase',         value: 'phrase',         operator: '' },
+  { label: 'hashtag',        value: 'hashtag',        operator: '' },
+  { label: 'cashtag',        value: 'cashtag',        operator: '' },
+  { label: 'mention',        value: 'mention',        operator: '' },
+  { label: 'account (from)', value: 'account',        operator: 'from:' },
+  { label: 'to_account',     value: 'to_account',     operator: 'to:' },
+  { label: 'retweets_of',    value: 'retweets_of',    operator: 'retweets_of:' },
+  { label: 'url',            value: 'url',            operator: 'url:' },
+  { label: 'url_contains',   value: 'url_contains',   operator: 'url_contains:' },
+  { label: 'lang',           value: 'lang',           operator: 'lang:' },
+  { label: 'is',             value: 'is',             operator: 'is:' },
+  { label: 'has',            value: 'has',            operator: 'has:' },
 ]
+const typeOptions = SOURCE_TYPES.map(t => ({ label: t.label, value: t.value }))
 
 const store = useSourcesStore()
-const msg   = useMessage()
+const toast = useToast()
+
+// ── Filters ───────────────────────────────────────────────────────────────────
 
 const filterText       = ref('')
 const filterType       = ref<string | null>(null)
@@ -41,142 +46,224 @@ const filteredSources = computed(() => {
   return list
 })
 
-const showCreate = ref(false)
-const form = ref({ name: '', type: 'keyword', value: '' })
-const saving = ref(false)
+const hasFilters = computed(() => !!filterText.value.trim() || !!filterType.value || filterActiveOnly.value)
 
-const showEdit  = ref(false)
-const editId    = ref<number | null>(null)
-const editForm  = ref({ name: '', type: 'keyword', value: '' })
-const updating  = ref(false)
+function clearFilters() {
+  filterText.value = ''
+  filterType.value = null
+  filterActiveOnly.value = false
+}
 
-const operatorFor = (type: string) =>
+// ── Create / edit form ────────────────────────────────────────────────────────
+
+const showForm = ref(false)
+const editId   = ref<number | null>(null)
+const form     = ref({ name: '', type: 'keyword' as string | null, value: '' })
+const saving   = ref(false)
+
+const operatorFor = (type: string | null) =>
   SOURCE_TYPES.find(t => t.value === type)?.operator ?? ''
 
-onMounted(() => store.fetchSources())
+const valuePreview = computed(() => `${operatorFor(form.value.type)}${form.value.value.trim()}`)
 
-async function onCreate() {
+function openCreate() {
+  editId.value = null
+  form.value = { name: '', type: 'keyword', value: '' }
+  showForm.value = true
+}
+
+defineExpose({ openCreate })
+
+function openEdit(row: Source) {
+  editId.value = row.id
+  form.value = { name: row.name, type: row.type, value: row.value }
+  showForm.value = true
+}
+
+async function onSave() {
+  if (!form.value.name.trim()) { toast.error('Enter a name for the source'); return }
+  if (!form.value.type) { toast.error('Select a source type'); return }
+  if (!form.value.value.trim()) { toast.error('Enter the value to match'); return }
+  const body = { name: form.value.name, type: form.value.type, value: form.value.value }
   saving.value = true
   try {
-    await store.createSource({ name: form.value.name, type: form.value.type, value: form.value.value })
-    msg.success('Source created')
-    showCreate.value = false
-    form.value = { name: '', type: 'keyword', value: '' }
+    if (editId.value != null) {
+      await store.update(editId.value, body)
+      toast.success('Source updated')
+    } else {
+      await store.createSource(body)
+      toast.success('Source created')
+    }
+    showForm.value = false
   } catch (e: any) {
-    msg.error(e.message)
+    toast.error(`Could not ${editId.value != null ? 'update' : 'create'} source: ${e.message}`)
   } finally {
     saving.value = false
   }
 }
 
-function openEdit(row: Source) {
-  editId.value = row.id
-  editForm.value = { name: row.name, type: row.type, value: row.value }
-  showEdit.value = true
-}
+// ── Deactivate / delete ───────────────────────────────────────────────────────
 
-async function onUpdate() {
-  if (editId.value == null) return
-  updating.value = true
+async function onDeactivate(row: Source) {
   try {
-    await store.update(editId.value, { name: editForm.value.name, type: editForm.value.type, value: editForm.value.value })
-    msg.success('Source updated')
-    showEdit.value = false
-  } catch (e: any) {
-    msg.error(e.message)
-  } finally {
-    updating.value = false
-  }
-}
-
-async function onDeactivate(id: number) {
-  try { await store.deactivate(id); msg.success('Deactivated') }
-  catch (e: any) { msg.error(e.message) }
-}
-
-async function onDelete(id: number) {
-  try {
-    await store.remove(id)
-    msg.success('Deleted')
+    await store.deactivate(row.id)
+    toast.success('Source deactivated')
   } catch (e: any) {
     if (e instanceof ApiError && e.status === 409)
-      msg.error('Cannot delete: source is referenced by a rule. Deactivate it instead.')
+      toast.error('Could not deactivate source: an active rule uses it. Deactivate that rule first.')
     else
-      msg.error(e.message)
+      toast.error(`Could not deactivate source: ${e.message}`)
   }
 }
 
+const deleteTarget = ref<Source | null>(null)
+const showDelete   = ref(false)
+const deleting     = ref(false)
+
+function askDelete(row: Source) {
+  deleteTarget.value = row
+  showDelete.value = true
+}
+
+async function onConfirmDelete() {
+  const target = deleteTarget.value
+  if (!target) return
+  deleting.value = true
+  try {
+    await store.remove(target.id)
+    toast.success('Source deleted')
+    showDelete.value = false
+  } catch (e: any) {
+    if (e instanceof ApiError && e.status === 409)
+      toast.error('Could not delete source: a rule uses it. Remove it from that rule first.')
+    else
+      toast.error(`Could not delete source: ${e.message}`)
+  } finally {
+    deleting.value = false
+  }
+}
+
+// ── Table columns ─────────────────────────────────────────────────────────────
+
 const columns: DataTableColumns<Source> = [
-  { title: 'ID',       key: 'id',       width: 60, sorter: 'default' },
-  { title: 'Name',     key: 'name',                sorter: 'default' },
-  { title: 'Type',     key: 'type',                sorter: 'default' },
-  { title: 'Operator', key: 'operator' },
-  { title: 'Value',    key: 'value',               sorter: 'default' },
-  { title: 'Active', key: 'active', width: 80, sorter: (a, b) => Number(a.active) - Number(b.active), render: (row) => activeTag(row.active) },
   {
-    title: 'Actions', key: 'actions',
-    render: (row) => h(NSpace, { size: 4 }, {
-      default: () => [
-        iconBtn(CreateOutline,       'Edit',       () => openEdit(row)),
-        iconBtn(PauseCircleOutline,  'Deactivate', () => onDeactivate(row.id), { disabled: !row.active }),
-        iconBtn(TrashOutline,        'Delete',     () => onDelete(row.id),     { type: 'error' }),
-      ]
-    })
+    title: 'ID', key: 'id', width: 64, sorter: 'default',
+    render: (row) => h('span', { class: 'font-mono tabular text-muted-foreground' }, String(row.id)),
+  },
+  {
+    title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'font-medium' }, row.name),
+  },
+  {
+    title: 'Type', key: 'type', width: 130, sorter: 'default',
+    render: (row) => h(Badge, { variant: 'secondary' }, () => row.type),
+  },
+  {
+    title: 'Value', key: 'value', sorter: 'default', ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'font-mono' }, [
+      row.operator ? h('span', { class: 'text-muted-foreground' }, row.operator) : null,
+      row.value,
+    ]),
+  },
+  {
+    title: 'Status', key: 'active', width: 110,
+    sorter: (a, b) => Number(a.active) - Number(b.active),
+    render: (row) => h(StatusIndicator, { status: row.active ? 'success' : 'idle' },
+      () => row.active ? 'Active' : 'Inactive'),
+  },
+  {
+    title: '', key: 'actions', width: 120, align: 'right',
+    render: (row) => h('div', { class: 'flex items-center justify-end gap-1' }, [
+      h(IconButton, { icon: PencilIcon, label: 'Edit', onClick: () => openEdit(row) }),
+      row.active
+        ? h(IconButton, { icon: PauseIcon, label: 'Deactivate', onClick: () => onDeactivate(row) })
+        : null,
+      h(IconButton, { icon: TrashIcon, label: 'Delete', onClick: () => askDelete(row) }),
+    ]),
   },
 ]
+
+onMounted(() => store.fetchSources())
 </script>
 
 <template>
-  <n-space vertical size="large">
-    <n-flex align="center" :size="8" wrap>
-      <n-input v-model:value="filterText" placeholder="Search by name or value…" clearable style="width: 240px" />
-      <n-select
-        v-model:value="filterType"
-        :options="[{ label: 'All types', value: null }, ...SOURCE_TYPES.map(t => ({ label: t.label, value: t.value }))]"
-        clearable placeholder="All types" style="width: 180px"
-      />
-      <n-checkbox v-model:checked="filterActiveOnly">Active only</n-checkbox>
-      <n-button type="primary" size="small" @click="showCreate = true">New Source</n-button>
-    </n-flex>
+  <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="w-64">
+        <Input v-model="filterText" placeholder="Search name or value" clearable />
+      </div>
+      <div class="w-44">
+        <Select v-model="filterType" :options="typeOptions" placeholder="All types" clearable />
+      </div>
+      <Checkbox v-model="filterActiveOnly">Active only</Checkbox>
+    </div>
 
-    <n-data-table
+    <div
+      v-if="store.error"
+      class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive p-4 text-small"
+    >
+      <span class="text-destructive">Could not load sources: {{ store.error }}</span>
+      <Button variant="outline" @click="store.fetchSources()">Retry</Button>
+    </div>
+
+    <DataTable
+      v-else
       :columns="columns"
       :data="filteredSources"
       :loading="store.loading"
-      :scroll-x="680"
-      :pagination="{ pageSize: 20 }"
-    />
+      :row-key="(row: Source) => row.id"
+      :page-size="20"
+    >
+      <template #empty>
+        <div v-if="hasFilters && store.sources.length" class="flex flex-col items-center gap-3 py-8 text-center">
+          <p class="m-0 text-muted-foreground">No sources match these filters.</p>
+          <Button variant="outline" @click="clearFilters">Clear filters</Button>
+        </div>
+        <div v-else class="flex flex-col items-center gap-3 py-8 text-center">
+          <p class="m-0 text-muted-foreground">No sources yet. Add a keyword, account or hashtag to build rules from.</p>
+          <Button @click="openCreate">New source</Button>
+        </div>
+      </template>
+    </DataTable>
+  </div>
 
-    <!-- Create drawer -->
-    <FormDrawer v-model:show="showCreate" title="New Source" save-label="Create" :loading="saving" @save="onCreate">
-      <n-form-item label="Name">
-        <n-input v-model:value="form.name" placeholder="e.g. Earthquake keyword" />
-      </n-form-item>
-      <n-form-item label="Type">
-        <n-select v-model:value="form.type" :options="SOURCE_TYPES" />
-      </n-form-item>
-      <n-form-item label="Operator (auto)">
-        <n-input :value="operatorFor(form.type)" disabled />
-      </n-form-item>
-      <n-form-item label="Value">
-        <n-input v-model:value="form.value" placeholder="e.g. earthquake" />
-      </n-form-item>
-    </FormDrawer>
+  <!-- Create / edit source -->
+  <Sheet
+    v-model:open="showForm"
+    :title="editId != null ? 'Edit source' : 'New source'"
+    description="A single search term or operator. Combine sources into rules on the Rules tab."
+  >
+    <form class="flex flex-col gap-3 p-4" @submit.prevent="onSave">
+      <FormField label="Name" for="source-name" required>
+        <Input id="source-name" v-model="form.name" placeholder="e.g. Earthquake keyword" />
+      </FormField>
+      <FormField label="Type" required>
+        <Select v-model="form.type" :options="typeOptions" filterable />
+      </FormField>
+      <FormField
+        label="Value"
+        for="source-value"
+        required
+        :description="valuePreview ? `Sent to X as ${valuePreview}` : undefined"
+      >
+        <Input id="source-value" v-model="form.value" placeholder="e.g. earthquake" />
+      </FormField>
+    </form>
+    <template #footer>
+      <Button variant="outline" size="default" @click="showForm = false">Cancel</Button>
+      <Button size="default" :loading="saving" @click="onSave">
+        {{ editId != null ? 'Save source' : 'Create source' }}
+      </Button>
+    </template>
+  </Sheet>
 
-    <!-- Edit drawer -->
-    <FormDrawer v-model:show="showEdit" title="Edit Source" :loading="updating" @save="onUpdate">
-      <n-form-item label="Name">
-        <n-input v-model:value="editForm.name" placeholder="e.g. Earthquake keyword" />
-      </n-form-item>
-      <n-form-item label="Type">
-        <n-select v-model:value="editForm.type" :options="SOURCE_TYPES" />
-      </n-form-item>
-      <n-form-item label="Operator (auto)">
-        <n-input :value="operatorFor(editForm.type)" disabled />
-      </n-form-item>
-      <n-form-item label="Value">
-        <n-input v-model:value="editForm.value" />
-      </n-form-item>
-    </FormDrawer>
-  </n-space>
+  <!-- Delete confirm -->
+  <AlertDialog
+    v-model:open="showDelete"
+    :title="`Delete ${deleteTarget?.name ?? 'source'}?`"
+    description="The source is removed. Sources used by a rule can't be deleted. This can't be undone."
+    action-label="Delete source"
+    :loading="deleting"
+    @confirm="onConfirmDelete"
+  />
 </template>

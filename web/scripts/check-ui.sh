@@ -6,7 +6,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-CONVERTED="src/App.vue src/components/layout src/components/ui src/components/PageHeader.vue"
+CONVERTED="src/App.vue src/components/layout src/components/ui src/components/PageHeader.vue src/views/PipelinesView.vue src/components/tabs/PipelinesTab.vue src/components/tabs/TriggersTab.vue src/components/tabs/ExecutionsTab.vue src/views/SourcesView.vue src/components/tabs/SourcesTab.vue src/components/tabs/RulesTab.vue src/components/RuleExprBuilder.vue"
 
 fail=0
 report() { echo "check-ui: $1"; echo "$2"; fail=1; }

@@ -1,6 +1,8 @@
 <!-- web/src/components/RuleExprBuilder.vue -->
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { PlusIcon, XIcon } from '@lucide/vue'
+import { Button, Combobox, IconButton, Input, Select } from '@/components/ui'
 import type { ExprNode } from '../api/rules'
 import { useSourcesStore } from '../stores/sources'
 import { useRulesStore } from '../stores/rules'
@@ -113,63 +115,50 @@ const typeOptions: { label: string; value: NodeType }[] = [
   { label: 'Rule',   value: 'rule' },
 ]
 
-const typeColor: Record<NodeType, string> = {
-  AND: '#f97316', OR: '#2563eb', NOT: '#9333ea', src: '#16a34a', op: '#6b7db3', rule: '#dc2626',
+// Left rule colour per node type, so nesting stays readable at a glance.
+const typeBorder: Record<NodeType, string> = {
+  AND: 'border-chart-1', OR: 'border-chart-2', NOT: 'border-chart-4',
+  src: 'border-chart-3', op: 'border-chart-5', rule: 'border-muted-foreground',
 }
 </script>
 
 <template>
-  <div :style="{ borderLeft: `3px solid ${typeColor[nodeType]}`, paddingLeft: '12px', marginBottom: '8px' }">
-    <n-space align="center" style="margin-bottom: 6px">
-      <n-select
-        :value="nodeType"
-        :options="typeOptions"
-        size="small"
-        style="width: 100px"
-        @update:value="onTypeChange"
-      />
+  <div class="flex flex-col gap-2 border-l-2 pl-3" :class="typeBorder[nodeType]">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="w-28 shrink-0">
+        <Select
+          :model-value="nodeType"
+          :options="typeOptions"
+          aria-label="Node type"
+          @update:model-value="v => v && onTypeChange(v)"
+        />
+      </div>
 
       <!-- src: multi-select; 1 selection → { src }, 2+ → { srcs } -->
-      <n-select
-        v-if="nodeType === 'src'"
-        v-model:value="srcIds"
-        :options="sourceOptions"
-        multiple
-        size="small"
-        style="min-width: 260px; max-width: 420px"
-        placeholder="Select source(s)"
-      />
+      <div v-if="nodeType === 'src'" class="min-w-0 flex-1">
+        <Combobox v-model="srcIds" :options="sourceOptions" placeholder="Select sources" />
+      </div>
 
       <!-- op: free text -->
-      <n-input
-        v-if="nodeType === 'op'"
-        v-model:value="opVal"
-        size="small"
-        style="width: 200px"
-        placeholder="e.g. is:retweet"
-      />
+      <div v-if="nodeType === 'op'" class="min-w-0 flex-1">
+        <Input v-model="opVal" placeholder="e.g. is:retweet" />
+      </div>
 
       <!-- rule: select a local rule -->
-      <n-select
-        v-if="nodeType === 'rule'"
-        v-model:value="ruleId"
-        :options="localRuleOptions"
-        size="small"
-        style="width: 280px"
-        placeholder="Select local rule"
-      />
+      <div v-if="nodeType === 'rule'" class="min-w-0 flex-1">
+        <Select v-model="ruleId" :options="localRuleOptions" placeholder="Select a local rule" filterable />
+      </div>
 
-      <!-- Add child (AND/OR) -->
-      <n-button v-if="nodeType === 'AND' || nodeType === 'OR'" size="small" @click="addChild">
-        + Add child
-      </n-button>
+      <Button v-if="nodeType === 'AND' || nodeType === 'OR'" variant="outline" @click="addChild">
+        <template #icon><PlusIcon :stroke-width="1.75" /></template>
+        Add condition
+      </Button>
 
-      <!-- Remove this node (not root) -->
-      <n-button v-if="!isRoot" size="small" type="error" @click="emit('remove')">✕</n-button>
-    </n-space>
+      <IconButton v-if="!isRoot" :icon="XIcon" label="Remove condition" @click="emit('remove')" />
+    </div>
 
     <!-- AND/OR children -->
-    <div v-if="nodeType === 'AND' || nodeType === 'OR'">
+    <template v-if="nodeType === 'AND' || nodeType === 'OR'">
       <RuleExprBuilder
         v-for="(child, i) in children"
         :key="childKeys[i]"
@@ -177,15 +166,14 @@ const typeColor: Record<NodeType, string> = {
         @update:model-value="updateChild(i, $event)"
         @remove="removeChild(i)"
       />
-    </div>
+    </template>
 
     <!-- NOT child -->
-    <div v-if="nodeType === 'NOT'">
-      <RuleExprBuilder
-        :model-value="notChild"
-        :is-root="true"
-        @update:model-value="updateNotChild"
-      />
-    </div>
+    <RuleExprBuilder
+      v-if="nodeType === 'NOT'"
+      :model-value="notChild"
+      :is-root="true"
+      @update:model-value="updateNotChild"
+    />
   </div>
 </template>

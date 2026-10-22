@@ -1,7 +1,25 @@
 // Tidewatch Console UI kit. Pages import from here, never n-* directly.
 // Each wrapper mirrors its shadcn-vue counterpart's name and props.
+export { default as AlertDialog } from './AlertDialog.vue'
 export { default as Badge } from './Badge.vue'
 export { default as Button } from './Button.vue'
+export { default as Checkbox } from './Checkbox.vue'
+export { default as Combobox } from './Combobox.vue'
+export { default as DataTable } from './DataTable.vue'
+export { default as DatePicker } from './DatePicker.vue'
+export { default as Dialog } from './Dialog.vue'
+export { default as FormField } from './FormField.vue'
+export { default as IconButton } from './IconButton.vue'
+export { default as Input } from './Input.vue'
+export { default as RadioGroup } from './RadioGroup.vue'
+export { default as Select } from './Select.vue'
 export { default as Sheet } from './Sheet.vue'
+export { default as Skeleton } from './Skeleton.vue'
 export { default as StatusIndicator } from './StatusIndicator.vue'
+export { default as Switch } from './Switch.vue'
+export { default as Tabs } from './Tabs.vue'
+export { default as Textarea } from './Textarea.vue'
 export { default as Tooltip } from './Tooltip.vue'
+
+// Column definitions for DataTable. Kept as a re-export so pages never import naive-ui.
+export type { DataTableColumns } from 'naive-ui'

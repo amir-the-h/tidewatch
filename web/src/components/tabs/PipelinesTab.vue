@@ -1,18 +1,12 @@
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue'
-import {
-  NFlex, NTag, NSpace, NDataTable, NButton, NIcon, NFormItem, NInput, NModal,
-  NRadioGroup, NRadio, NSelect, NText,
-  useMessage,
-  type DataTableColumns,
-} from 'naive-ui'
-import {
-  TrashOutline, PauseCircleOutline, CheckmarkCircleOutline, CreateOutline,
-  PlayCircleOutline,
-} from '@vicons/ionicons5'
+import { ref, computed, h, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import FormDrawer from '../FormDrawer.vue'
-import { iconBtn, iconBtnConfirm, activeTag } from '../../utils/renderActions'
+import { PauseIcon, PlayIcon, PowerIcon, TrashIcon, WorkflowIcon } from '@lucide/vue'
+import {
+  AlertDialog, Badge, Button, DataTable, Dialog, FormField, IconButton, Input, RadioGroup,
+  Select, Sheet, StatusIndicator, Textarea, type DataTableColumns,
+} from '@/components/ui'
+import { useToast } from '@/composables/useToast'
 import {
   listPipelines, createPipeline, deletePipeline, activatePipeline, deactivatePipeline,
   runPipeline, getPipelineGraph,
@@ -20,12 +14,13 @@ import {
 } from '../../api/pipelines'
 
 const router = useRouter()
-const msg    = useMessage()
+const toast  = useToast()
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
 const pipelinesData    = ref<Pipeline[]>([])
 const pipelinesLoading = ref(false)
+const loadError        = ref('')
 
 // ── Create form ───────────────────────────────────────────────────────────────
 
@@ -34,7 +29,7 @@ const savingPipeline   = ref(false)
 const pipelineFormName = ref('')
 const pipelineFormDesc = ref('')
 
-// ── Run modal ─────────────────────────────────────────────────────────────────
+// ── Run dialog ────────────────────────────────────────────────────────────────
 
 const showRunModal    = ref(false)
 const runPipelineRow  = ref<Pipeline | null>(null)
@@ -45,30 +40,56 @@ const runStartNodeId  = ref<number | null>(null)
 const runGraphNodes   = ref<PipelineNode[]>([])
 const runGraphLoading = ref(false)
 
+const runNodeOptions = computed(() =>
+  runGraphNodes.value.map(n => ({ label: n.label || `Node #${n.id}`, value: n.id }))
+)
+const runScopeOptions = computed(() => [
+  { label: 'All eligible tweets', value: false },
+  {
+    label: runStartNodeId.value
+      ? "Only tweets not yet processed by the selected node's action"
+      : "Only tweets without existing executions for this pipeline's actions",
+    value: true,
+  },
+])
+const runOrderOptions = [
+  { label: 'Newest first', value: 'desc' as const },
+  { label: 'Oldest first', value: 'asc' as const },
+]
+
+// ── Delete confirm ────────────────────────────────────────────────────────────
+
+const deleteTarget = ref<Pipeline | null>(null)
+const showDelete   = ref(false)
+const deleting     = ref(false)
+
 // ── Functions ─────────────────────────────────────────────────────────────────
 
 async function fetchPipelinesData() {
   pipelinesLoading.value = true
+  loadError.value = ''
   try { pipelinesData.value = (await listPipelines()) ?? [] }
-  catch (e: any) { msg.error(e.message) }
+  catch (e: any) { loadError.value = e.message }
   finally { pipelinesLoading.value = false }
 }
 
-function openCreatePipeline() {
+function openCreate() {
   pipelineFormName.value = ''
   pipelineFormDesc.value = ''
   showPipelineForm.value = true
 }
 
+defineExpose({ openCreate })
+
 async function onSavePipeline() {
-  if (!pipelineFormName.value.trim()) { msg.error('Name is required'); return }
+  if (!pipelineFormName.value.trim()) { toast.error('Enter a name for the pipeline'); return }
   savingPipeline.value = true
   try {
     const p = await createPipeline({ name: pipelineFormName.value, description: pipelineFormDesc.value })
-    msg.success('Pipeline created')
+    toast.success('Pipeline created')
     showPipelineForm.value = false
     router.push(`/pipelines/${p.id}/build`)
-  } catch (e: any) { msg.error(e.message) }
+  } catch (e: any) { toast.error(`Could not create pipeline: ${e.message}`) }
   finally { savingPipeline.value = false }
 }
 
@@ -91,8 +112,8 @@ async function openRunPipeline(row: Pipeline) {
   finally { runGraphLoading.value = false }
 }
 
-async function onConfirmRunPipeline(): Promise<false | void> {
-  if (!runPipelineRow.value) return false
+async function onConfirmRunPipeline() {
+  if (!runPipelineRow.value) return
   runningPipeline.value = true
   try {
     const res = await runPipeline(
@@ -101,73 +122,85 @@ async function onConfirmRunPipeline(): Promise<false | void> {
       runStartNodeId.value ?? undefined,
       runOrder.value === 'asc' ? 'asc' : undefined,
     )
-    msg.success(res.async
-      ? `Pipeline "${runPipelineRow.value.name}" is running in the background`
+    toast.success(res.async
+      ? `Backfill started for "${runPipelineRow.value.name}"`
       : `Queued ${res.queued} tweets for "${runPipelineRow.value.name}"`)
     showRunModal.value = false
-  } catch (e: any) { msg.error(e.message) }
+  } catch (e: any) { toast.error(`Could not start backfill: ${e.message}`) }
   finally { runningPipeline.value = false }
-  return false
 }
 
-async function onActivatePipeline(id: number) {
+async function onToggleActive(row: Pipeline) {
   try {
-    await activatePipeline(id)
-    const p = pipelinesData.value.find(p => p.id === id)
-    if (p) p.active = true
-  } catch (e: any) { msg.error(e.message) }
+    if (row.active) await deactivatePipeline(row.id)
+    else await activatePipeline(row.id)
+    row.active = !row.active
+    toast.success(row.active ? 'Pipeline activated' : 'Pipeline deactivated')
+  } catch (e: any) { toast.error(e.message) }
 }
 
-async function onDeactivatePipeline(id: number) {
-  try {
-    await deactivatePipeline(id)
-    const p = pipelinesData.value.find(p => p.id === id)
-    if (p) p.active = false
-  } catch (e: any) { msg.error(e.message) }
+function askDelete(row: Pipeline) {
+  deleteTarget.value = row
+  showDelete.value = true
 }
 
-async function onDeletePipeline(id: number) {
+async function onConfirmDelete() {
+  const target = deleteTarget.value
+  if (!target) return
+  deleting.value = true
   try {
-    await deletePipeline(id)
-    pipelinesData.value = pipelinesData.value.filter(p => p.id !== id)
-  } catch (e: any) { msg.error(e.message) }
+    await deletePipeline(target.id)
+    pipelinesData.value = pipelinesData.value.filter(p => p.id !== target.id)
+    toast.success('Pipeline deleted')
+    showDelete.value = false
+  } catch (e: any) { toast.error(`Could not delete pipeline: ${e.message}`) }
+  finally { deleting.value = false }
 }
 
 // ── Table columns ─────────────────────────────────────────────────────────────
 
 const pipelineColumns: DataTableColumns<Pipeline> = [
-  { title: 'ID', key: 'id', width: 60, sorter: 'default' },
-  { title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true } },
   {
-    title: 'Active', key: 'active', width: 80,
-    render: (row) => activeTag(row.active),
+    title: 'ID', key: 'id', width: 64, sorter: 'default',
+    render: (row) => h('span', { class: 'font-mono tabular text-muted-foreground' }, String(row.id)),
+  },
+  {
+    title: 'Name', key: 'name', sorter: 'default', ellipsis: { tooltip: true },
+    render: (row) => h('span', { class: 'font-medium' }, row.name),
+  },
+  {
+    title: 'Status', key: 'active', width: 110,
+    render: (row) => h(StatusIndicator, { status: row.active ? 'success' : 'idle' },
+      () => row.active ? 'Active' : 'Inactive'),
   },
   {
     title: 'Nodes', key: 'node_count', width: 80,
-    render: (row) => h(NTag, { size: 'small', round: true }, { default: () => String(row.node_count) }),
+    render: (row) => h(Badge, { variant: 'secondary' }, () => String(row.node_count)),
   },
   {
-    title: 'Created', key: 'created_at', width: 160, sorter: 'default',
-    render: (row) => new Date(row.created_at).toLocaleString(),
+    title: 'Created', key: 'created_at', width: 170, sorter: 'default',
+    render: (row) => h('span', { class: 'tabular text-muted-foreground' }, new Date(row.created_at).toLocaleString()),
   },
   {
-    title: 'Actions', key: 'actions', width: 240,
-    render: (row) => h(NSpace, { size: 4 }, {
-      default: () => [
-        row.active
-          ? iconBtn(PlayCircleOutline, 'Run', () => openRunPipeline(row), { type: 'primary' })
-          : null,
-        h(NButton, { size: 'tiny', onClick: () => router.push(`/pipelines/${row.id}/build`) }, {
-          icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
-          default: () => 'Build',
-        }),
-        row.active
-          ? iconBtn(PauseCircleOutline, 'Deactivate', () => onDeactivatePipeline(row.id))
-          : iconBtn(CheckmarkCircleOutline, 'Activate', () => onActivatePipeline(row.id), { type: 'primary' }),
-        iconBtnConfirm(TrashOutline, 'Delete', 'Delete this pipeline?', () =>
-          onDeletePipeline(row.id), { type: 'error' }),
-      ],
-    }),
+    title: '', key: 'actions', width: 210, align: 'right',
+    render: (row) => h('div', { class: 'flex items-center justify-end gap-1' }, [
+      row.active
+        ? h(Button, { variant: 'outline', onClick: () => openRunPipeline(row) }, {
+          icon: () => h(PlayIcon, { strokeWidth: 1.75 }),
+          default: () => 'Run',
+        })
+        : null,
+      h(Button, { variant: 'outline', onClick: () => router.push(`/pipelines/${row.id}/build`) }, {
+        icon: () => h(WorkflowIcon, { strokeWidth: 1.75 }),
+        default: () => 'Build',
+      }),
+      h(IconButton, {
+        icon: row.active ? PauseIcon : PowerIcon,
+        label: row.active ? 'Deactivate' : 'Activate',
+        onClick: () => onToggleActive(row),
+      }),
+      h(IconButton, { icon: TrashIcon, label: 'Delete', onClick: () => askDelete(row) }),
+    ]),
   },
 ]
 
@@ -175,71 +208,87 @@ onMounted(() => { fetchPipelinesData() })
 </script>
 
 <template>
-  <n-flex justify="end" style="margin-bottom: 12px;">
-    <n-button type="primary" size="small" @click="openCreatePipeline">New Pipeline</n-button>
-  </n-flex>
+  <div
+    v-if="loadError"
+    class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive p-4 text-small"
+  >
+    <span class="text-destructive">Could not load pipelines: {{ loadError }}</span>
+    <Button variant="outline" @click="fetchPipelinesData">Retry</Button>
+  </div>
 
-  <n-data-table
+  <DataTable
+    v-else
     :columns="pipelineColumns"
     :data="pipelinesData"
     :loading="pipelinesLoading"
-    :bordered="false"
     :row-key="(row: Pipeline) => row.id"
-    size="small"
-  />
-
-  <!-- New Pipeline Drawer -->
-  <FormDrawer v-model:show="showPipelineForm" title="New Pipeline" :loading="savingPipeline" @save="onSavePipeline">
-    <n-form-item label="Name">
-      <n-input v-model:value="pipelineFormName" placeholder="Pipeline name" />
-    </n-form-item>
-    <n-form-item label="Description">
-      <n-input v-model:value="pipelineFormDesc" placeholder="Optional description" type="textarea" :rows="2" />
-    </n-form-item>
-  </FormDrawer>
-
-  <!-- Run Pipeline Modal -->
-  <n-modal
-    v-model:show="showRunModal"
-    preset="dialog"
-    :title="`Run pipeline — ${runPipelineRow?.name}`"
-    positive-text="Run"
-    negative-text="Cancel"
-    :loading="runningPipeline"
-    @positive-click="onConfirmRunPipeline"
   >
-    <n-space vertical :size="12" style="margin-top: 8px;">
-      <n-form-item label="Start from node" :show-feedback="false">
-        <n-select
-          v-model:value="runStartNodeId"
+    <template #empty>
+      <div class="flex flex-col items-center gap-3 py-8 text-center">
+        <p class="m-0 text-muted-foreground">No pipelines yet. Create one to start processing tweets from a trigger.</p>
+        <Button @click="openCreate">New pipeline</Button>
+      </div>
+    </template>
+  </DataTable>
+
+  <!-- New pipeline -->
+  <Sheet v-model:open="showPipelineForm" title="New pipeline" description="You'll add actions in the builder next.">
+    <form class="flex flex-col gap-3 p-4" @submit.prevent="onSavePipeline">
+      <FormField label="Name" for="pipeline-name" required>
+        <Input id="pipeline-name" v-model="pipelineFormName" placeholder="Pipeline name" />
+      </FormField>
+      <FormField label="Description" for="pipeline-desc">
+        <Textarea id="pipeline-desc" v-model="pipelineFormDesc" placeholder="Optional description" :rows="2" />
+      </FormField>
+    </form>
+    <template #footer>
+      <Button variant="outline" size="default" @click="showPipelineForm = false">Cancel</Button>
+      <Button size="default" :loading="savingPipeline" @click="onSavePipeline">Create and open builder</Button>
+    </template>
+  </Sheet>
+
+  <!-- Run backfill -->
+  <Dialog
+    v-model:open="showRunModal"
+    :title="`Run ${runPipelineRow?.name ?? 'pipeline'}`"
+    description="Dispatch stored tweets through this pipeline."
+  >
+    <div class="flex flex-col gap-4">
+      <FormField
+        label="Start from"
+        :description="runStartNodeId ? 'Prior results for each tweet are available as context.' : undefined"
+      >
+        <Select
+          v-model="runStartNodeId"
+          :options="runNodeOptions"
           :loading="runGraphLoading"
-          :options="runGraphNodes.map(n => ({
-            label: n.label || `Node #${n.id}`,
-            value: n.id,
-          }))"
-          placeholder="Start of pipeline (default)"
+          placeholder="Start of pipeline"
           clearable
         />
-      </n-form-item>
-      <n-text v-if="runStartNodeId" depth="3" style="font-size: 12px;">
-        Prior detection results for each tweet will be available as context.
-      </n-text>
-      <n-radio-group v-model:value="runNewOnly">
-        <n-space vertical :size="8">
-          <n-radio :value="false">All eligible tweets</n-radio>
-          <n-radio :value="true">
-            {{ runStartNodeId
-              ? "Only tweets not yet processed by the selected node's action"
-              : "Only tweets without existing executions for this pipeline's actions" }}
-          </n-radio>
-        </n-space>
-      </n-radio-group>
-      <n-radio-group v-model:value="runOrder">
-        <n-space vertical :size="8">
-          <n-radio value="desc">Newest first (default)</n-radio>
-          <n-radio value="asc">Oldest first</n-radio>
-        </n-space>
-      </n-radio-group>
-    </n-space>
-  </n-modal>
+      </FormField>
+      <FormField label="Tweets">
+        <RadioGroup v-model="runNewOnly" :options="runScopeOptions" name="run-scope" />
+      </FormField>
+      <FormField label="Order">
+        <RadioGroup v-model="runOrder" :options="runOrderOptions" name="run-order" />
+      </FormField>
+    </div>
+    <template #footer>
+      <Button variant="outline" :disabled="runningPipeline" @click="showRunModal = false">Cancel</Button>
+      <Button :loading="runningPipeline" @click="onConfirmRunPipeline">
+        <template #icon><PlayIcon :stroke-width="1.75" /></template>
+        Run backfill
+      </Button>
+    </template>
+  </Dialog>
+
+  <!-- Delete confirm -->
+  <AlertDialog
+    v-model:open="showDelete"
+    :title="`Delete ${deleteTarget?.name ?? 'pipeline'}?`"
+    description="The pipeline and its graph are removed. This can't be undone."
+    action-label="Delete pipeline"
+    :loading="deleting"
+    @confirm="onConfirmDelete"
+  />
 </template>
