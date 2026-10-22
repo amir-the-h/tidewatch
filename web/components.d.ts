@@ -50,6 +50,7 @@ declare module 'vue' {
     IconButton: typeof import('./src/components/ui/IconButton.vue')['default']
     Input: typeof import('./src/components/ui/Input.vue')['default']
     InternalFields: typeof import('./src/components/actions/InternalFields.vue')['default']
+    MapLegend: typeof import('./src/components/map/MapLegend.vue')['default']
     MapOutputFields: typeof import('./src/components/actions/MapOutputFields.vue')['default']
     MarkdownContent: typeof import('./src/components/MarkdownContent.vue')['default']
     NButton: typeof import('naive-ui')['NButton']

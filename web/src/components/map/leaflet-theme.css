@@ -1,0 +1,88 @@
+/* Leaflet chrome and pin popups on the Map page, styled from the tokens in styles/main.css.
+   Scoped under .tw-map (the map container) since Leaflet builds this DOM outside Vue. */
+
+.tw-map.leaflet-container {
+  background: var(--background);
+  font-family: var(--font-sans);
+}
+
+/* Popups */
+.tw-map .leaflet-popup-content-wrapper {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
+}
+.tw-map .leaflet-popup-content {
+  margin: 10px 14px;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.tw-map .leaflet-popup-tip {
+  background: var(--popover);
+  border: 1px solid var(--border);
+}
+.tw-map a.leaflet-popup-close-button {
+  color: var(--muted-foreground);
+}
+.tw-map a.leaflet-popup-close-button:hover {
+  color: var(--foreground);
+}
+.tw-map .map-popup-location,
+.tw-map .map-popup-text {
+  font-size: 12px;
+  line-height: 16px;
+}
+.tw-map .map-popup-location {
+  color: var(--primary);
+}
+.tw-map .map-popup-text {
+  color: var(--foreground);
+}
+.tw-map .leaflet-popup-content a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tw-map .map-popup-meta {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.tw-map .map-popup-source {
+  font-family: var(--font-mono);
+}
+
+/* Zoom control */
+.tw-map .leaflet-bar {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  overflow: hidden;
+}
+.tw-map .leaflet-bar a {
+  background: var(--card);
+  color: var(--foreground);
+  border-bottom-color: var(--border);
+}
+.tw-map .leaflet-bar a:hover,
+.tw-map .leaflet-bar a:focus-visible {
+  background: var(--accent);
+}
+.tw-map .leaflet-bar a.leaflet-disabled {
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+
+/* Attribution */
+.tw-map .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.tw-map .leaflet-control-attribution a {
+  color: var(--primary);
+}
