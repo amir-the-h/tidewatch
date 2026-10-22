@@ -24,8 +24,8 @@ See [`docs/examples/geopolitical-monitoring`](docs/examples/geopolitical-monitor
 ```
 X Filtered Stream (SSE) ─┐   X search backfill ─┐
                          ▼                      ▼
-                  stream.Client  ── saves tweet to SQLite
-                         │ LPUSH one Task per subscribed action
+                  stream.Client  ── saves the post as a signal in SQLite (deduped)
+                         │ new signals: LPUSH one Task per linked new_signal pipeline entry
                          ▼
           Redis  tidewatch:tasks:{action_id}   (one list per action)
                          │ BRPOP across "ready" keys
@@ -43,6 +43,21 @@ X Filtered Stream (SSE) ─┐   X search backfill ─┐
   tidewatch-mcp   MCP server (stdio + HTTP/SSE), pure Go
   cli             Cobra CLI over the REST API
 ```
+
+## Pipeline context
+
+Every task an action runs gets a flat context map: the outputs of earlier actions on the same signal, then these keys, which actions can't overwrite. Notification templates and Ollama prompts use them as `${key}`.
+
+| Key | Value |
+|---|---|
+| `signal_id` | integer signal ID |
+| `signal_kind` | `post` or `article` |
+| `source_type` | the ingest path (`x_stream`, `x_search`); absent on reprocess and backfill runs |
+| `author`, `title`, `text`, `url`, `lang`, `published_at` | from the signal (`title` is empty for posts) |
+| `text_short` | `text` cut to 280 characters (`title` when there is no text) |
+| X signals only | `x_tweet_id`, `x_author_id`, `x_referenced` (retweeted/quoted/replied_to IDs), `x_rule_ids` |
+
+ONNX and Ollama actions receive the text for posts and `title + "\n\n" + text` for articles. The `twitter_retweet`, `twitter_like` and `twitter_quote` handlers act on `x_tweet_id`; the `rule_matches` condition checks `x_rule_ids`.
 
 ## Quickstart (Docker)
 
@@ -62,6 +77,10 @@ docker compose up -d --build                 # CPU
 ```
 
 Open http://localhost:3000 and sign in as the admin user. ONNX models go in `./models` (download with the HuggingFace `hf` CLI); Ollama backends are added at runtime from the UI.
+
+### Upgrading from v0.2 or earlier
+
+The schema was reset when tweets became signals (one `migrations/001_schema.sql` replaces the old 29 migrations) and an old database is not upgraded: `serve` refuses to start on one. Stop the stack, move `data/tidewatch.db` aside (nothing reads it any more) and start again; the admin user is seeded again from config, and actions, pipelines, rules and the rest need to be recreated.
 
 ### Native build prerequisites
 
@@ -185,10 +204,11 @@ tidewatch ollama backends add --url http://localhost:11434 --max-concurrent 2
 tidewatch ollama backends enable <id>
 tidewatch ollama backends disable <id>
 
-# Tweets
-tidewatch tweet list [--source-id <id>] [--from <RFC3339>] [--to <RFC3339>] [--page 1] [--per-page 20]
-tidewatch tweet show <id>
-tidewatch tweet reprocess [--tweet-ids id1,id2]
+# Signals (ingested posts and articles)
+tidewatch signal list [--kind post|article] [--rule-id <id>] [--from <RFC3339>] [--to <RFC3339>] [--page 1] [--per-page 20]
+tidewatch signal show <id>
+tidewatch signal reprocess --signal-ids 1,2 [--action-ids 5,6]
+tidewatch signal delete --ids 1,2
 
 # Health
 tidewatch health
@@ -237,14 +257,16 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 | `POST` | `/api/rules/{id}/activate` | Activate a rule (syncs to X) |
 | `POST` | `/api/rules/{id}/deactivate` | Deactivate a rule (removes from X) |
 
-### Tweets
+### Signals
+A signal is one ingested item (an X post today; RSS articles later in phase 1). `{id}` is the integer signal ID; the upstream ID (e.g. the tweet ID) is `external_id`.
+
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/tweets` | List tweets (filter: source_id, from, to, page, per_page) |
-| `GET` | `/api/tweets/{id}` | Get tweet + categorizations |
-| `DELETE` | `/api/tweets` | Bulk delete tweets |
-| `POST` | `/api/tweets/reprocess` | Re-enqueue tweets |
-| `DELETE` | `/api/tweets/noise` | Delete tweets classified as noise |
+| `GET` | `/api/signals` | List signals, newest first (filter: kind, rule_id, from, to, page, per_page) → `{signals, total}` |
+| `GET` | `/api/signals/{id}` | Get a signal, its matched X rules and its action executions |
+| `DELETE` | `/api/signals` | Delete signals by `ids` (executions, metadata, rule matches and entity tracks cascade) |
+| `POST` | `/api/signals/reprocess` | Re-enqueue `signal_ids` through the `new_signal` pipelines, or through `action_ids` |
+| `DELETE` | `/api/signals/noise` | Delete X signals that match no rule, or only local rules |
 
 ### Actions (execution units)
 | Method | Path | Description |
@@ -292,8 +314,8 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 ### Executions
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/executions` | List action executions |
-| `DELETE` | `/api/executions/{id}` | Delete an execution |
+| `GET` | `/api/executions` | List action executions (filter: signal_id, action_id, status, from, to) |
+| `DELETE` | `/api/executions` | Bulk delete executions (`signal_ids`, `action_ids`, `pipeline_id`) |
 | `GET` | `/api/executions/{id}/metadata` | Get execution metadata |
 
 ### Ollama Backends
@@ -369,7 +391,7 @@ All routes are under `/api`. JWT bearer token required (except `POST /api/auth/l
 ### Summaries & Digests
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/summaries` | List tweet summaries |
+| `GET` | `/api/summaries` | List signal summaries |
 | `POST` | `/api/summaries/run` | Trigger summary generation |
 | `GET` | `/api/digest` | List digest jobs |
 | `POST` | `/api/digest` | Create a digest job |
@@ -413,7 +435,7 @@ cmd/tidewatch-mcp/   → MCP server binary entrypoint (pure Go, no CGO)
 cli/                    → Cobra CLI subcommands (thin REST client)
 internal/
   config/               → YAML config + env overrides
-  model/                → Domain types (Tweet, Source, Action, Pipeline, etc.)
+  model/                → Domain types (Signal, Source, Action, Pipeline, etc.)
   store/                → SQLite repository (DELETE journal mode, embedded migrations)
   queue/                → Redis list producer/consumer + dead-letter queue
   inference/            → ONNX pipeline interface, Ollama pipeline, BackendPool

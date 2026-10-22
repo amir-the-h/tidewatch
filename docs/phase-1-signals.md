@@ -2,7 +2,7 @@
 
 Phase 1 of [vision.md](vision.md). It turns Tidewatch from an X monitor into a system where X is one source among many, and proves it with a second source type (RSS/Atom).
 
-**Status:** design, not started.
+**Status:** step 1 (schema reset and rename) done; steps 2–7 not started. See [Step 1 notes](#step-1-notes) for where it departs from this design.
 
 ## Goals
 
@@ -417,6 +417,20 @@ Each step is one PR that leaves `main` green and deployable.
 5. **Trigger filters, source requirements, retention, base URL.** Link `filter`, `skipped` executions, handler `SourceTypes()`, the retention job, `ui.base_url` and `signal_url`.
 6. **UI.** Sources page, X source detail, status bar, builder filter UI (the Signals page rename happens in step 1).
 7. **Docs.** CLAUDE.md, README, `configs/`, `docs/examples`, the user skills. Each PR also updates the docs it touches; this step sweeps up whatever is left.
+
+### Step 1 notes
+
+What step 1 did differently from the design above, and what later steps inherit:
+
+- **`signal_sources` has no foreign key yet.** It exists in `001_schema.sql` with `source_id INTEGER NOT NULL` and nothing writes it. Step 2 drops and recreates it with `REFERENCES sources(id) ON DELETE CASCADE` once the generic `sources` table exists. An FK now would have pointed at today's rule-atom `sources`, and SQLite rewrites FK targets on `ALTER TABLE … RENAME`, so the `sources → x_terms` rename would have silently moved it.
+- **`x_rule_matches` already has its final name.** `tweet_rules` became `x_rule_matches (signal_id, rule_id → rules.id)`; step 3 only repoints `rule_id` at `x_rules`.
+- **Later steps add numbered migrations** (`002_…`), so `main` stays deployable without another database wipe. `RunMigrations` refuses a database that recorded a migration which is no longer embedded (an old `001_initial.sql` database) with a "move the SQLite file aside" error.
+- **`pipeline_run_tracking.signal_id`** also references `signals(id) ON DELETE CASCADE`.
+- **Not in the schema yet:** `trigger_pipeline_links.filter` (step 5 adds it with `ALTER TABLE … ADD COLUMN`); the `skipped` execution status needs no schema change (`status` has no CHECK).
+- **Context keys.** `source_id`, `source_name` and `source_tier` arrive with step 2. `source_type` is set from the ingest path (`x_stream`, `x_search`) and is absent on reprocess and pipeline-run backfills, whose events carry only `signal_id` and `kind`. The `rule_matches` / `rule_not_matches` conditions read `x_rule_ids` (they read `rule_ids` before); `x_rule_ids` holds the rules known when the signal was first stored.
+- **The X shim** lives in `internal/stream/signal.go` (`NewXSignal`, `Ingest`), not in a new package. Search imports it. `x_referenced` is a map of reference type to tweet ID.
+- **Removed, not renamed:** the `source_id` filter on tweets, summaries and digests (it joined a `tweet_sources` table that no longer existed, so it never worked; step 2 adds real source filters), the unused notifier events `tweet_categorized` and `categorization_failed` (`tweet_matched` is now `signal_ingested`), and the broken `tidewatch tweet` command (rewritten as `tidewatch signal list|show|reprocess|delete`).
+- **Dead-letter UI.** The Queue page now reads the real `{task, failed_models}` shape. Nothing calls `PushFailed` yet, so the dead-letter list stays empty; that predates phase 1.
 
 ## Testing
 

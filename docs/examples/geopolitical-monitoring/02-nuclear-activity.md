@@ -1,7 +1,7 @@
 # Flow: Nuclear Activity
 
 **Domain prefix:** `nuclear_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are a nuclear nonproliferation analyst monitoring Iran's nuclear program.
-Your task: determine whether the tweet reports a CONCRETE development in Iran's nuclear activities — not opinion or background reporting.
+Your task: determine whether the text reports a CONCRETE development in Iran's nuclear activities — not opinion or background reporting.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"nuclear_is_development": "true|false", "nuclear_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "nuclear_is_development": "true" if the tweet reports enrichment level changes, new centrifuge installation, IAEA access granted/denied, stockpile updates, facility damage/attack, breakout timeline estimates from official sources, or nuclear deal status changes
+- "nuclear_is_development": "true" if the text reports enrichment level changes, new centrifuge installation, IAEA access granted/denied, stockpile updates, facility damage/attack, breakout timeline estimates from official sources, or nuclear deal status changes
 - "nuclear_is_development": "false" for general commentary, opinion, historical background, threats with no concrete development, or diplomatic rhetoric
 - "nuclear_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are a nuclear nonproliferation analyst. A tweet has been confirmed to report a concrete Iran nuclear development. Extract all available details.
+You are a nuclear nonproliferation analyst. A post or article has been confirmed to report a concrete Iran nuclear development. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -91,9 +91,9 @@ Rules:
 <b>Significance:</b> ${nuclear_significance}
 <b>Source:</b> ${nuclear_source}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #nuclear #Iran #${nuclear_facility}
 ```

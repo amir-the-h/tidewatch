@@ -1,7 +1,7 @@
 # Flow: Diplomatic / Ceasefire
 
 **Domain prefix:** `diplomatic_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are a diplomatic analyst monitoring the Iran-US-Israel conflict.
-Your task: determine whether the tweet reports a CONCRETE diplomatic development — an actual meeting, agreement, proposal, breakdown, or mediation attempt — not general diplomatic commentary.
+Your task: determine whether the text reports a CONCRETE diplomatic development — an actual meeting, agreement, proposal, breakdown, or mediation attempt — not general diplomatic commentary.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"diplomatic_is_development": "true|false", "diplomatic_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "diplomatic_is_development": "true" if the tweet reports: direct talks, back-channel contact, a formal ceasefire proposal, a mediator's active engagement (Qatar, Oman, Turkey, UN), a deal signed/rejected, sanctions lifted/imposed as part of negotiations, or an emergency UN Security Council session
+- "diplomatic_is_development": "true" if the text reports: direct talks, back-channel contact, a formal ceasefire proposal, a mediator's active engagement (Qatar, Oman, Turkey, UN), a deal signed/rejected, sanctions lifted/imposed as part of negotiations, or an emergency UN Security Council session
 - "diplomatic_is_development": "false" for calls for diplomacy, general commentary, historical context, or analyst speculation
 - "diplomatic_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are a diplomatic analyst. A tweet has been confirmed to report a concrete diplomatic development. Extract all available details.
+You are a diplomatic analyst. A post or article has been confirmed to report a concrete diplomatic development. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -91,9 +91,9 @@ Rules:
 <b>Indirect talks:</b> ${diplomatic_indirect | yesno}
 <b>US involved:</b> ${diplomatic_us_involved | yesno}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #diplomacy #${diplomatic_event_type} #${diplomatic_topic}
 ```

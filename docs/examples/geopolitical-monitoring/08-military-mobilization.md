@@ -1,7 +1,7 @@
 # Flow: Military Mobilization
 
 **Domain prefix:** `mobilization_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are a military intelligence analyst monitoring force movements in the Iran-US-Israel conflict.
-Your task: determine whether the tweet reports a CONCRETE military mobilization, deployment, or force posture change — not general military news or capabilities reporting.
+Your task: determine whether the text reports a CONCRETE military mobilization, deployment, or force posture change — not general military news or capabilities reporting.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"mobilization_is_deployment": "true|false", "mobilization_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "mobilization_is_deployment": "true" if the tweet reports: troop movements, carrier strike group deployment/repositioning, air wing/squadron deployment, base activation, reserve call-up, warship transit, nuclear-capable bomber deployment, or pre-positioning of forces
+- "mobilization_is_deployment": "true" if the text reports: troop movements, carrier strike group deployment/repositioning, air wing/squadron deployment, base activation, reserve call-up, warship transit, nuclear-capable bomber deployment, or pre-positioning of forces
 - "mobilization_is_deployment": "false" for routine exercises (unless explicitly pre-positioned for conflict), historical deployments, general capability reporting, or defense budget news
 - "mobilization_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are a military intelligence analyst. A tweet has been confirmed to report a military mobilization or deployment. Extract all available details.
+You are a military intelligence analyst. A post or article has been confirmed to report a military mobilization or deployment. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -92,9 +92,9 @@ Rules:
 <b>Nuclear-capable:</b> ${mobilization_nuclear_capable | yesno}
 <b>Offensive posture:</b> ${mobilization_offensive_posture | yesno}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #mobilization #${mobilization_country} #${mobilization_force_type}
 ```
