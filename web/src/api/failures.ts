@@ -1,4 +1,3 @@
-// web/src/api/failures.ts
 import { apiFetch } from './client'
 
 export interface FailedModel {
@@ -7,32 +6,27 @@ export interface FailedModel {
   timestamp: string
 }
 
-export interface MatchingRule {
-  id: string
-  tag: string
+/** The event of a new_signal task; other triggers carry other payloads. */
+export interface FailedTaskEvent {
+  signal_id?: number
+  kind?: string
+  source_type?: string
 }
 
-export interface FailedTweetInner {
-  id: string
-  author_id: string
-  author_handle: string
-  text: string
-  created_at: string
-  fetched_at: string
+export interface FailedTaskTask {
+  trigger_type: string
+  action_id: number
+  pipeline_id?: number
+  event?: FailedTaskEvent
 }
 
-export interface StreamTweet {
-  Tweet: FailedTweetInner
-  MatchingRules: MatchingRule[] | null
-}
-
-export interface FailedTweet {
-  tweet: StreamTweet
+export interface FailedTask {
+  task: FailedTaskTask | null
   failed_models: FailedModel[]
 }
 
 export interface FailuresResponse {
-  failures: FailedTweet[]
+  failures: FailedTask[]
   total: number
 }
 

@@ -37,7 +37,7 @@ function onAdd() {
   <div class="flex flex-col gap-2">
     <PageHeader
       title="Actions"
-      description="The units of work pipelines run on each tweet: models, LLM prompts, handlers and notifications."
+      description="The units of work pipelines run on each signal: models, LLM prompts, handlers and notifications."
       :add-label="addLabel"
       @add="onAdd"
     />

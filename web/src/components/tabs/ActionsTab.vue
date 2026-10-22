@@ -246,7 +246,7 @@ onMounted(() => {
           <Button variant="outline" @click="clearFilters">Clear filters</Button>
         </div>
         <div v-else class="flex flex-col items-center gap-3 py-8 text-center">
-          <p class="m-0 text-muted-foreground">No actions yet. Create one, then add it to a pipeline to run it on tweets.</p>
+          <p class="m-0 text-muted-foreground">No actions yet. Create one, then add it to a pipeline to run it on signals.</p>
           <Button @click="openCreate">New action</Button>
         </div>
       </template>

@@ -13,7 +13,7 @@ import { ApiError } from '../../api/client'
 import type { SearchJob } from '../../api/search'
 import { formatDateTime } from '../../utils/format'
 
-const emit = defineEmits<{ viewTweets: [] }>()
+const emit = defineEmits<{ viewSignals: [] }>()
 
 const toast      = useToast()
 const store      = useSearchStore()
@@ -115,7 +115,7 @@ const columns: DataTableColumns<SearchJob> = [
     title: '', key: 'actions', width: 88, align: 'right',
     render: (row) => h('div', { class: 'flex items-center justify-end gap-1' }, [
       row.status === 'done' && row.tweets_fetched > 0
-        ? h(IconButton, { icon: EyeIcon, label: 'View tweets', onClick: () => emit('viewTweets') })
+        ? h(IconButton, { icon: EyeIcon, label: 'View signals', onClick: () => emit('viewSignals') })
         : null,
       h(IconButton, { icon: TrashIcon, label: 'Delete job', onClick: () => askDelete(row) }),
     ]),
@@ -125,7 +125,7 @@ const columns: DataTableColumns<SearchJob> = [
 
 <template>
   <div class="flex flex-col gap-6">
-    <Card title="Search parameters" description="Backfills matching tweets from X's recent search into the tweet list.">
+    <Card title="Search parameters" description="Backfills matching tweets from X's recent search into the signal list.">
       <form class="flex flex-col gap-4" @submit.prevent="onRun">
         <FormField label="Rules" description="Leave empty to search every active rule.">
           <Combobox v-model="selectedRuleIds" :options="ruleOptions" placeholder="All active rules" clearable />
@@ -193,7 +193,7 @@ const columns: DataTableColumns<SearchJob> = [
   <AlertDialog
     v-model:open="showDelete"
     title="Delete this search job?"
-    description="Only the job record is removed. Tweets it fetched stay in the tweet list."
+    description="Only the job record is removed. Signals it fetched stay in the signal list."
     action-label="Delete job"
     :loading="deleting"
     @confirm="onConfirmDelete"

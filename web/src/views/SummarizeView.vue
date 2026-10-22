@@ -70,7 +70,7 @@ async function onConfirmDelete() {
 
 <template>
   <div class="flex flex-col gap-6">
-    <PageHeader title="Digest" description="LLM summaries of the tweets in a time window, written by your digest pipeline." />
+    <PageHeader title="Digest" description="LLM summaries of the signals in a time window, written by your digest pipeline." />
 
     <DigestForm :loading="store.loading" @generate="onGenerate" />
 
@@ -109,7 +109,7 @@ async function onConfirmDelete() {
     <AlertDialog
       v-model:open="showDelete"
       title="Delete this digest?"
-      description="The digest text is removed. The tweets it summarised are kept. This can't be undone."
+      description="The digest text is removed. The signals it summarised are kept. This can't be undone."
       action-label="Delete digest"
       :loading="deleting"
       @confirm="onConfirmDelete"

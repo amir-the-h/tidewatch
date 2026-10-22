@@ -215,7 +215,7 @@ onMounted(() => {
             <Button variant="outline" @click="clearFilters">Show pending</Button>
           </div>
           <p v-else class="m-0 py-8 text-center text-muted-foreground">
-            No candidates to review. They appear here as the entity_discovery pipeline finds new names in tweets.
+            No candidates to review. They appear here as the entity_discovery pipeline finds new names in signals.
           </p>
         </template>
       </DataTable>

@@ -16,13 +16,13 @@ export interface EntityTrack {
   id: number
   entity_id: number
   entity_name?: string
-  tweet_id: string
+  signal_id: number
   match_source: 'text' | 'ner'
   context: string
   summary?: string
-  tweet_text?: string
-  tweet_author_handle?: string
-  tweet_created_at?: string
+  signal_text?: string
+  signal_author?: string
+  signal_published_at?: string
   created_at: string
 }
 

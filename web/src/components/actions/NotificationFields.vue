@@ -28,7 +28,7 @@ const tgParseModeOptions = [
   { label: 'MarkdownV2', value: 'MarkdownV2' },
 ]
 
-const templateVars = '${tweet}, ${author}, ${tweet_id}, ${tweet_url}'
+const templateVars = '${text_short}, ${text}, ${title}, ${author}, ${url}, ${signal_id}'
 </script>
 
 <template>
@@ -51,7 +51,7 @@ const templateVars = '${tweet}, ${author}, ${tweet_id}, ${tweet_url}'
       id="action-message-template"
       v-model="form.messageTemplate"
       :rows="4"
-      placeholder="${tweet} — by @${author}"
+      placeholder="${text_short} — by ${author}"
       class="font-mono"
     />
   </FormField>
@@ -92,7 +92,7 @@ const templateVars = '${tweet}, ${author}, ${tweet_id}, ${tweet_url}'
       <Input
         id="action-push-url"
         v-model="form.pushUrl"
-        placeholder="https://tidewatch.example.com/tweets?tweet=${tweet_id}"
+        placeholder="https://tidewatch.example.com/signals?signal=${signal_id}"
         clearable
         class="font-mono"
       />

@@ -1,10 +1,9 @@
-<!-- Digest request form: time window, optional rule/source/entity filters and tweet limit. Emits the request. -->
+<!-- Digest request form: time window, optional rule/entity filters and signal limit. Emits the request. -->
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { SparklesIcon } from '@lucide/vue'
 import { Button, Card, DatePicker, FormField, NumberField, Select } from '@/components/ui'
 import { listRules } from '../../api/rules'
-import { listSources } from '../../api/sources'
 import { listTrackedEntities } from '../../api/entities'
 import { listActions } from '../../api/actions'
 import type { DigestRequest } from '../../api/summaries'
@@ -15,12 +14,10 @@ const emit = defineEmits<{ generate: [req: DigestRequest] }>()
 const filterFrom     = ref<number | null>(null)
 const filterTo       = ref<number | null>(null)
 const filterRuleId   = ref<number | null>(null)
-const filterSourceId = ref<number | null>(null)
 const filterEntityId = ref<number | null>(null)
 const limit          = ref<number | null>(200)
 
 const rules    = ref<{ label: string; value: number }[]>([])
-const sources  = ref<{ label: string; value: number }[]>([])
 const entities = ref<{ label: string; value: number }[]>([])
 
 const checking      = ref(true)
@@ -31,23 +28,19 @@ function onSubmit() {
     from:      filterFrom.value ? new Date(filterFrom.value).toISOString() : undefined,
     to:        filterTo.value   ? new Date(filterTo.value).toISOString()   : undefined,
     rule_id:   filterRuleId.value   ?? undefined,
-    source_id: filterSourceId.value ?? undefined,
     entity_id: filterEntityId.value ?? undefined,
     limit:     limit.value ?? undefined,
   })
 }
 
 onMounted(async () => {
-  const [rulesData, sourcesData, entitiesData, actionsData] = await Promise.allSettled([
+  const [rulesData, entitiesData, actionsData] = await Promise.allSettled([
     listRules(),
-    listSources(),
     listTrackedEntities(),
     listActions({ type: 'ollama', active: true }),
   ])
   if (rulesData.status === 'fulfilled')
     rules.value = rulesData.value.map(r => ({ label: r.name || String(r.id), value: r.id }))
-  if (sourcesData.status === 'fulfilled')
-    sources.value = sourcesData.value.map(s => ({ label: s.name || s.value, value: s.id }))
   if (entitiesData.status === 'fulfilled')
     entities.value = entitiesData.value.map(e => ({ label: e.name, value: e.id }))
   if (actionsData.status === 'fulfilled')
@@ -57,7 +50,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <Card title="Digest window" description="Which tweets the digest summarises. Every filter is optional.">
+  <Card title="Digest window" description="Which signals the digest summarises. Every filter is optional.">
     <form class="flex flex-col gap-4" @submit.prevent="onSubmit">
       <div class="grid gap-4 sm:grid-cols-2">
         <FormField label="From">
@@ -67,17 +60,14 @@ onMounted(async () => {
           <DatePicker v-model="filterTo" placeholder="End date" default-time="23:59:59" clearable />
         </FormField>
       </div>
-      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="grid gap-4 sm:grid-cols-3">
         <FormField label="Rule">
           <Select v-model="filterRuleId" :options="rules" placeholder="Any rule" clearable filterable />
-        </FormField>
-        <FormField label="Source">
-          <Select v-model="filterSourceId" :options="sources" placeholder="Any source" clearable filterable />
         </FormField>
         <FormField label="Entity">
           <Select v-model="filterEntityId" :options="entities" placeholder="Any entity" clearable filterable />
         </FormField>
-        <FormField label="Tweet limit" for="digest-limit">
+        <FormField label="Signal limit" for="digest-limit">
           <NumberField id="digest-limit" v-model="limit" :min="10" :max="1000" :step="50" />
         </FormField>
       </div>

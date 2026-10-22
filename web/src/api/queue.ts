@@ -6,7 +6,7 @@ export interface WorkerInfo {
   action_id: number
   action: string
   pipeline: string
-  tweet_id: string
+  signal_id: number
   started_at: string
   duration_ms: number
   backend_name: string

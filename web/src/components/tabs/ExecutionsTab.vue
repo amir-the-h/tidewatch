@@ -22,7 +22,7 @@ const actions = ref<Action[]>([])
 // ── Filters ───────────────────────────────────────────────────────────────────
 
 const execFilterActionId = ref<number | null>(null)
-const execFilterTweet    = ref('')
+const execFilterSignal   = ref('')
 const execFilterFrom     = ref<number | null>(null)
 const execFilterTo       = ref<number | null>(null)
 const execFilterStatus   = ref<'success' | 'error' | null>(null)
@@ -52,7 +52,7 @@ async function loadExecutions() {
       page:      execsPage.value,
       per_page:  PER_PAGE,
       action_id: execFilterActionId.value ?? undefined,
-      tweet_id:  execFilterTweet.value.trim() || undefined,
+      signal_id: Number(execFilterSignal.value.trim()) || undefined,
       from:      execFilterFrom.value ? new Date(execFilterFrom.value).toISOString() : undefined,
       to:        execFilterTo.value   ? new Date(execFilterTo.value).toISOString()   : undefined,
       status:    execFilterStatus.value ?? undefined,
@@ -85,8 +85,8 @@ const execColumns: DataTableColumns<ActionExecution> = [
     render: (row) => row.pipeline_name || h('span', { class: 'text-muted-foreground' }, '—'),
   },
   {
-    title: 'Tweet ID', key: 'tweet_id', width: 190, ellipsis: { tooltip: true },
-    render: (row) => h('span', { class: 'font-mono tabular' }, row.tweet_id),
+    title: 'Signal ID', key: 'signal_id', width: 110,
+    render: (row) => h('span', { class: 'font-mono tabular' }, String(row.signal_id)),
   },
   {
     title: 'Status', key: 'status', width: 100,
@@ -111,7 +111,7 @@ const execColumns: DataTableColumns<ActionExecution> = [
         <Select v-model="execFilterActionId" :options="actionOptions" placeholder="All actions" clearable filterable />
       </div>
       <div class="w-48">
-        <Input v-model="execFilterTweet" placeholder="Tweet ID" clearable @enter="onSearch" />
+        <Input v-model="execFilterSignal" placeholder="Signal ID" clearable @enter="onSearch" />
       </div>
       <div class="w-52">
         <DatePicker v-model="execFilterFrom" placeholder="From" clearable />
@@ -133,7 +133,7 @@ const execColumns: DataTableColumns<ActionExecution> = [
       :data="executions"
       :loading="execsLoading"
       :row-key="(row: ActionExecution) => row.id"
-      empty-text="No executions match these filters. Executions appear here as actions run on tweets."
+      empty-text="No executions match these filters. Executions appear here as actions run on signals."
     />
 
     <nav class="flex items-center justify-end gap-2 text-small" aria-label="Executions pages">

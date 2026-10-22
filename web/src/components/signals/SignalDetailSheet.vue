@@ -1,24 +1,25 @@
-<!-- One tweet: its fields, matched rules and every action run on it, grouped by action.
+<!-- One signal: its fields (by kind), matched X rules and every action run on it, grouped by action.
      Admins get reprocess, delete and execution-history clearing; confirms live in the parent. -->
 <script setup lang="ts">
+import { computed } from 'vue'
 import { ExternalLinkIcon, RefreshCwIcon, TrashIcon } from '@lucide/vue'
 import { Badge, Button, Sheet, Skeleton, StatusIndicator } from '@/components/ui'
 import { useAuthStore } from '../../stores/auth'
-import type { TweetAction, TweetDetail } from '../../api/tweets'
+import type { SignalAction, SignalDetail } from '../../api/signals'
 import { formatDateTime } from '../../utils/format'
 import ExecutionOutput from './ExecutionOutput.vue'
 
-defineProps<{
-  detail: TweetDetail | null
+const props = defineProps<{
+  detail: SignalDetail | null
   loading?: boolean
   reprocessing?: boolean
 }>()
 
 defineEmits<{
-  reprocess: [id: string]
-  delete: [id: string]
+  reprocess: [id: number]
+  delete: [id: number]
   clearAll: []
-  clearAction: [group: TweetAction]
+  clearAction: [group: SignalAction]
 }>()
 
 const open = defineModel<boolean>('open', { default: false })
@@ -26,14 +27,15 @@ const open = defineModel<boolean>('open', { default: false })
 const auth = useAuthStore()
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-const actionName = (g: TweetAction) => g.action_name || `Action #${g.action_id}`
+const isX = computed(() => props.detail?.signal.ext_ns === 'x')
+const actionName = (g: SignalAction) => g.action_name || `Action #${g.action_id}`
 </script>
 
 <template>
   <Sheet
     v-model:open="open"
-    title="Tweet details"
-    description="The tweet, the rules it matched and what each action produced."
+    title="Signal details"
+    description="The signal, the rules it matched and what each action produced."
     width="min(560px, 100vw)"
   >
     <div v-if="loading" class="flex flex-col gap-3 p-4">
@@ -45,42 +47,49 @@ const actionName = (g: TweetAction) => g.action_name || `Action #${g.action_id}`
 
     <div v-else-if="detail" class="flex flex-col gap-6 p-4">
       <section class="flex flex-col gap-3">
-        <h3 class="m-0 text-label uppercase text-muted-foreground">Tweet</h3>
+        <h3 class="m-0 text-label uppercase text-muted-foreground">{{ detail.signal.kind === 'article' ? 'Article' : 'Post' }}</h3>
+        <p v-if="detail.signal.title" class="m-0 text-base font-medium">{{ detail.signal.title }}</p>
         <dl class="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
           <dt class="text-muted-foreground">ID</dt>
-          <dd class="m-0 font-mono tabular break-all">{{ detail.tweet.id }}</dd>
+          <dd class="m-0 font-mono tabular break-all">{{ detail.signal.id }}</dd>
+          <dt class="text-muted-foreground">Kind</dt>
+          <dd class="m-0"><Badge variant="outline">{{ detail.signal.kind }}</Badge></dd>
           <dt class="text-muted-foreground">Author</dt>
           <dd class="m-0">
             <a
-              v-if="detail.tweet.author_handle"
-              :href="`https://x.com/${detail.tweet.author_handle}`"
+              v-if="isX && detail.signal.author"
+              :href="`https://x.com/${detail.signal.author}`"
               target="_blank"
               rel="noopener noreferrer"
               class="text-primary hover:underline"
-            >@{{ detail.tweet.author_handle }}</a>
-            <span v-else class="font-mono tabular">{{ detail.tweet.author_id }}</span>
+            >@{{ detail.signal.author }}</a>
+            <span v-else-if="detail.signal.author">{{ detail.signal.author }}</span>
+            <span v-else class="font-mono tabular">{{ detail.signal.author_id || '—' }}</span>
           </dd>
-          <dt class="text-muted-foreground">Created</dt>
-          <dd class="m-0 tabular">{{ formatDateTime(detail.tweet.created_at) }}</dd>
-          <dt class="text-muted-foreground">Rules</dt>
-          <dd class="m-0 flex flex-wrap gap-1">
-            <template v-if="detail.tweet.rules?.length">
-              <Badge v-for="rule in detail.tweet.rules" :key="rule.id" :variant="rule.active ? 'secondary' : 'outline'">
-                {{ rule.name }}<span v-if="!rule.active" class="text-muted-foreground">· inactive</span>
-              </Badge>
-            </template>
-            <span v-else class="text-muted-foreground">None</span>
-          </dd>
+          <dt class="text-muted-foreground">Published</dt>
+          <dd class="m-0 tabular">{{ formatDateTime(detail.signal.published_at) }}</dd>
+          <template v-if="isX">
+            <dt class="text-muted-foreground">Rules</dt>
+            <dd class="m-0 flex flex-wrap gap-1">
+              <template v-if="detail.signal.x_rules?.length">
+                <Badge v-for="rule in detail.signal.x_rules" :key="rule.id" :variant="rule.active ? 'secondary' : 'outline'">
+                  {{ rule.name }}<span v-if="!rule.active" class="text-muted-foreground">· inactive</span>
+                </Badge>
+              </template>
+              <span v-else class="text-muted-foreground">None</span>
+            </dd>
+          </template>
         </dl>
-        <p class="m-0 whitespace-pre-wrap break-words">{{ detail.tweet.text }}</p>
+        <p v-if="detail.signal.text" class="m-0 whitespace-pre-wrap break-words">{{ detail.signal.text }}</p>
         <a
-          :href="`https://x.com/i/web/status/${detail.tweet.id}`"
+          v-if="detail.signal.url"
+          :href="detail.signal.url"
           target="_blank"
           rel="noopener noreferrer"
           class="inline-flex items-center gap-1.5 self-start text-small text-primary hover:underline"
         >
           <ExternalLinkIcon class="size-3.5" :stroke-width="1.75" aria-hidden="true" />
-          Open on X
+          {{ isX ? 'Open on X' : 'Open article' }}
         </a>
       </section>
 
@@ -91,7 +100,7 @@ const actionName = (g: TweetAction) => g.action_name || `Action #${g.action_id}`
             Clear all
           </Button>
         </div>
-        <p v-if="!detail.actions?.length" class="m-0 text-muted-foreground">No action has run on this tweet yet.</p>
+        <p v-if="!detail.actions?.length" class="m-0 text-muted-foreground">No action has run on this signal yet.</p>
 
         <div
           v-for="group in detail.actions"
@@ -130,13 +139,13 @@ const actionName = (g: TweetAction) => g.action_name || `Action #${g.action_id}`
     </div>
 
     <template v-if="detail && !loading && auth.isAdmin" #footer>
-      <Button variant="outline" size="default" :loading="reprocessing" @click="$emit('reprocess', detail.tweet.id)">
+      <Button variant="outline" size="default" :loading="reprocessing" @click="$emit('reprocess', detail.signal.id)">
         <template #icon><RefreshCwIcon :stroke-width="1.75" /></template>
         Reprocess
       </Button>
-      <Button variant="destructive" size="default" @click="$emit('delete', detail.tweet.id)">
+      <Button variant="destructive" size="default" @click="$emit('delete', detail.signal.id)">
         <template #icon><TrashIcon :stroke-width="1.75" /></template>
-        Delete tweet
+        Delete signal
       </Button>
     </template>
   </Sheet>

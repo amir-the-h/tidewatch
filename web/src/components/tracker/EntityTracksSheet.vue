@@ -1,4 +1,4 @@
-<!-- Track history for one entity: a server-paged timeline of the tweets it was matched in. -->
+<!-- Track history for one entity: a server-paged timeline of the signals it was matched in. -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ExternalLinkIcon } from '@lucide/vue'
@@ -39,7 +39,7 @@ watch(page, (p, prev) => { if (open.value && p !== prev) load(p) })
   <Sheet
     v-model:open="open"
     :title="entity ? `Tracks for ${entity.name}` : 'Tracks'"
-    :description="total ? `${total} matches.` : 'Each tweet this entity was matched in.'"
+    :description="total ? `${total} matches.` : 'Each signal this entity was matched in.'"
     width="min(600px, 100vw)"
   >
     <div class="flex flex-col gap-4 p-4">
@@ -56,7 +56,7 @@ watch(page, (p, prev) => { if (open.value && p !== prev) load(p) })
       </div>
 
       <p v-else-if="tracks.length === 0" class="m-0 py-6 text-center text-muted-foreground">
-        No tracks yet. They appear when a tweet mentions this entity.
+        No tracks yet. They appear when a signal mentions this entity.
       </p>
 
       <ol v-else class="m-0 flex list-none flex-col p-0">
@@ -67,17 +67,17 @@ watch(page, (p, prev) => { if (open.value && p !== prev) load(p) })
             aria-hidden="true"
           />
           <div class="flex flex-wrap items-center gap-2 text-small">
-            <span class="tabular text-muted-foreground">{{ formatDateTime(t.tweet_created_at || t.created_at) }}</span>
+            <span class="tabular text-muted-foreground">{{ formatDateTime(t.signal_published_at || t.created_at) }}</span>
             <Badge variant="outline">{{ t.match_source === 'ner' ? 'NER' : 'Text' }}</Badge>
-            <span v-if="t.tweet_author_handle" class="text-muted-foreground">@{{ t.tweet_author_handle }}</span>
+            <span v-if="t.signal_author" class="text-muted-foreground">{{ t.signal_author }}</span>
             <RouterLink
-              :to="`/tweets?tweet=${t.tweet_id}`"
+              :to="`/signals?signal=${t.signal_id}`"
               class="inline-flex items-center gap-1 font-mono text-primary no-underline hover:underline"
             >
-              {{ t.tweet_id }}<ExternalLinkIcon class="size-3.5" :stroke-width="1.75" aria-hidden="true" />
+              {{ t.signal_id }}<ExternalLinkIcon class="size-3.5" :stroke-width="1.75" aria-hidden="true" />
             </RouterLink>
           </div>
-          <p v-if="t.tweet_text" class="m-0 mt-1">{{ t.tweet_text }}</p>
+          <p v-if="t.signal_text" class="m-0 mt-1">{{ t.signal_text }}</p>
           <p v-else-if="t.context" class="m-0 mt-1 text-muted-foreground italic">"{{ t.context }}"</p>
         </li>
       </ol>

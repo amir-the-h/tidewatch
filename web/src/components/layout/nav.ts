@@ -22,7 +22,7 @@ export const navGroups: NavGroup[] = [
     label: 'Monitor',
     items: [
       { label: 'Map', to: '/map', icon: MapIcon, viewer: true },
-      { label: 'Tweets', to: '/tweets', icon: MessageSquareTextIcon, viewer: true },
+      { label: 'Signals', to: '/signals', icon: MessageSquareTextIcon, viewer: true },
       { label: 'Tracker', to: '/tracker', icon: RadarIcon, viewer: true },
       { label: 'Digest', to: '/summarize', icon: FileTextIcon },
       { label: 'Chat', to: '/chat', icon: MessagesSquareIcon },

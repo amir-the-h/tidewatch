@@ -1,41 +1,37 @@
-<!-- Read-only detail for one dead-letter entry: the tweet, its matching rules and each failed action's error. -->
+<!-- Read-only detail for one dead-letter entry: the task (trigger, action, signal) and each failed action's error. -->
 <script setup lang="ts">
+import { ExternalLinkIcon } from '@lucide/vue'
 import { Badge, Sheet } from '@/components/ui'
-import type { FailedTweet } from '../../api/failures'
+import type { FailedTask } from '../../api/failures'
 import { formatDateTime } from '../../utils/format'
 
-defineProps<{ failure: FailedTweet | null }>()
+defineProps<{ failure: FailedTask | null }>()
 
 const open = defineModel<boolean>('open', { default: false })
 </script>
 
 <template>
-  <Sheet v-model:open="open" title="Failure details" description="The tweet and the error each failed action returned.">
+  <Sheet v-model:open="open" title="Failure details" description="The failed task and the error each failed action returned.">
     <div v-if="failure" class="flex flex-col gap-6 p-4">
       <section class="flex flex-col gap-3">
-        <h3 class="m-0 text-label uppercase text-muted-foreground">Tweet</h3>
+        <h3 class="m-0 text-label uppercase text-muted-foreground">Task</h3>
         <dl class="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-          <dt class="text-muted-foreground">ID</dt>
-          <dd class="m-0 font-mono tabular break-all">{{ failure.tweet?.Tweet?.id || '—' }}</dd>
-          <dt class="text-muted-foreground">Author</dt>
+          <dt class="text-muted-foreground">Trigger</dt>
+          <dd class="m-0 font-mono">{{ failure.task?.trigger_type || '—' }}</dd>
+          <dt class="text-muted-foreground">Action ID</dt>
+          <dd class="m-0 font-mono tabular">{{ failure.task?.action_id ?? '—' }}</dd>
+          <dt class="text-muted-foreground">Signal</dt>
           <dd class="m-0">
-            <template v-if="failure.tweet?.Tweet?.author_handle">@{{ failure.tweet.Tweet.author_handle }}</template>
-            <span v-else class="font-mono tabular">{{ failure.tweet?.Tweet?.author_id || '—' }}</span>
+            <RouterLink
+              v-if="failure.task?.event?.signal_id"
+              :to="`/signals?signal=${failure.task.event.signal_id}`"
+              class="inline-flex items-center gap-1 font-mono tabular text-primary hover:underline"
+            >
+              {{ failure.task.event.signal_id }}<ExternalLinkIcon class="size-3.5" :stroke-width="1.75" aria-hidden="true" />
+            </RouterLink>
+            <span v-else class="text-muted-foreground">—</span>
           </dd>
-          <dt class="text-muted-foreground">Created</dt>
-          <dd class="m-0 tabular">
-            {{ failure.tweet?.Tweet?.created_at ? formatDateTime(failure.tweet.Tweet.created_at) : '—' }}
-          </dd>
-          <template v-if="failure.tweet?.MatchingRules?.length">
-            <dt class="text-muted-foreground">Rules</dt>
-            <dd class="m-0 flex flex-wrap gap-1">
-              <Badge v-for="rule in failure.tweet.MatchingRules" :key="rule.id" variant="outline">
-                {{ rule.tag || rule.id }}
-              </Badge>
-            </dd>
-          </template>
         </dl>
-        <p v-if="failure.tweet?.Tweet?.text" class="m-0 whitespace-pre-wrap">{{ failure.tweet.Tweet.text }}</p>
       </section>
 
       <section class="flex flex-col gap-3">

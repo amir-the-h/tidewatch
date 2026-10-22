@@ -13,13 +13,13 @@ export function fmtDate(d: Date): string {
 // buildPopup returns the HTML string for a pin popup.
 // If the pin has a popup_template, ${key} placeholders are substituted with
 // HTML-escaped values from metadata and built-in variables.
-// Built-ins: ${tweet_id}, ${tweet_created_at}, ${model_name}.
+// Built-ins: ${signal_id}, ${signal_published_at}, ${signal_text}, ${model_name}.
 // Without a template the default layout is rendered.
 export function buildPopup(pin: MapPin): string {
   const builtins: Record<string, string> = {
-    tweet_id:        pin.tweet_id,
-    tweet_created_at: fmtDate(new Date(pin.tweet_created_at)),
-    tweet_text:      pin.tweet_text ?? '',
+    signal_id:           String(pin.signal_id),
+    signal_published_at: fmtDate(new Date(pin.signal_published_at)),
+    signal_text:         pin.signal_text ?? '',
     model_name:      pin.model_name,
   }
   if (pin.popup_template) {
@@ -37,12 +37,12 @@ export function buildPopup(pin: MapPin): string {
     } catch { /* ignore parse errors */ }
   }
   if (pin.metadata?.description) lines.push(escHtml(pin.metadata.description))
-  if (pin.tweet_text) {
-    const truncated = pin.tweet_text.length > 120 ? pin.tweet_text.slice(0, 120) + '…' : pin.tweet_text
+  if (pin.signal_text) {
+    const truncated = pin.signal_text.length > 120 ? pin.signal_text.slice(0, 120) + '…' : pin.signal_text
     lines.push(`<span class="map-popup-text">${escHtml(truncated)}</span>`)
   }
-  lines.push(`<a class="map-popup-link" href="/tweets?tweet=${escHtml(pin.tweet_id)}">Tweet ${escHtml(pin.tweet_id)}</a>`)
-  lines.push(`<span class="map-popup-meta">${fmtDate(new Date(pin.tweet_created_at))}</span>`)
+  lines.push(`<a class="map-popup-link" href="/signals?signal=${pin.signal_id}">Signal ${pin.signal_id}</a>`)
+  lines.push(`<span class="map-popup-meta">${fmtDate(new Date(pin.signal_published_at))}</span>`)
   lines.push(`<span class="map-popup-meta map-popup-source">${escHtml(pin.model_name)}</span>`)
   return lines.join('<br>')
 }

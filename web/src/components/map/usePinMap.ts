@@ -55,7 +55,7 @@ export function usePinMap(el: Ref<HTMLElement | null>) {
 
         // Update date range from this page
         for (const pin of page) {
-          const ms = new Date(pin.tweet_created_at).getTime()
+          const ms = new Date(pin.signal_published_at).getTime()
           if (ms < minMs) minMs = ms
           if (ms > maxMs) maxMs = ms
         }
@@ -66,7 +66,7 @@ export function usePinMap(el: Ref<HTMLElement | null>) {
           for (const coords of pin.coordinates ?? []) {
             if (coords?.length !== 2) continue
             const [lat, lon] = coords
-            const ms = new Date(pin.tweet_created_at).getTime()
+            const ms = new Date(pin.signal_published_at).getTime()
             const color = heat(range === 0 ? 0.5 : (ms - minMs) / range)
 
             const marker = L.circleMarker([lat, lon], {

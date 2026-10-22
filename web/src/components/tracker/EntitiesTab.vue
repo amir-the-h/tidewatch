@@ -197,7 +197,7 @@ const columns = computed<DataTableColumns<TrackedEntity>>(() => [
         <div v-else class="flex flex-col items-center gap-3 py-8 text-center">
           <p class="m-0 text-muted-foreground">
             No tracked entities yet.
-            {{ auth.isAdmin ? 'Add one, or promote a candidate, to start matching it in tweets.' : 'They appear here once an admin adds them.' }}
+            {{ auth.isAdmin ? 'Add one, or promote a candidate, to start matching it in signals.' : 'They appear here once an admin adds them.' }}
           </p>
           <Button v-if="auth.isAdmin" @click="openCreate">New entity</Button>
         </div>

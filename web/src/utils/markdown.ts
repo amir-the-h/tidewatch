@@ -1,6 +1,6 @@
 // Markdown → sanitised HTML for LLM output. DOMPurify strips script, event handlers and
 // javascript: URLs, so the result is safe for v-html. Links open in a new tab. Images are
-// dropped: the LLM reads untrusted tweet text, and an injected ![](https://…?d=…) would make
+// dropped: the LLM reads untrusted signal text, and an injected ![](https://…?d=…) would make
 // the browser send data to that URL with no click.
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'

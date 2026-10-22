@@ -2,10 +2,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api/failures'
-import type { FailedTweet } from '../api/failures'
+import type { FailedTask } from '../api/failures'
 
 export const useFailuresStore = defineStore('failures', () => {
-  const failures = ref<FailedTweet[]>([])
+  const failures = ref<FailedTask[]>([])
   const total    = ref(0)
   const loading  = ref(false)
   const error    = ref<string | null>(null)

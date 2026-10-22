@@ -1,4 +1,4 @@
-<!-- One digest job: status, tweet count and time in the header; skeleton, error or result text below. -->
+<!-- One digest job: status, signal count and time in the header; skeleton, error or result text below. -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import { TrashIcon } from '@lucide/vue'
@@ -25,8 +25,8 @@ const status = computed(() => ({
     <header class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex flex-wrap items-center gap-3">
         <StatusIndicator :status="status.status">{{ status.label }}</StatusIndicator>
-        <Badge v-if="job.tweet_count > 0" variant="outline">
-          <span class="tabular">{{ job.tweet_count.toLocaleString() }}</span> tweet{{ job.tweet_count === 1 ? '' : 's' }}
+        <Badge v-if="job.signal_count > 0" variant="outline">
+          <span class="tabular">{{ job.signal_count.toLocaleString() }}</span> signal{{ job.signal_count === 1 ? '' : 's' }}
         </Badge>
         <span class="text-small tabular text-muted-foreground">{{ formatDateTime(job.created_at) }}</span>
       </div>

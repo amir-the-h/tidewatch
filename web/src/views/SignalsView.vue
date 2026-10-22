@@ -3,8 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Tabs } from '@/components/ui'
 import PageHeader from '../components/PageHeader.vue'
-import TweetsTab from '../components/tweets/TweetsTab.vue'
-import SearchTab from '../components/tweets/SearchTab.vue'
+import SignalsTab from '../components/signals/SignalsTab.vue'
+import SearchTab from '../components/signals/SearchTab.vue'
 import { useAuthStore } from '../stores/auth'
 
 const route  = useRoute()
@@ -13,12 +13,12 @@ const auth   = useAuthStore()
 
 // Search runs and lists backfill jobs through admin-only endpoints.
 const tabs = computed(() => [
-  { value: 'tweets', label: 'Tweets' },
+  { value: 'signals', label: 'Signals' },
   ...(auth.isAdmin ? [{ value: 'search', label: 'Search' }] : []),
 ])
 
 function validTab(tab: unknown): string {
-  return typeof tab === 'string' && tabs.value.some(t => t.value === tab) ? tab : 'tweets'
+  return typeof tab === 'string' && tabs.value.some(t => t.value === tab) ? tab : 'signals'
 }
 
 const activeTab = ref(validTab(route.query.tab))
@@ -33,12 +33,12 @@ watch(() => route.query.tab, (tab) => {
 <template>
   <div class="flex flex-col gap-2">
     <PageHeader
-      title="Tweets"
-      description="Tweets the stream and searches matched, with what each action produced for them."
+      title="Signals"
+      description="Everything the sources delivered (X posts today), with what each action produced for it."
     />
     <Tabs v-model="activeTab" :items="tabs">
-      <template #tweets><TweetsTab /></template>
-      <template #search><SearchTab @view-tweets="activeTab = 'tweets'" /></template>
+      <template #signals><SignalsTab /></template>
+      <template #search><SearchTab @view-signals="activeTab = 'signals'" /></template>
     </Tabs>
   </div>
 </template>
