@@ -15,7 +15,7 @@
 - **Geo** — coordinate extraction from LLM output, self-hosted Nominatim reverse geocoding with SQLite cache, date-heat map of events.
 - **Alerts** — Pushover, Telegram and Discord Forum threads (with LLM-generated tags), templated with `${key}` substitution.
 - **Agentic chat & MCP** — a tool-calling chat assistant over your data, plus a standalone MCP server exposing the full REST API to Claude and other MCP clients.
-- **Live UI** — Vue 3 + Naive UI dashboard with WebSocket push for queue depth, worker status and execution results; JWT auth with admin/viewer roles.
+- **Live UI** — Vue 3 + Naive UI operations console (see [docs/ui-standard.md](docs/ui-standard.md)) with WebSocket push for queue depth, worker status and execution results; JWT auth with admin/viewer roles.
 
 See [`docs/examples/geopolitical-monitoring`](docs/examples/geopolitical-monitoring) for a complete set of real-world detector → extractor → notification pipelines.
 
@@ -432,7 +432,7 @@ internal/
 migrations/             → Embedded SQL migration files
 configs/                → Default config files
 models/                 → ONNX model files (gitignored)
-web/                    → Vue 3 frontend (Vite, Pinia, Naive UI)
+web/                    → Vue 3 frontend (Vite, Pinia, Naive UI, Tailwind v4)
 ```
 
 ## Development
