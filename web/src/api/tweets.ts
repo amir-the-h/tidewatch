@@ -71,8 +71,11 @@ export const deleteTweets = (ids: string[]) =>
 export const deleteNoiseTweets = () =>
   apiFetch<{ deleted: number }>('/api/tweets/noise', { method: 'DELETE' })
 
-export const deleteExecutions = (tweetIds: string[], actionIds?: number[]) =>
-  apiFetch<{ deleted: number }>('/api/executions', {
+// An empty tweet_ids filter means "every tweet" to the API, so an empty list is refused here.
+export const deleteExecutions = (tweetIds: string[], actionIds?: number[]) => {
+  if (tweetIds.length === 0) return Promise.reject(new Error('no tweets selected'))
+  return apiFetch<{ deleted: number }>('/api/executions', {
     method: 'DELETE',
     body: JSON.stringify({ tweet_ids: tweetIds, action_ids: actionIds ?? [] }),
   })
+}
