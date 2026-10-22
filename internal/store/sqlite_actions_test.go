@@ -39,18 +39,18 @@ func TestMarkPipelineNodeLeafComplete(t *testing.T) {
 	parentNodeID := graph.Nodes[0].ID // start node acts as parent
 	leaf1ID := graph.Nodes[1].ID
 	leaf2ID := graph.Nodes[2].ID
-	tweetID := "tweet-fan-in"
+	signalID := mustSaveSignal(t, s, "fan-in", time.Now()).ID
 
 	// Insert execution tracking rows
-	if err := s.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, leaf1ID); err != nil {
+	if err := s.InsertPipelineNodeExecution(ctx, parentNodeID, signalID, leaf1ID); err != nil {
 		t.Fatalf("InsertPipelineNodeExecution leaf1: %v", err)
 	}
-	if err := s.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, leaf2ID); err != nil {
+	if err := s.InsertPipelineNodeExecution(ctx, parentNodeID, signalID, leaf2ID); err != nil {
 		t.Fatalf("InsertPipelineNodeExecution leaf2: %v", err)
 	}
 
 	// Complete leaf1 — not all done yet
-	allDone, err := s.MarkPipelineNodeLeafComplete(ctx, parentNodeID, tweetID, leaf1ID)
+	allDone, err := s.MarkPipelineNodeLeafComplete(ctx, parentNodeID, signalID, leaf1ID)
 	if err != nil {
 		t.Fatalf("MarkPipelineNodeLeafComplete leaf1: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestMarkPipelineNodeLeafComplete(t *testing.T) {
 	}
 
 	// Complete leaf2 — now all done
-	allDone, err = s.MarkPipelineNodeLeafComplete(ctx, parentNodeID, tweetID, leaf2ID)
+	allDone, err = s.MarkPipelineNodeLeafComplete(ctx, parentNodeID, signalID, leaf2ID)
 	if err != nil {
 		t.Fatalf("MarkPipelineNodeLeafComplete leaf2: %v", err)
 	}
@@ -70,13 +70,13 @@ func TestMarkPipelineNodeLeafComplete(t *testing.T) {
 
 // helpers shared by action tests
 
-func seedActionAndTweet(t *testing.T, s Store) (action *model.Action, tweetID string) {
+func seedActionAndSignal(t *testing.T, s Store) (action *model.Action, signalID int64) {
 	t.Helper()
 	ctx := context.Background()
 
-	tw := sampleTweet()
-	if err := s.SaveTweet(ctx, tw); err != nil {
-		t.Fatalf("SaveTweet: %v", err)
+	sig := sampleSignal()
+	if _, err := s.SaveSignal(ctx, sig); err != nil {
+		t.Fatalf("SaveSignal: %v", err)
 	}
 
 	a := sampleAction()
@@ -85,14 +85,14 @@ func seedActionAndTweet(t *testing.T, s Store) (action *model.Action, tweetID st
 		t.Fatalf("SaveAction: %v", err)
 	}
 
-	return a, tw.ID
+	return a, sig.ID
 }
 
-func saveExecution(t *testing.T, s Store, actionID int64, tweetID string) *model.ActionExecution {
+func saveExecution(t *testing.T, s Store, actionID int64, signalID int64) *model.ActionExecution {
 	t.Helper()
 	e := &model.ActionExecution{
 		ActionID:   actionID,
-		TweetID:    tweetID,
+		SignalID:   signalID,
 		Status:     model.ExecutionStatusSuccess,
 		ExecutedAt: time.Now().UTC(),
 	}
@@ -102,36 +102,36 @@ func saveExecution(t *testing.T, s Store, actionID int64, tweetID string) *model
 	return e
 }
 
-func countExecutions(t *testing.T, s Store, tweetID string) int {
+func countExecutions(t *testing.T, s Store, signalID int64) int {
 	t.Helper()
-	execs, err := s.ListActionExecutions(context.Background(), ExecutionFilter{TweetID: &tweetID})
+	execs, err := s.ListActionExecutions(context.Background(), ExecutionFilter{SignalID: &signalID})
 	if err != nil {
 		t.Fatalf("ListActionExecutions: %v", err)
 	}
 	return len(execs)
 }
 
-// TestDeleteActionExecutions_AllActions clears all executions for a tweet.
+// TestDeleteActionExecutions_AllActions clears all executions for a signal.
 func TestDeleteActionExecutions_AllActions(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	a, tweetID := seedActionAndTweet(t, s)
-	saveExecution(t, s, a.ID, tweetID)
-	saveExecution(t, s, a.ID, tweetID)
+	a, signalID := seedActionAndSignal(t, s)
+	saveExecution(t, s, a.ID, signalID)
+	saveExecution(t, s, a.ID, signalID)
 
-	if n := countExecutions(t, s, tweetID); n != 2 {
+	if n := countExecutions(t, s, signalID); n != 2 {
 		t.Fatalf("expected 2 executions before delete, got %d", n)
 	}
 
-	deleted, err := s.DeleteActionExecutions(ctx, []string{tweetID}, nil)
+	deleted, err := s.DeleteActionExecutions(ctx, []int64{signalID}, nil)
 	if err != nil {
 		t.Fatalf("DeleteActionExecutions: %v", err)
 	}
 	if deleted != 2 {
 		t.Errorf("expected 2 deleted, got %d", deleted)
 	}
-	if n := countExecutions(t, s, tweetID); n != 0 {
+	if n := countExecutions(t, s, signalID); n != 0 {
 		t.Errorf("expected 0 executions after delete, got %d", n)
 	}
 }
@@ -141,7 +141,7 @@ func TestDeleteActionExecutions_ScopedToAction(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	a1, tweetID := seedActionAndTweet(t, s)
+	a1, signalID := seedActionAndSignal(t, s)
 
 	// Create a second action
 	a2 := sampleAction()
@@ -150,11 +150,11 @@ func TestDeleteActionExecutions_ScopedToAction(t *testing.T) {
 		t.Fatalf("SaveAction a2: %v", err)
 	}
 
-	saveExecution(t, s, a1.ID, tweetID)
-	saveExecution(t, s, a2.ID, tweetID)
+	saveExecution(t, s, a1.ID, signalID)
+	saveExecution(t, s, a2.ID, signalID)
 
 	// Clear only a1's executions
-	deleted, err := s.DeleteActionExecutions(ctx, []string{tweetID}, []int64{a1.ID})
+	deleted, err := s.DeleteActionExecutions(ctx, []int64{signalID}, []int64{a1.ID})
 	if err != nil {
 		t.Fatalf("DeleteActionExecutions: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestDeleteActionExecutions_ScopedToAction(t *testing.T) {
 	}
 
 	// a2's execution must still exist
-	remaining, _ := s.ListActionExecutions(ctx, ExecutionFilter{TweetID: &tweetID})
+	remaining, _ := s.ListActionExecutions(ctx, ExecutionFilter{SignalID: &signalID})
 	if len(remaining) != 1 {
 		t.Errorf("expected 1 remaining execution, got %d", len(remaining))
 	}
@@ -172,25 +172,20 @@ func TestDeleteActionExecutions_ScopedToAction(t *testing.T) {
 	}
 }
 
-// TestDeleteActionExecutions_MultipleTweets clears executions for multiple tweets at once.
-func TestDeleteActionExecutions_MultipleTweets(t *testing.T) {
+// TestDeleteActionExecutions_MultipleSignals clears executions for multiple signals at once.
+func TestDeleteActionExecutions_MultipleSignals(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	a, tweetID1 := seedActionAndTweet(t, s)
+	a, signalID1 := seedActionAndSignal(t, s)
 
-	// Second tweet
-	tw2 := sampleTweet()
-	tw2.ID = "tweet-2"
-	if err := s.SaveTweet(ctx, tw2); err != nil {
-		t.Fatalf("SaveTweet tw2: %v", err)
-	}
-	tweetID2 := tw2.ID
+	// Second signal
+	signalID2 := mustSaveSignal(t, s, "tweet-2", time.Now()).ID
 
-	saveExecution(t, s, a.ID, tweetID1)
-	saveExecution(t, s, a.ID, tweetID2)
+	saveExecution(t, s, a.ID, signalID1)
+	saveExecution(t, s, a.ID, signalID2)
 
-	deleted, err := s.DeleteActionExecutions(ctx, []string{tweetID1, tweetID2}, nil)
+	deleted, err := s.DeleteActionExecutions(ctx, []int64{signalID1, signalID2}, nil)
 	if err != nil {
 		t.Fatalf("DeleteActionExecutions: %v", err)
 	}
@@ -204,7 +199,7 @@ func TestDeleteActionExecutions_EmptyResult(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	deleted, err := s.DeleteActionExecutions(ctx, []string{"nonexistent-tweet"}, nil)
+	deleted, err := s.DeleteActionExecutions(ctx, []int64{999999}, nil)
 	if err != nil {
 		t.Fatalf("DeleteActionExecutions: %v", err)
 	}
@@ -218,8 +213,8 @@ func TestDeleteActionExecutions_MetadataAlsoCleaned(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	a, tweetID := seedActionAndTweet(t, s)
-	e := saveExecution(t, s, a.ID, tweetID)
+	a, signalID := seedActionAndSignal(t, s)
+	e := saveExecution(t, s, a.ID, signalID)
 
 	if err := s.SaveActionExecutionMetadata(ctx, e.ID, "key1", `"value1"`); err != nil {
 		t.Fatalf("SaveActionExecutionMetadata: %v", err)
@@ -230,7 +225,7 @@ func TestDeleteActionExecutions_MetadataAlsoCleaned(t *testing.T) {
 		t.Fatalf("expected 1 metadata row before delete, got %d", len(meta))
 	}
 
-	if _, err := s.DeleteActionExecutions(ctx, []string{tweetID}, nil); err != nil {
+	if _, err := s.DeleteActionExecutions(ctx, []int64{signalID}, nil); err != nil {
 		t.Fatalf("DeleteActionExecutions: %v", err)
 	}
 
@@ -330,11 +325,11 @@ func TestPipelineRunTracking(t *testing.T) {
 	s := newTestStore(t)
 
 	pipelineID := int64(1)
-	tweetID := "tweet-track-1"
-	payload := []byte(`{"tweet_id":"tweet-track-1","text":"hello"}`)
+	signalID := mustSaveSignal(t, s, "track-1", time.Now()).ID
+	payload := []byte(`{"signal_id":1,"kind":"post"}`)
 
 	// Decrement on non-existent row returns done=false, no error
-	done, err := s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	done, err := s.DecrementPipelineRunTracking(ctx, pipelineID, signalID)
 	if err != nil {
 		t.Fatalf("DecrementPipelineRunTracking (no row): %v", err)
 	}
@@ -343,17 +338,17 @@ func TestPipelineRunTracking(t *testing.T) {
 	}
 
 	// Init with 2 tasks
-	if err := s.InitPipelineRunTracking(ctx, pipelineID, tweetID, 2, payload); err != nil {
+	if err := s.InitPipelineRunTracking(ctx, pipelineID, signalID, 2, payload); err != nil {
 		t.Fatalf("InitPipelineRunTracking: %v", err)
 	}
 
 	// Increment adds 1 (simulates a downstream push): 2→3
-	if err := s.IncrementPipelineRunTracking(ctx, pipelineID, tweetID); err != nil {
+	if err := s.IncrementPipelineRunTracking(ctx, pipelineID, signalID); err != nil {
 		t.Fatalf("IncrementPipelineRunTracking: %v", err)
 	}
 
 	// Decrement 1: 3→2, not done
-	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, signalID)
 	if err != nil {
 		t.Fatalf("DecrementPipelineRunTracking (3→2): %v", err)
 	}
@@ -362,7 +357,7 @@ func TestPipelineRunTracking(t *testing.T) {
 	}
 
 	// Decrement 2: 2→1, not done
-	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, signalID)
 	if err != nil {
 		t.Fatalf("DecrementPipelineRunTracking (2→1): %v", err)
 	}
@@ -371,7 +366,7 @@ func TestPipelineRunTracking(t *testing.T) {
 	}
 
 	// Decrement 3: 1→0, done
-	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, signalID)
 	if err != nil {
 		t.Fatalf("DecrementPipelineRunTracking (1→0): %v", err)
 	}
@@ -380,7 +375,7 @@ func TestPipelineRunTracking(t *testing.T) {
 	}
 
 	// GetPipelineRunEventPayload returns the stored payload
-	got, err := s.GetPipelineRunEventPayload(ctx, pipelineID, tweetID)
+	got, err := s.GetPipelineRunEventPayload(ctx, pipelineID, signalID)
 	if err != nil {
 		t.Fatalf("GetPipelineRunEventPayload: %v", err)
 	}
@@ -389,7 +384,7 @@ func TestPipelineRunTracking(t *testing.T) {
 	}
 
 	// Decrement again at 0 — no-op, no error, done=false (re-entry guard)
-	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, tweetID)
+	done, err = s.DecrementPipelineRunTracking(ctx, pipelineID, signalID)
 	if err != nil {
 		t.Fatalf("DecrementPipelineRunTracking (re-entry): %v", err)
 	}

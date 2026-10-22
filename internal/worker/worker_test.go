@@ -51,7 +51,7 @@ func (m *mockConsumer) PeekMinDepth(_ context.Context, _ string) (float64, bool)
 	return 0, false
 }
 
-func (m *mockConsumer) PopFailed(_ context.Context, _ time.Duration) (*queue.FailedTweet, error) {
+func (m *mockConsumer) PopFailed(_ context.Context, _ time.Duration) (*queue.FailedTask, error) {
 	return nil, nil
 }
 
@@ -66,7 +66,7 @@ func (m *mockProducer) PushTask(_ context.Context, t *queue.Task) error {
 	return nil
 }
 
-func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTweet) error {
+func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTask) error {
 	return nil
 }
 
@@ -85,17 +85,24 @@ func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _
 	return nil
 }
 
-// Tweets
-func (m *mockStore) SaveTweet(_ context.Context, _ *model.Tweet) error { return nil }
-func (m *mockStore) GetTweet(_ context.Context, _ string) (*model.Tweet, error) {
+// Signals
+func (m *mockStore) SaveSignal(_ context.Context, _ *model.Signal) (bool, error) { return true, nil }
+
+// GetSignal returns an X post whose text and x_tweet_id derive from id.
+func (m *mockStore) GetSignal(_ context.Context, id int64) (*model.Signal, error) {
+	return &model.Signal{
+		ID: id, Kind: model.SignalKindPost, ExtNS: "x", ExternalID: fmt.Sprintf("x%d", id),
+		Author: "user", Text: "test post text", URL: fmt.Sprintf("https://x.com/user/status/x%d", id),
+		Attrs:       map[string]any{"x_tweet_id": fmt.Sprintf("x%d", id), "x_rule_ids": []any{float64(3)}},
+		PublishedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}, nil
+}
+func (m *mockStore) ListSignals(_ context.Context, _ store.SignalFilter) ([]*model.Signal, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweets(_ context.Context, _ store.TweetFilter) ([]*model.Tweet, error) {
-	return nil, nil
-}
-func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error) { return 0, nil }
-func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)       { return 0, nil }
-func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)              { return 0, nil }
+func (m *mockStore) CountSignals(_ context.Context, _ store.SignalFilter) (int, error) { return 0, nil }
+func (m *mockStore) DeleteSignals(_ context.Context, _ []int64) (int64, error)         { return 0, nil }
+func (m *mockStore) DeleteNoiseSignals(_ context.Context) (int64, error)               { return 0, nil }
 
 // Sources
 func (m *mockStore) SaveSource(_ context.Context, _ *model.Source) error         { return nil }
@@ -124,9 +131,9 @@ func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.R
 func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error                { return nil }
 func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                      { return nil }
 func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error { return nil }
-func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)           { return 0, nil }
-func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error        { return nil }
-func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)    { return nil, nil }
+func (m *mockStore) XRuleMatchCount(_ context.Context, _ int64) (int, error)          { return 0, nil }
+func (m *mockStore) SaveXRuleMatch(_ context.Context, _ *model.XRuleMatch) error      { return nil }
+func (m *mockStore) ListXRuleIDs(_ context.Context, _ int64) ([]int64, error)         { return nil, nil }
 
 // Actions (absorbs old Pipelines + Actions)
 func (m *mockStore) ListActionLabels(_ context.Context, _ int64) ([]string, error) {
@@ -170,22 +177,22 @@ func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ b
 }
 
 // Pipeline node execution tracking
-func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error {
+func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ int64, _ int64) error {
 	return nil
 }
-func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ string, _ int64) (bool, error) {
+func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ int64, _ int64) (bool, error) {
 	return false, nil
 }
-func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ string, _ int, _ []byte) error {
+func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ int64, _ int, _ []byte) error {
 	return nil
 }
-func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ string) error {
+func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ int64) error {
 	return nil
 }
-func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ string) (bool, error) {
+func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ int64) (bool, error) {
 	return false, nil
 }
-func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ string) ([]byte, error) {
+func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ int64) ([]byte, error) {
 	return nil, nil
 }
 
@@ -322,16 +329,16 @@ func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFil
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) {
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) {
+func (m *mockStore) MergeAllSignalExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) {
+func (m *mockStore) ListSignalActionSummaries(_ context.Context, _ int64) ([]store.SignalActionSummary, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) {
+func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []int64, _ []int64) (int64, error) {
 	return 0, nil
 }
 
@@ -441,22 +448,28 @@ func (m *mockStore) Close() error                                               
 type stubPipeline struct {
 	name  string
 	pType inference.PipelineType
+
+	mu        sync.Mutex
+	lastInput inference.PipelineInput
 }
 
 func (s *stubPipeline) Name() string                 { return s.name }
 func (s *stubPipeline) Type() inference.PipelineType { return s.pType }
 func (s *stubPipeline) Load(_ string) error          { return nil }
-func (s *stubPipeline) Run(_ context.Context, _ inference.PipelineInput) (map[string]any, error) {
+func (s *stubPipeline) Run(_ context.Context, in inference.PipelineInput) (map[string]any, error) {
+	s.mu.Lock()
+	s.lastInput = in
+	s.mu.Unlock()
 	return map[string]any{"label": "test", "score": 1.0}, nil
 }
 func (s *stubPipeline) Close() error { return nil }
 
 // --- helpers ---
 
-func makeTask(actionID int64, tweetID string) *queue.Task {
-	ev, _ := json.Marshal(queue.TweetEvent{TweetID: tweetID, Text: "test tweet text"})
+func makeTask(actionID int64, signalID int64) *queue.Task {
+	ev, _ := json.Marshal(queue.SignalEvent{SignalID: signalID, Kind: "post", SourceType: "x_stream"})
 	return &queue.Task{
-		TriggerType: "new_tweet",
+		TriggerType: "new_signal",
 		Event:       ev,
 		ActionID:    actionID,
 		Context:     map[string]any{},
@@ -550,14 +563,14 @@ func runManagerUntilDrained(t *testing.T, mgr *Manager, consumer *mockConsumer) 
 	}
 }
 
-func TestManager_ProcessesTweet(t *testing.T) {
+func TestManager_ProcessesSignal(t *testing.T) {
 	pipe := &stubPipeline{name: "pa", pType: inference.PipelineTypeONNX}
 	action := &model.Action{ID: 1, Name: "pa", Active: true}
 	cache := buildCacheWithEntries(map[int64]*CacheEntry{
 		1: {Action: action, Pipeline: pipe},
 	})
 
-	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, "tweet-m1")}}
+	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, 101)}}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
 
@@ -567,15 +580,71 @@ func TestManager_ProcessesTweet(t *testing.T) {
 	if len(storeImpl.executions) != 1 {
 		t.Fatalf("expected 1 execution, got %d", len(storeImpl.executions))
 	}
-	if storeImpl.executions[0].TweetID != "tweet-m1" {
-		t.Errorf("wrong tweet id: %s", storeImpl.executions[0].TweetID)
+	if storeImpl.executions[0].SignalID != 101 {
+		t.Errorf("wrong signal id: %d", storeImpl.executions[0].SignalID)
+	}
+}
+
+// TestManager_SignalContextKeys checks the context keys and input text a task
+// gets for an X post: the generic signal keys plus every attrs key.
+func TestManager_SignalContextKeys(t *testing.T) {
+	pipe := &stubPipeline{name: "pa", pType: inference.PipelineTypeONNX}
+	action := &model.Action{ID: 1, Name: "pa", Active: true}
+	cache := buildCacheWithEntries(map[int64]*CacheEntry{
+		1: {Action: action, Pipeline: pipe},
+	})
+	task := makeTask(1, 7)
+	task.Context = map[string]any{"text": "overwritten by the signal", "upstream": "kept"}
+	consumer := &mockConsumer{tasks: []*queue.Task{task}}
+
+	mgr := NewManager(1, consumer, &mockProducer{}, &mockStore{}, cache, nil)
+	runManagerUntilDrained(t, mgr, consumer)
+
+	pipe.mu.Lock()
+	in := pipe.lastInput
+	pipe.mu.Unlock()
+	if in.SignalID != 7 || in.Text != "test post text" {
+		t.Fatalf("input: SignalID=%d Text=%q", in.SignalID, in.Text)
+	}
+	want := map[string]any{
+		"signal_id":    int64(7),
+		"signal_kind":  "post",
+		"source_type":  "x_stream",
+		"author":       "user",
+		"text":         "test post text",
+		"text_short":   "test post text",
+		"url":          "https://x.com/user/status/x7",
+		"published_at": "2026-01-01T00:00:00Z",
+		"x_tweet_id":   "x7",
+		"upstream":     "kept",
+	}
+	for k, v := range want {
+		if got := in.Context[k]; got != v {
+			t.Errorf("context[%q] = %#v, want %#v", k, got, v)
+		}
+	}
+	for _, gone := range []string{"tweet_id", "tweet", "tweet_url", "tweet_short", "rule_ids"} {
+		if _, ok := in.Context[gone]; ok {
+			t.Errorf("context still has old key %q", gone)
+		}
+	}
+}
+
+func TestSignalInputText_Article(t *testing.T) {
+	sig := &model.Signal{Kind: model.SignalKindArticle, Title: "Headline", Text: "Body"}
+	if got := signalInputText(sig); got != "Headline\n\nBody" {
+		t.Errorf("signalInputText(article) = %q", got)
+	}
+	ctx := signalContext(&model.Signal{Kind: model.SignalKindArticle, Title: "Only a title"}, queue.SignalEvent{})
+	if ctx["text_short"] != "Only a title" {
+		t.Errorf("text_short falls back to title, got %v", ctx["text_short"])
 	}
 }
 
 func TestManager_UnknownActionID_Skipped(t *testing.T) {
 	cache := buildCacheWithEntries(map[int64]*CacheEntry{})
 
-	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(999, "tweet-unknown")}}
+	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(999, 102)}}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
 
@@ -626,7 +695,7 @@ func TestManager_Stats_ActiveWorkers(t *testing.T) {
 		1: {Action: action, Pipeline: pipe},
 	})
 
-	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, "tweet-stats")}}
+	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, 103)}}
 	producer := &mockProducer{}
 	storeImpl := &mockStore{}
 
@@ -831,7 +900,7 @@ func TestManager_Flush_CancelsActiveWorkers(t *testing.T) {
 		1: {Action: action, Pipeline: pipe},
 	})
 
-	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, "tweet-flush")}}
+	consumer := &mockConsumer{tasks: []*queue.Task{makeTask(1, 104)}}
 	mgr := NewManager(2, consumer, &mockProducer{}, &mockStore{}, cache, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())

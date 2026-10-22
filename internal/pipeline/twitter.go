@@ -9,7 +9,7 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/twitter"
 )
 
-// RetweetPipeline retweets the tweet identified by tweet_id in the input context.
+// RetweetPipeline retweets the tweet identified by x_tweet_id in the input context.
 // Outputs: {"retweet_id": "<new tweet id>"} on success.
 type RetweetPipeline struct {
 	name   string
@@ -28,9 +28,9 @@ func (p *RetweetPipeline) Type() inference.PipelineType { return inference.Pipel
 func (p *RetweetPipeline) Close() error                 { return nil }
 
 func (p *RetweetPipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
-	tweetID, _ := input.Context["tweet_id"].(string)
+	tweetID, _ := input.Context["x_tweet_id"].(string)
 	if tweetID == "" {
-		return nil, fmt.Errorf("retweet: tweet_id missing from context")
+		return nil, fmt.Errorf("retweet: x_tweet_id missing from context (not an X signal)")
 	}
 
 	retweetID, err := p.client.Retweet(ctx, tweetID)
@@ -47,7 +47,7 @@ func (p *RetweetPipeline) Run(ctx context.Context, input inference.PipelineInput
 	}, nil
 }
 
-// LikePipeline likes the tweet identified by tweet_id in the input context.
+// LikePipeline likes the tweet identified by x_tweet_id in the input context.
 // Outputs: {"liked": true} on success.
 type LikePipeline struct {
 	name   string
@@ -66,9 +66,9 @@ func (p *LikePipeline) Type() inference.PipelineType { return inference.Pipeline
 func (p *LikePipeline) Close() error                 { return nil }
 
 func (p *LikePipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
-	tweetID, _ := input.Context["tweet_id"].(string)
+	tweetID, _ := input.Context["x_tweet_id"].(string)
 	if tweetID == "" {
-		return nil, fmt.Errorf("like: tweet_id missing from context")
+		return nil, fmt.Errorf("like: x_tweet_id missing from context (not an X signal)")
 	}
 
 	if err := p.client.Like(ctx, tweetID); err != nil {
@@ -84,7 +84,7 @@ func (p *LikePipeline) Run(ctx context.Context, input inference.PipelineInput) (
 	}, nil
 }
 
-// QuotePipeline quotes the tweet identified by tweet_id in the input context.
+// QuotePipeline quotes the tweet identified by x_tweet_id in the input context.
 // The quote text is taken from input.Text.
 // Outputs: {"quote_id": "<new tweet id>"} on success.
 type QuotePipeline struct {
@@ -104,15 +104,15 @@ func (p *QuotePipeline) Type() inference.PipelineType { return inference.Pipelin
 func (p *QuotePipeline) Close() error                 { return nil }
 
 func (p *QuotePipeline) Run(ctx context.Context, input inference.PipelineInput) (map[string]any, error) {
-	tweetID, _ := input.Context["tweet_id"].(string)
+	tweetID, _ := input.Context["x_tweet_id"].(string)
 	if tweetID == "" {
-		return nil, fmt.Errorf("quote: tweet_id missing from context")
+		return nil, fmt.Errorf("quote: x_tweet_id missing from context (not an X signal)")
 	}
 
-	// Use the pipeline's input text as the quote body; fall back to tweet_author for attribution.
+	// Use the pipeline's input text as the quote body; fall back to author for attribution.
 	text := input.Text
 	if text == "" {
-		author, _ := input.Context["tweet_author"].(string)
+		author, _ := input.Context["author"].(string)
 		if author != "" {
 			text = fmt.Sprintf("via @%s", author)
 		}

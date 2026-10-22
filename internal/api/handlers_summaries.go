@@ -16,10 +16,10 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
-// handleListSummaries returns paginated tweet+summary pairs for tweets that
+// handleListSummaries returns paginated signal+summary pairs for signals that
 // have been processed by an active summarizer model.
 //
-// Query params: from, to (RFC3339), rule_id, source_id, entity_id, page, per_page.
+// Query params: from, to (RFC3339), rule_id, entity_id, page, per_page.
 func (s *Server) handleListSummaries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -31,11 +31,6 @@ func (s *Server) handleListSummaries(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("rule_id"); v != "" {
 		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
 			filter.RuleID = &id
-		}
-	}
-	if v := q.Get("source_id"); v != "" {
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
-			filter.SourceID = &id
 		}
 	}
 	if v := q.Get("entity_id"); v != "" {
@@ -73,7 +68,7 @@ func (s *Server) handleListSummaries(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRunSummaries queues filtered tweets for summarization by the active
+// handleRunSummaries queues filtered signals for summarization by the active
 // summarizer pipeline. Follows the same pattern as handleRunModelPipeline.
 func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	if s.registry == nil {
@@ -98,7 +93,6 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 		From     *time.Time `json:"from"`
 		To       *time.Time `json:"to"`
 		RuleID   *int64     `json:"rule_id"`
-		SourceID *int64     `json:"source_id"`
 		EntityID *int64     `json:"entity_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
@@ -107,9 +101,8 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const pageSize = 5000
-	tweetFilter := store.TweetFilter{
+	signalFilter := store.SignalFilter{
 		RuleID:   req.RuleID,
-		SourceID: req.SourceID,
 		EntityID: req.EntityID,
 		From:     req.From,
 		To:       req.To,
@@ -117,10 +110,10 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 		PerPage:  pageSize,
 	}
 
-	tweets, err := s.store.ListTweets(r.Context(), tweetFilter)
+	signals, err := s.store.ListSignals(r.Context(), signalFilter)
 	if err != nil {
-		s.logger.Error("api: run summaries: fetch tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to fetch tweets")
+		s.logger.Error("api: run summaries: fetch signals", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch signals")
 		return
 	}
 
@@ -136,22 +129,18 @@ func (s *Server) handleRunSummaries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	count := 0
-	for _, tweet := range tweets {
-		ev, _ := json.Marshal(queue.TweetEvent{
-			TweetID:      tweet.ID,
-			Text:         tweet.Text,
-			AuthorHandle: tweet.AuthorHandle,
-		})
+	for _, signal := range signals {
+		ev, _ := json.Marshal(queue.SignalEvent{SignalID: signal.ID, Kind: string(signal.Kind)})
 		pushed := false
 		for _, actionID := range actionIDs {
 			task := &queue.Task{
-				TriggerType: "new_tweet",
+				TriggerType: "new_signal",
 				Event:       ev,
 				ActionID:    actionID,
 				Context:     map[string]any{},
 			}
 			if err := s.producer.PushTask(r.Context(), task); err != nil {
-				s.logger.Error("api: run summaries: push task", "tweet_id", tweet.ID, "action_id", actionID, "error", err)
+				s.logger.Error("api: run summaries: push task", "signal_id", signal.ID, "action_id", actionID, "error", err)
 			} else {
 				pushed = true
 			}
@@ -175,7 +164,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve which actions should handle this digest by walking the pipeline
 	// graphs linked to the "digest_requested" trigger — the same mechanism the
-	// stream listener uses for new_tweet. This prevents dispatching to every
+	// ingest uses for new_signal. This prevents dispatching to every
 	// Ollama-backed action in the cache (all implement DigestPipeline).
 	links, err := s.store.ListActiveTriggerPipelineLinks(r.Context(), "digest_requested", 0)
 	if err != nil {

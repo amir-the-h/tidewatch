@@ -251,7 +251,7 @@ func (c *TelegramClient) Deliver(ctx context.Context, text string, config map[st
 		return map[string]any{"telegram_message_id": existingID}, nil
 	}
 
-	// Reply to a prior notification for this tweet if one exists, forming a thread.
+	// Reply to a prior notification for this signal if one exists, forming a thread.
 	if replyTo := parseTelegramMessageID(config["reply_to_message_id"]); replyTo != 0 {
 		msg.ReplyToMessageID = replyTo
 	}

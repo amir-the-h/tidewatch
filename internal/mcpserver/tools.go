@@ -5,7 +5,7 @@ type ToolDef struct {
 	Name        string
 	Description string
 	Method      string     // GET, POST, PUT, DELETE
-	Path        string     // e.g. "/api/tweets/{id}"
+	Path        string     // e.g. "/api/signals/{id}"
 	PathParams  []ParamDef // always required; substituted into path template
 	QueryParams []ParamDef // optional query string fields
 	Body        *BodyDef   // nil if endpoint takes no request body
@@ -130,7 +130,7 @@ func AllTools() []ToolDef {
 		// ── Sources ──────────────────────────────────────────────────────────
 		{
 			Name:        "sources_list",
-			Description: "List all tweet sources.",
+			Description: "List all X rule atoms (keywords, hashtags, accounts…) used by the rule builder.",
 			Method:      "GET",
 			Path:        "/api/sources",
 		},
@@ -177,56 +177,57 @@ func AllTools() []ToolDef {
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Source ID", Required: true}},
 		},
 
-		// ── Tweets ───────────────────────────────────────────────────────────
+		// ── Signals ──────────────────────────────────────────────────────────
 		{
-			Name:        "tweets_list",
-			Description: "List tweets with optional filtering. Returns paginated results with total count.",
+			Name:        "signals_list",
+			Description: "List signals (X posts today; news articles once RSS sources exist) with optional filtering. Returns paginated results with total count.",
 			Method:      "GET",
-			Path:        "/api/tweets",
+			Path:        "/api/signals",
 			QueryParams: []ParamDef{
-				{Name: "rule_id", Type: "integer", Description: "Filter by rule ID"},
-				{Name: "from", Type: "string", Description: "Start time (RFC3339)"},
-				{Name: "to", Type: "string", Description: "End time (RFC3339)"},
+				{Name: "rule_id", Type: "integer", Description: "Filter by X rule ID"},
+				{Name: "kind", Type: "string", Description: "Filter by signal kind: post or article"},
+				{Name: "from", Type: "string", Description: "Start of the published_at window (RFC3339)"},
+				{Name: "to", Type: "string", Description: "End of the published_at window (RFC3339)"},
 				{Name: "page", Type: "integer", Description: "Page number (default 1)"},
 				{Name: "per_page", Type: "integer", Description: "Results per page (default 20)"},
 			},
 		},
 		{
-			Name:        "tweets_get",
-			Description: "Get a single tweet by ID including its action execution history and metadata.",
+			Name:        "signals_get",
+			Description: "Get a single signal by ID including its action execution history and metadata.",
 			Method:      "GET",
-			Path:        "/api/tweets/{id}",
-			PathParams:  []ParamDef{{Name: "id", Type: "string", Description: "Tweet ID (X tweet ID string)", Required: true}},
+			Path:        "/api/signals/{id}",
+			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Signal ID (internal integer ID, not the X tweet ID)", Required: true}},
 		},
 		{
-			Name:        "tweets_delete",
-			Description: "Delete tweets by their IDs.",
+			Name:        "signals_delete",
+			Description: "Delete signals by their IDs, with their executions, metadata and entity tracks.",
 			Method:      "DELETE",
-			Path:        "/api/tweets",
+			Path:        "/api/signals",
 			Body: &BodyDef{
-				Description: "Object with field: ids (array of tweet ID strings, required).",
+				Description: "Object with field: ids (array of integer signal IDs, required).",
 			},
 		},
 		{
-			Name:        "tweets_reprocess",
-			Description: "Re-queue tweets through the pipeline. Optionally targets specific action IDs.",
+			Name:        "signals_reprocess",
+			Description: "Re-queue signals through the new_signal pipelines. Optionally targets specific action IDs.",
 			Method:      "POST",
-			Path:        "/api/tweets/reprocess",
+			Path:        "/api/signals/reprocess",
 			Body: &BodyDef{
-				Description: "Object with fields: tweet_ids (array of strings, required), action_ids (array of integers, optional — targets specific actions).",
+				Description: "Object with fields: signal_ids (array of integers, required), action_ids (array of integers, optional — targets specific actions).",
 			},
 		},
 		{
-			Name:        "tweets_noise_delete",
-			Description: "Delete all tweets classified as noise.",
+			Name:        "signals_noise_delete",
+			Description: "Delete X signals that match no rule, or only local rules.",
 			Method:      "DELETE",
-			Path:        "/api/tweets/noise",
+			Path:        "/api/signals/noise",
 		},
 
 		// ── Map ──────────────────────────────────────────────────────────────
 		{
 			Name:        "map_pins_list",
-			Description: "List geo-event map pins sourced from action_execution_metadata, with tweet_created_at for date-heat coloring.",
+			Description: "List geo-event map pins sourced from action_execution_metadata, with signal_published_at for date-heat coloring.",
 			Method:      "GET",
 			Path:        "/api/map",
 		},
@@ -461,7 +462,7 @@ func AllTools() []ToolDef {
 		},
 		{
 			Name:        "pipelines_activate",
-			Description: "Activate a pipeline so it participates in tweet processing.",
+			Description: "Activate a pipeline so it participates in signal processing.",
 			Method:      "POST",
 			Path:        "/api/pipelines/{id}/activate",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
@@ -509,19 +510,19 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 		},
 		{
 			Name:        "pipelines_run",
-			Description: "Dispatch historical tweets through a pipeline. Returns queued count (async: true means running in background).",
+			Description: "Dispatch historical signals through a pipeline. Returns queued count (async: true means running in background).",
 			Method:      "POST",
 			Path:        "/api/pipelines/{id}/run",
 			PathParams:  []ParamDef{{Name: "id", Type: "integer", Description: "Pipeline ID", Required: true}},
 			Body: &BodyDef{
-				Description: "Object with optional fields: new_only (bool, skip tweets already processed by the start node's action), start_node_id (int, dispatch from this action or pipeline node instead of the pipeline's Start node — full context from prior runs is available automatically), order (string, \"asc\" for oldest-first dispatch or \"desc\" for newest-first; default \"desc\").",
+				Description: "Object with optional fields: new_only (bool, skip signals already processed by the start node's action), start_node_id (int, dispatch from this action or pipeline node instead of the pipeline's Start node — full context from prior runs is available automatically), order (string, \"asc\" for oldest-first dispatch or \"desc\" for newest-first; default \"desc\").",
 			},
 		},
 
 		// ── Triggers ─────────────────────────────────────────────────────────
 		{
 			Name:        "triggers_list",
-			Description: "List all available trigger types (new_tweet, new_categorization, entity_matched, etc.).",
+			Description: "List all available trigger types (new_signal, new_categorization, entity_matched, etc.).",
 			Method:      "GET",
 			Path:        "/api/triggers",
 		},
@@ -671,7 +672,7 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 			Method:      "GET",
 			Path:        "/api/executions",
 			QueryParams: []ParamDef{
-				{Name: "tweet_id", Type: "string", Description: "Filter by tweet ID"},
+				{Name: "signal_id", Type: "integer", Description: "Filter by signal ID"},
 				{Name: "status", Type: "string", Description: "Filter by status (success, error)"},
 				{Name: "page", Type: "integer", Description: "Page number"},
 				{Name: "per_page", Type: "integer", Description: "Results per page"},
@@ -688,11 +689,11 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 		},
 		{
 			Name:        "executions_delete",
-			Description: "Bulk-delete execution records and their metadata. All filters are optional: omit all to delete every execution. Supply action_ids to scope to specific actions, pipeline_id to scope to all actions in a pipeline, tweet_ids to scope to specific tweets, or any combination.",
+			Description: "Bulk-delete execution records and their metadata. All filters are optional: omit all to delete every execution. Supply action_ids to scope to specific actions, pipeline_id to scope to all actions in a pipeline, signal_ids to scope to specific signals, or any combination.",
 			Method:      "DELETE",
 			Path:        "/api/executions",
 			Body: &BodyDef{
-				Description: "Object with optional fields: tweet_ids (array of strings), action_ids (array of integers), pipeline_id (integer). If all are omitted, all executions are deleted.",
+				Description: "Object with optional fields: signal_ids (array of integers), action_ids (array of integers), pipeline_id (integer). If all are omitted, all executions are deleted.",
 			},
 		},
 
@@ -785,7 +786,7 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 		// ── Queue ────────────────────────────────────────────────────────────
 		{
 			Name:        "queue_get",
-			Description: "Get global queue status: pending task count and per-worker status (id, status, action, pipeline, tweet, depth, duration, backend).",
+			Description: "Get global queue status: pending task count and per-worker status (id, status, action, pipeline, signal_id, depth, duration, backend).",
 			Method:      "GET",
 			Path:        "/api/queue",
 		},
@@ -873,7 +874,7 @@ Do NOT use database node IDs (id field) in edges — the server always assigns n
 		},
 		{
 			Name:        "digest_create",
-			Description: "Create and dispatch a new LLM digest job over a tweet window. Returns 202.",
+			Description: "Create and dispatch a new LLM digest job over a signal window. Returns 202.",
 			Method:      "POST",
 			Path:        "/api/digest",
 			Body: &BodyDef{

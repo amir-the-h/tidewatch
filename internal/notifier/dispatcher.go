@@ -10,7 +10,7 @@ import (
 const channelBufferSize = 256
 
 // Dispatcher listens for NotificationEvents and logs them.
-// Tweet-level notifications are delivered through the NotificationPipeline
+// Signal-level notifications are delivered through the NotificationPipeline
 // action system; the Dispatcher exists to satisfy the EventEmitter interface
 // used by stream.Client, worker.Pool, and the API server.
 type Dispatcher struct {
@@ -66,7 +66,7 @@ func (d *Dispatcher) drain() {
 	}
 }
 
-// handle logs the event. Tweet-level notifications are delivered via the
+// handle logs the event. Signal-level notifications are delivered via the
 // NotificationPipeline action system and do not need handling here.
 func (d *Dispatcher) handle(event NotificationEvent) {
 	d.logger.Debug("notifier: dispatcher: event received", "event_type", event.Type)

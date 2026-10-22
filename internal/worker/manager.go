@@ -259,8 +259,8 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		return
 	}
 
-	// Unmarshal the tweet event before storing WorkerInfo so TweetID is available.
-	var ev queue.TweetEvent
+	// Unmarshal the signal event before storing WorkerInfo so SignalID is available.
+	var ev queue.SignalEvent
 	_ = json.Unmarshal(task.Event, &ev)
 
 	startedAt := time.Now()
@@ -270,7 +270,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 		ActionID:  task.ActionID,
 		Action:    entry.Action.Name,
 		Pipeline:  entry.Pipeline.Name(),
-		TweetID:   ev.TweetID,
+		SignalID:  ev.SignalID,
 		StartedAt: startedAt,
 	}
 	m.workerActions.Store(workerID, info)
@@ -279,19 +279,28 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	// Decrement pipeline run tracking when this task is done.
 	if task.RootPipelineID != 0 {
 		defer func() {
-			done, err := m.store.DecrementPipelineRunTracking(ctx, task.RootPipelineID, ev.TweetID)
+			done, err := m.store.DecrementPipelineRunTracking(ctx, task.RootPipelineID, ev.SignalID)
 			if err != nil && m.logger != nil {
 				m.logger.Warn("worker: decrement pipeline run tracking",
-					"root_pipeline_id", task.RootPipelineID, "tweet_id", ev.TweetID, "error", err)
+					"root_pipeline_id", task.RootPipelineID, "signal_id", ev.SignalID, "error", err)
 			}
 			if done {
-				m.firePipelineFinished(ctx, task.RootPipelineID, ev.TweetID)
+				m.firePipelineFinished(ctx, task.RootPipelineID, ev.SignalID)
 			}
 		}()
 	}
 
-	allMeta, _ := m.store.MergeAllTweetExecutionMetadata(ctx, ev.TweetID)
-	prevMeta, _ := m.store.MergeActionExecutionMetadata(ctx, task.ActionID, ev.TweetID)
+	sig, err := m.store.GetSignal(ctx, ev.SignalID)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("worker: load signal failed — task dropped",
+				"worker_id", workerID, "action_id", task.ActionID, "signal_id", ev.SignalID, "error", err)
+		}
+		return
+	}
+
+	allMeta, _ := m.store.MergeAllSignalExecutionMetadata(ctx, ev.SignalID)
+	prevMeta, _ := m.store.MergeActionExecutionMetadata(ctx, task.ActionID, ev.SignalID)
 
 	mergedCtx := make(map[string]any, len(task.Context)+len(allMeta)+len(prevMeta)+6)
 	for k, v := range allMeta {
@@ -309,20 +318,17 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 	for k, v := range task.Context {
 		mergedCtx[k] = v
 	}
-	mergedCtx["tweet_id"] = ev.TweetID
-	mergedCtx["tweet_author"] = ev.AuthorHandle
-	mergedCtx["author"] = ev.AuthorHandle
-	mergedCtx["tweet"] = ev.Text
-	mergedCtx["tweet_short"] = truncateText(ev.Text, 280)
-	mergedCtx["tweet_url"] = "https://x.com/" + ev.AuthorHandle + "/status/" + ev.TweetID
-	mergedCtx["rule_ids"] = ev.RuleIDs
+	// Signal keys go last so an action's output can't overwrite them.
+	for k, v := range signalContext(sig, ev) {
+		mergedCtx[k] = v
+	}
 
 	enrichContext(mergedCtx)
 
 	input := inference.PipelineInput{
-		Text:    ev.Text,
-		TweetID: ev.TweetID,
-		Context: mergedCtx,
+		Text:     signalInputText(sig),
+		SignalID: sig.ID,
+		Context:  mergedCtx,
 	}
 
 	// Inject backend callback so Ollama pipelines can report which backend they acquire.
@@ -333,7 +339,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			ActionID:    task.ActionID,
 			Action:      entry.Action.Name,
 			Pipeline:    entry.Pipeline.Name(),
-			TweetID:     ev.TweetID,
+			SignalID:    ev.SignalID,
 			StartedAt:   startedAt,
 			BackendName: backend,
 		})
@@ -345,7 +351,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			"action_id", task.ActionID,
 			"action", entry.Action.Name,
 			"pipeline", entry.Pipeline.Name(),
-			"tweet_id", ev.TweetID,
+			"signal_id", ev.SignalID,
 			"pipeline_id", task.PipelineID,
 			"pipeline_node_id", task.PipelineNodeID,
 		)
@@ -356,7 +362,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 
 	exec := &model.ActionExecution{
 		ActionID:   task.ActionID,
-		TweetID:    ev.TweetID,
+		SignalID:   ev.SignalID,
 		Status:     model.ExecutionStatusSuccess,
 		ExecutedAt: startTime,
 	}
@@ -390,7 +396,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 				"action_id", task.ActionID,
 				"action", entry.Action.Name,
 				"pipeline", entry.Pipeline.Name(),
-				"tweet_id", ev.TweetID,
+				"signal_id", ev.SignalID,
 				"pipeline_node_id", task.PipelineNodeID,
 			)
 		}
@@ -428,7 +434,7 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 			"worker_id", workerID,
 			"action_id", task.ActionID,
 			"action", entry.Action.Name,
-			"tweet_id", ev.TweetID,
+			"signal_id", ev.SignalID,
 			"output_keys", outputKeys,
 			"pipeline_node_id", task.PipelineNodeID,
 		)
@@ -439,16 +445,16 @@ func (m *Manager) processTask(ctx context.Context, workerID int, task *queue.Tas
 
 // firePipelineFinished dispatches tasks for all pipelines linked to the
 // pipeline_finished trigger for the given source pipeline.
-func (m *Manager) firePipelineFinished(ctx context.Context, pipelineID int64, tweetID string) {
-	eventPayload, err := m.store.GetPipelineRunEventPayload(ctx, pipelineID, tweetID)
+func (m *Manager) firePipelineFinished(ctx context.Context, pipelineID int64, signalID int64) {
+	eventPayload, err := m.store.GetPipelineRunEventPayload(ctx, pipelineID, signalID)
 	if err != nil || len(eventPayload) == 0 {
 		if m.logger != nil {
 			m.logger.Warn("worker: pipeline_finished: missing event payload",
-				"pipeline_id", pipelineID, "tweet_id", tweetID)
+				"pipeline_id", pipelineID, "signal_id", signalID)
 		}
 		return
 	}
-	var ev queue.TweetEvent
+	var ev queue.SignalEvent
 	if err := json.Unmarshal(eventPayload, &ev); err != nil {
 		if m.logger != nil {
 			m.logger.Warn("worker: pipeline_finished: unmarshal event", "error", err)
@@ -457,7 +463,7 @@ func (m *Manager) firePipelineFinished(ctx context.Context, pipelineID int64, tw
 	}
 	if m.logger != nil {
 		m.logger.Info("worker: pipeline finished — firing pipeline_finished trigger",
-			"pipeline_id", pipelineID, "tweet_id", tweetID)
+			"pipeline_id", pipelineID, "signal_id", signalID)
 	}
 	if err := PushInitialPipelineTasks(ctx, m.store, m.producer, m.cache,
 		"pipeline_finished", ev, m.logger, pipelineID); err != nil && m.logger != nil {
@@ -527,9 +533,8 @@ func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *que
 	})
 
 	p := job.Params
-	tweets, err := m.store.ListTweets(ctx, store.TweetFilter{
+	signals, err := m.store.ListSignals(ctx, store.SignalFilter{
 		RuleID:   p.RuleID,
-		SourceID: p.SourceID,
 		EntityID: p.EntityID,
 		From:     p.From,
 		To:       p.To,
@@ -542,31 +547,32 @@ func (m *Manager) processDigestTask(ctx context.Context, workerID int, task *que
 
 	if err != nil {
 		if m.logger != nil {
-			m.logger.Error("worker: digest job: list tweets", "job_id", jobID, "error", err)
+			m.logger.Error("worker: digest job: list signals", "job_id", jobID, "error", err)
 		}
 		job.Status = model.DigestStatusError
-		job.Error = "failed to fetch tweets: " + err.Error()
+		job.Error = "failed to fetch signals: " + err.Error()
 		_ = m.store.UpdateDigestJob(ctx, job)
 		m.emitDigestEvent(job, entry.Pipeline.Name())
 		return
 	}
 
-	job.TweetCount = len(tweets)
+	job.SignalCount = len(signals)
 
-	if len(tweets) == 0 {
+	if len(signals) == 0 {
 		job.Status = model.DigestStatusDone
-		job.Result = "No tweets found matching the selected filters."
+		job.Result = "No signals found matching the selected filters."
 		_ = m.store.UpdateDigestJob(ctx, job)
 		m.emitDigestEvent(job, entry.Pipeline.Name())
 		return
 	}
 
-	formatted := make([]string, len(tweets))
-	for i, t := range tweets {
-		if t.AuthorHandle != "" {
-			formatted[i] = fmt.Sprintf("@%s: %s", t.AuthorHandle, t.Text)
+	formatted := make([]string, len(signals))
+	for i, sg := range signals {
+		text := signalInputText(sg)
+		if sg.Author != "" {
+			formatted[i] = fmt.Sprintf("%s: %s", sg.Author, text)
 		} else {
-			formatted[i] = t.Text
+			formatted[i] = text
 		}
 	}
 

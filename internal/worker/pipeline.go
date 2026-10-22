@@ -25,7 +25,7 @@ func IsOllamaAction(cache *ActionCache, actionID int64) bool {
 }
 
 // PushInitialPipelineTasks dispatches tasks for all active pipelines linked to
-// triggerType. Called by the stream listener and search client when a new tweet
+// triggerType. Called by the X stream and search ingest when a new signal
 // arrives. cache is used to skip tasks for disabled actions; pass nil to disable
 // the check (tasks will still be dropped by the worker if the action is inactive).
 func PushInitialPipelineTasks(
@@ -34,7 +34,7 @@ func PushInitialPipelineTasks(
 	producer queue.Producer,
 	cache *ActionCache,
 	triggerType string,
-	ev queue.TweetEvent,
+	ev queue.SignalEvent,
 	logger *slog.Logger,
 	sourcePipelineID int64,
 ) error {
@@ -46,16 +46,16 @@ func PushInitialPipelineTasks(
 	if logger != nil {
 		logger.Info("pipeline: initial dispatch",
 			"trigger", triggerType,
-			"tweet_id", ev.TweetID,
+			"signal_id", ev.SignalID,
 			"active_pipeline_links", len(links),
 		)
 	}
 
 	if len(links) == 0 {
 		if logger != nil {
-			logger.Info("pipeline: no active pipeline links for trigger — tweet will not be processed",
+			logger.Info("pipeline: no active pipeline links for trigger — signal will not be processed",
 				"trigger", triggerType,
-				"tweet_id", ev.TweetID,
+				"signal_id", ev.SignalID,
 			)
 		}
 		return nil
@@ -63,7 +63,7 @@ func PushInitialPipelineTasks(
 
 	eventPayload, err := json.Marshal(ev)
 	if err != nil {
-		return fmt.Errorf("pipeline: marshal tweet event: %w", err)
+		return fmt.Errorf("pipeline: marshal signal event: %w", err)
 	}
 
 	for _, link := range links {
@@ -83,7 +83,7 @@ func PushInitialPipelineTasks(
 			)
 		}
 
-		PushInitialTasksForGraph(ctx, st, producer, cache, graph, link.PipelineID, triggerType, eventPayload, ev.TweetID, logger)
+		PushInitialTasksForGraph(ctx, st, producer, cache, graph, link.PipelineID, triggerType, eventPayload, ev.SignalID, logger)
 	}
 
 	return nil
@@ -103,7 +103,7 @@ func PushInitialTasksForGraph(
 	pipelineID int64,
 	triggerType string,
 	eventPayload []byte,
-	tweetID string,
+	signalID int64,
 	logger *slog.Logger,
 ) int {
 	startNode := findStartNode(graph)
@@ -121,32 +121,19 @@ func PushInitialTasksForGraph(
 		)
 	}
 
-	// Build an initial context from the event so that conditions placed
-	// directly after Start can be evaluated (e.g. rule_matches).
-	// Also merge all stored execution metadata for this tweet so that
+	// Build an initial context from the signal so that conditions placed
+	// directly after Start can be evaluated (e.g. x_rule_ids, signal_kind).
+	// Also merge all stored execution metadata for this signal so that
 	// pipeline_finished-triggered pipelines can check detector/extractor
 	// outputs in condition nodes during initial dispatch.
-	var initCtx map[string]any
-	{
-		var ev queue.TweetEvent
-		if err := json.Unmarshal(eventPayload, &ev); err == nil {
-			initCtx = map[string]any{
-				"rule_ids":     ev.RuleIDs,
-				"tweet_id":     ev.TweetID,
-				"tweet":        ev.Text,
-				"tweet_author": ev.AuthorHandle,
-			}
-			if ev.TweetID != "" {
-				if allMeta, err := st.MergeAllTweetExecutionMetadata(ctx, ev.TweetID); err == nil {
-					for k, v := range allMeta {
-						if _, exists := initCtx[k]; !exists {
-							initCtx[k] = decodeMetaValue(v)
-						}
-					}
+	initCtx, evSignalID := loadSignalContext(ctx, st, eventPayload)
+	if evSignalID != 0 {
+		if allMeta, err := st.MergeAllSignalExecutionMetadata(ctx, evSignalID); err == nil {
+			for k, v := range allMeta {
+				if _, exists := initCtx[k]; !exists {
+					initCtx[k] = decodeMetaValue(v)
 				}
 			}
-		} else {
-			initCtx = map[string]any{}
 		}
 	}
 
@@ -156,10 +143,10 @@ func PushInitialTasksForGraph(
 	// is called — the old post-loop reset would overwrite those decrements, leaving
 	// the counter permanently inflated and pipeline_finished never firing.
 	// Each pushTrackedTask call below will increment from 0 as it enqueues.
-	if tweetID != "" {
-		if err := st.InitPipelineRunTracking(ctx, pipelineID, tweetID, 0, eventPayload); err != nil && logger != nil {
+	if signalID != 0 {
+		if err := st.InitPipelineRunTracking(ctx, pipelineID, signalID, 0, eventPayload); err != nil && logger != nil {
 			logger.Warn("pipeline: init run tracking failed",
-				"pipeline_id", pipelineID, "tweet_id", tweetID, "error", err)
+				"pipeline_id", pipelineID, "signal_id", signalID, "error", err)
 		}
 	}
 
@@ -170,7 +157,7 @@ func PushInitialTasksForGraph(
 			continue
 		}
 		pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-			pipelineID, triggerType, eventPayload, tweetID, node, initCtx, logger)
+			pipelineID, triggerType, eventPayload, signalID, node, initCtx, logger)
 	}
 
 	return pushed
@@ -178,8 +165,8 @@ func PushInitialTasksForGraph(
 
 // PushTasksFromNode dispatches tasks starting from a specific node instead of
 // the pipeline's Start node. Context from prior runs is always available at
-// runtime via MergeAllTweetExecutionMetadata — the worker loads all stored
-// action_execution_metadata for the tweet regardless of which node initiates the run.
+// runtime via MergeAllSignalExecutionMetadata — the worker loads all stored
+// action_execution_metadata for the signal regardless of which node initiates the run.
 func PushTasksFromNode(
 	ctx context.Context,
 	st store.Store,
@@ -189,26 +176,13 @@ func PushTasksFromNode(
 	pipelineID int64,
 	triggerType string,
 	eventPayload []byte,
-	tweetID string,
+	signalID int64,
 	startNode *model.PipelineNode,
 	logger *slog.Logger,
 ) int {
-	var initCtx map[string]any
-	{
-		var ev queue.TweetEvent
-		if err := json.Unmarshal(eventPayload, &ev); err == nil {
-			initCtx = map[string]any{
-				"rule_ids":     ev.RuleIDs,
-				"tweet_id":     ev.TweetID,
-				"tweet":        ev.Text,
-				"tweet_author": ev.AuthorHandle,
-			}
-		} else {
-			initCtx = map[string]any{}
-		}
-	}
+	initCtx, _ := loadSignalContext(ctx, st, eventPayload)
 	return dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-		pipelineID, triggerType, eventPayload, tweetID, startNode, initCtx, logger)
+		pipelineID, triggerType, eventPayload, signalID, startNode, initCtx, logger)
 }
 
 // FindNodeInGraph returns the node with the given ID, or nil if not found.
@@ -230,7 +204,7 @@ func dispatchInitialNode(
 	rootPipelineID int64,
 	triggerType string,
 	eventPayload []byte,
-	tweetID string,
+	signalID int64,
 	node *model.PipelineNode,
 	initCtx map[string]any,
 	logger *slog.Logger,
@@ -269,7 +243,7 @@ func dispatchInitialNode(
 					"pipeline_id", pipelineID,
 					"action_id", *node.ActionID,
 					"node_id", node.ID,
-					"tweet_id", tweetID,
+					"signal_id", signalID,
 				)
 			}
 		}
@@ -303,7 +277,7 @@ func dispatchInitialNode(
 				continue
 			}
 			entryNodeID := subActionNode.ID
-			if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
+			if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, signalID, entryNodeID); insErr != nil && logger != nil {
 				logger.Warn("pipeline: insert pipeline node execution failed",
 					"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
 			}
@@ -326,7 +300,7 @@ func dispatchInitialNode(
 						"sub_pipeline_id", *node.SubPipelineID,
 						"action_id", *subActionNode.ActionID,
 						"node_id", subActionNode.ID,
-						"tweet_id", tweetID,
+						"signal_id", signalID,
 					)
 				}
 			}
@@ -357,7 +331,7 @@ func dispatchInitialNode(
 			}
 			// Recurse: handles Action, Pipeline, and nested Condition nodes.
 			pushed += dispatchInitialNode(ctx, st, producer, cache, graph, pipelineID,
-				rootPipelineID, triggerType, eventPayload, tweetID, nextNode, initCtx, logger)
+				rootPipelineID, triggerType, eventPayload, signalID, nextNode, initCtx, logger)
 		}
 	}
 	return pushed
@@ -427,11 +401,11 @@ func PushContinuationTasks(
 	// if all branches of the sub-pipeline are done, resumes the parent pipeline.
 	// It is called both when a node has no outgoing edges (structural terminal)
 	// and when all outgoing branches were skipped (e.g. condition failed).
-	signalSubPipelineLeafDone := func(tweetID string) {
+	signalSubPipelineLeafDone := func(signalID int64) {
 		if task.ParentPipelineNodeID == nil || task.SubPipelineEntryNodeID == nil {
 			return
 		}
-		allDone, err := st.MarkPipelineNodeLeafComplete(ctx, *task.ParentPipelineNodeID, tweetID, *task.SubPipelineEntryNodeID)
+		allDone, err := st.MarkPipelineNodeLeafComplete(ctx, *task.ParentPipelineNodeID, signalID, *task.SubPipelineEntryNodeID)
 		if err != nil && logger != nil {
 			logger.Warn("pipeline: mark leaf complete failed",
 				"parent_node_id", *task.ParentPipelineNodeID,
@@ -460,7 +434,7 @@ func PushContinuationTasks(
 			logger.Info("pipeline: no outgoing edges — pipeline ends here",
 				"pipeline_id", pipelineID, "node_id", task.PipelineNodeID)
 		}
-		signalSubPipelineLeafDone(extractTweetID(task))
+		signalSubPipelineLeafDone(extractSignalID(task))
 		return
 	}
 
@@ -546,7 +520,7 @@ func PushContinuationTasks(
 				continue
 			}
 			parentNodeID := targetNode.ID
-			tweetID := extractTweetID(task)
+			signalID := extractSignalID(task)
 			for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, mergedCtx, *targetNode.SubPipelineID, logger) {
 				if subActionNode.ActionID == nil {
 					continue
@@ -555,7 +529,7 @@ func PushContinuationTasks(
 					continue
 				}
 				entryNodeID := subActionNode.ID
-				if err := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); err != nil && logger != nil {
+				if err := st.InsertPipelineNodeExecution(ctx, parentNodeID, signalID, entryNodeID); err != nil && logger != nil {
 					logger.Warn("pipeline: insert pipeline node execution failed",
 						"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", err)
 				}
@@ -581,7 +555,7 @@ func PushContinuationTasks(
 	// this task's branch is a dead end. Signal the sub-pipeline leaf as complete
 	// so the parent pipeline can continue regardless of which branch was taken.
 	if pushed == 0 {
-		signalSubPipelineLeafDone(extractTweetID(task))
+		signalSubPipelineLeafDone(extractSignalID(task))
 	}
 }
 
@@ -599,10 +573,10 @@ func pushTrackedTask(
 	// push subsequently fails the counter is left one too high (pipeline_finished
 	// won't fire for that run), but push failures are transient and rare.
 	if task.RootPipelineID != 0 {
-		tweetID := extractTweetID(task)
-		if err := st.IncrementPipelineRunTracking(ctx, task.RootPipelineID, tweetID); err != nil && logger != nil {
+		signalID := extractSignalID(task)
+		if err := st.IncrementPipelineRunTracking(ctx, task.RootPipelineID, signalID); err != nil && logger != nil {
 			logger.Warn("pipeline: increment run tracking failed",
-				"root_pipeline_id", task.RootPipelineID, "tweet_id", tweetID, "error", err)
+				"root_pipeline_id", task.RootPipelineID, "signal_id", signalID, "error", err)
 		}
 	}
 	if err := producer.PushTask(ctx, task); err != nil {
@@ -735,21 +709,49 @@ func evaluateCondition(c model.PipelineCondition, actual string) bool {
 	}
 }
 
-// evalRuleMatch checks whether the rule ID stored in ruleKey (as a decimal string)
-// is present in ctx["rule_ids"] ([]int64). If wantMatch is false it negates the result.
-// Returns false when rule_ids is absent or ruleKey cannot be parsed.
+// evalRuleMatch implements the rule_matches / rule_not_matches conditions: it
+// reports whether the X rule ruleKey is present in ctx["x_rule_ids"] (set from
+// the signal's attrs; []int64, or []any of numbers after a JSON round-trip).
+// If wantMatch is false it negates the result. A signal without x_rule_ids
+// matches no rule.
 func evalRuleMatch(ctx map[string]any, ruleKey string, wantMatch bool) bool {
 	targetID, err := strconv.ParseInt(ruleKey, 10, 64)
 	if err != nil {
 		return false
 	}
-	ids, _ := ctx["rule_ids"].([]int64)
-	for _, id := range ids {
+	for _, id := range contextInt64s(ctx["x_rule_ids"]) {
 		if id == targetID {
 			return wantMatch
 		}
 	}
 	return !wantMatch
+}
+
+// contextInt64s converts a context value holding a list of integers into
+// []int64, accepting the shapes it takes before and after a JSON round-trip.
+func contextInt64s(v any) []int64 {
+	switch ids := v.(type) {
+	case []int64:
+		return ids
+	case []any:
+		out := make([]int64, 0, len(ids))
+		for _, raw := range ids {
+			switch n := raw.(type) {
+			case float64:
+				out = append(out, int64(n))
+			case int64:
+				out = append(out, n)
+			case int:
+				out = append(out, int64(n))
+			case json.Number:
+				if i, err := n.Int64(); err == nil {
+					out = append(out, i)
+				}
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // pushDownstreamFromNode pushes tasks starting from node, recursively following
@@ -847,7 +849,7 @@ func pushDownstreamFromNode(
 			return 0
 		}
 		parentNodeID := node.ID
-		tweetID := extractTweetID(task)
+		signalID := extractSignalID(task)
 		pushed := 0
 		for _, subActionNode := range resolveSubPipelineEntryNodes(subGraph, subStartNode.ID, mergedCtx, *node.SubPipelineID, logger) {
 			if subActionNode.ActionID == nil {
@@ -857,7 +859,7 @@ func pushDownstreamFromNode(
 				continue
 			}
 			entryNodeID := subActionNode.ID
-			if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, tweetID, entryNodeID); insErr != nil && logger != nil {
+			if insErr := st.InsertPipelineNodeExecution(ctx, parentNodeID, signalID, entryNodeID); insErr != nil && logger != nil {
 				logger.Warn("pipeline: insert pipeline node execution failed (post-condition)",
 					"parent_node_id", parentNodeID, "entry_node_id", entryNodeID, "error", insErr)
 			}
@@ -1004,11 +1006,11 @@ func findTerminalNodeIDs(g *model.PipelineGraph) []int64 {
 	return out
 }
 
-// extractTweetID unmarshals the TweetEvent from task.Event to get the tweet ID.
-func extractTweetID(task *queue.Task) string {
-	var ev queue.TweetEvent
+// extractSignalID unmarshals the SignalEvent from task.Event to get the signal ID.
+func extractSignalID(task *queue.Task) int64 {
+	var ev queue.SignalEvent
 	_ = json.Unmarshal(task.Event, &ev)
-	return ev.TweetID
+	return ev.SignalID
 }
 
 // copyContext returns a shallow copy of a context map.

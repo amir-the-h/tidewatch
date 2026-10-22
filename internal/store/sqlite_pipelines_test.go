@@ -93,7 +93,7 @@ func seedTriggerLink(t *testing.T, s Store, triggerType string, pipelineID int64
 func TestBulkDeleteTriggerPipelineLinks_All(t *testing.T) {
 	s := newTestStore(t)
 	p := seedPipeline(t, s, "pipe", true)
-	seedTriggerLink(t, s, "new_tweet", p.ID)
+	seedTriggerLink(t, s, "new_signal", p.ID)
 	seedTriggerLink(t, s, "entity_matched", p.ID)
 
 	n, err := s.BulkDeleteTriggerPipelineLinks(context.Background(), BulkDeleteTriggerPipelineLinksFilter{})
@@ -113,8 +113,8 @@ func TestBulkDeleteTriggerPipelineLinks_ByPipelineID(t *testing.T) {
 	s := newTestStore(t)
 	p1 := seedPipeline(t, s, "pipe-1", true)
 	p2 := seedPipeline(t, s, "pipe-2", true)
-	l1 := seedTriggerLink(t, s, "new_tweet", p1.ID)
-	l2 := seedTriggerLink(t, s, "new_tweet", p2.ID)
+	l1 := seedTriggerLink(t, s, "new_signal", p1.ID)
+	l2 := seedTriggerLink(t, s, "new_signal", p2.ID)
 
 	n, err := s.BulkDeleteTriggerPipelineLinks(context.Background(), BulkDeleteTriggerPipelineLinksFilter{PipelineID: &p1.ID})
 	if err != nil {
@@ -132,10 +132,10 @@ func TestBulkDeleteTriggerPipelineLinks_ByPipelineID(t *testing.T) {
 func TestBulkDeleteTriggerPipelineLinks_ByTriggerType(t *testing.T) {
 	s := newTestStore(t)
 	p := seedPipeline(t, s, "pipe", true)
-	seedTriggerLink(t, s, "new_tweet", p.ID)
+	seedTriggerLink(t, s, "new_signal", p.ID)
 	l2 := seedTriggerLink(t, s, "entity_matched", p.ID)
 
-	n, err := s.BulkDeleteTriggerPipelineLinks(context.Background(), BulkDeleteTriggerPipelineLinksFilter{TriggerType: "new_tweet"})
+	n, err := s.BulkDeleteTriggerPipelineLinks(context.Background(), BulkDeleteTriggerPipelineLinksFilter{TriggerType: "new_signal"})
 	if err != nil {
 		t.Fatalf("BulkDeleteTriggerPipelineLinks: %v", err)
 	}

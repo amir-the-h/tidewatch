@@ -73,13 +73,13 @@ func TestQueueTasksKey_Format(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2: FailedTweet JSON round-trip
+// Test 2: FailedTask JSON round-trip
 // ---------------------------------------------------------------------------
 
-func TestFailedTweet_JSONRoundTrip(t *testing.T) {
-	ev, _ := json.Marshal(TweetEvent{TweetID: "123", Text: "Hello Iran", AuthorHandle: "testuser", RuleIDs: []int64{1}})
-	original := &FailedTweet{
-		Task: &Task{TriggerType: "new_tweet", Event: json.RawMessage(ev), ActionID: 42},
+func TestFailedTask_JSONRoundTrip(t *testing.T) {
+	ev, _ := json.Marshal(SignalEvent{SignalID: 123, Kind: "post"})
+	original := &FailedTask{
+		Task: &Task{TriggerType: "new_signal", Event: json.RawMessage(ev), ActionID: 42},
 		FailedModels: []FailedModel{
 			{Name: "sentiment", Error: "model not loaded", Timestamp: time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)},
 		},
@@ -88,7 +88,7 @@ func TestFailedTweet_JSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got FailedTweet
+	var got FailedTask
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -105,9 +105,9 @@ func TestFailedTweet_JSONRoundTrip(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTask_JSONRoundTrip(t *testing.T) {
-	ev, _ := json.Marshal(TweetEvent{TweetID: "789", Text: "Breaking news", AuthorHandle: "newsbot", RuleIDs: []int64{1, 2}})
+	ev, _ := json.Marshal(SignalEvent{SignalID: 789, Kind: "post", SourceType: "x_stream"})
 	original := &Task{
-		TriggerType: "new_tweet",
+		TriggerType: "new_signal",
 		Event:       json.RawMessage(ev),
 		ActionID:    7,
 		Context:     map[string]any{"foo": "bar"},
@@ -123,8 +123,8 @@ func TestTask_JSONRoundTrip(t *testing.T) {
 	if got.ActionID != 7 {
 		t.Errorf("ActionID: got %d, want 7", got.ActionID)
 	}
-	if got.TriggerType != "new_tweet" {
-		t.Errorf("TriggerType: got %q, want new_tweet", got.TriggerType)
+	if got.TriggerType != "new_signal" {
+		t.Errorf("TriggerType: got %q, want new_signal", got.TriggerType)
 	}
 }
 
@@ -151,7 +151,7 @@ func (f *pushCaptureFakeClient) LPush(_ context.Context, key string, values ...i
 func TestPushTask_RoutesToPerActionKey(t *testing.T) {
 	fake := &pushCaptureFakeClient{}
 	q := &RedisQueue{client: fake}
-	task := &Task{TriggerType: "new_tweet", ActionID: 42, Context: map[string]any{}}
+	task := &Task{TriggerType: "new_signal", ActionID: 42, Context: map[string]any{}}
 	if err := q.PushTask(context.Background(), task); err != nil {
 		t.Fatalf("PushTask: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestPushTask_BroadcastsActionPending(t *testing.T) {
 	fake := &pushCaptureFakeClient{}
 	bc := &captureBroadcaster{}
 	q := &RedisQueue{client: fake, broadcaster: bc}
-	task := &Task{TriggerType: "new_tweet", ActionID: 7, Context: map[string]any{}}
+	task := &Task{TriggerType: "new_signal", ActionID: 7, Context: map[string]any{}}
 	if err := q.PushTask(context.Background(), task); err != nil {
 		t.Fatalf("PushTask: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestPushTask_BroadcastsActionPending(t *testing.T) {
 func TestPushTask_NoBroadcastWithoutBroadcaster(t *testing.T) {
 	fake := &pushCaptureFakeClient{}
 	q := &RedisQueue{client: fake} // no broadcaster
-	task := &Task{TriggerType: "new_tweet", ActionID: 3, Context: map[string]any{}}
+	task := &Task{TriggerType: "new_signal", ActionID: 3, Context: map[string]any{}}
 	if err := q.PushTask(context.Background(), task); err != nil {
 		t.Fatalf("PushTask: %v", err)
 	}
@@ -237,8 +237,8 @@ func (f *brpopSuccessFakeClient) BRPop(_ context.Context, _ time.Duration, _ ...
 }
 
 func TestPopTask_BroadcastsActionPending(t *testing.T) {
-	ev, _ := json.Marshal(TweetEvent{TweetID: "1", Text: "test", AuthorHandle: "user"})
-	taskJSON, _ := json.Marshal(&Task{TriggerType: "new_tweet", ActionID: 7, Event: json.RawMessage(ev), Context: map[string]any{}})
+	ev, _ := json.Marshal(SignalEvent{SignalID: 1, Kind: "post"})
+	taskJSON, _ := json.Marshal(&Task{TriggerType: "new_signal", ActionID: 7, Event: json.RawMessage(ev), Context: map[string]any{}})
 	fake := &brpopSuccessFakeClient{
 		fakeRedisClient: fakeRedisClient{llenResult: map[string]int64{"tidewatch:tasks:7": 5}},
 		result:          []string{"tidewatch:tasks:7", string(taskJSON)},
@@ -283,7 +283,7 @@ func TestPopFailed_ReturnsNilOnTimeout(t *testing.T) {
 		t.Fatalf("expected nil error on timeout, got: %v", err)
 	}
 	if ft != nil {
-		t.Fatalf("expected nil FailedTweet on timeout, got: %+v", ft)
+		t.Fatalf("expected nil FailedTask on timeout, got: %+v", ft)
 	}
 }
 

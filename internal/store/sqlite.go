@@ -64,64 +64,113 @@ func (s *sqliteStore) Close() error {
 	return s.db.Close()
 }
 
-// ── Tweets ────────────────────────────────────────────────────────────────────
+// ── Signals ───────────────────────────────────────────────────────────────────
 
-func (s *sqliteStore) SaveTweet(ctx context.Context, tweet *model.Tweet) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO tweets (id, author_id, author_handle, text, raw_json, created_at, fetched_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		tweet.ID,
-		tweet.AuthorID,
-		tweet.AuthorHandle,
-		tweet.Text,
-		tweet.RawJSON,
-		tweet.CreatedAt.UTC().Format(time.RFC3339),
-		tweet.FetchedAt.UTC().Format(time.RFC3339),
+const signalColumns = `s.id, s.kind, s.ext_ns, s.external_id, s.author, s.author_id, s.title, s.text,
+	s.url, s.lang, s.lat, s.lon, s.attrs, s.raw_json, s.published_at, s.fetched_at`
+
+func (s *sqliteStore) SaveSignal(ctx context.Context, sig *model.Signal) (bool, error) {
+	attrs := sig.Attrs
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
+	attrsJSON, err := json.Marshal(attrs)
+	if err != nil {
+		return false, fmt.Errorf("store: save signal: marshal attrs: %w", err)
+	}
+	fetchedAt := sig.FetchedAt
+	if fetchedAt.IsZero() {
+		fetchedAt = time.Now()
+	}
+
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO signals (kind, ext_ns, external_id, author, author_id, title, text, url, lang,
+		                      lat, lon, attrs, raw_json, published_at, fetched_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (ext_ns, external_id) DO NOTHING`,
+		string(sig.Kind), sig.ExtNS, sig.ExternalID, sig.Author, sig.AuthorID, sig.Title, sig.Text,
+		sig.URL, sig.Lang, sig.Lat, sig.Lon, string(attrsJSON), sig.RawJSON,
+		sig.PublishedAt.UTC().Format(time.RFC3339),
+		fetchedAt.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
-		return fmt.Errorf("store: save tweet: %w", err)
+		return false, fmt.Errorf("store: save signal: %w", err)
 	}
-	return nil
+	n, _ := res.RowsAffected()
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM signals WHERE ext_ns = ? AND external_id = ?`, sig.ExtNS, sig.ExternalID,
+	).Scan(&sig.ID); err != nil {
+		return false, fmt.Errorf("store: save signal: read id: %w", err)
+	}
+	return n > 0, nil
 }
 
-func (s *sqliteStore) GetTweet(ctx context.Context, id string) (*model.Tweet, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, author_id, author_handle, text, raw_json, created_at, fetched_at FROM tweets WHERE id = ?`, id)
+func (s *sqliteStore) GetSignal(ctx context.Context, id int64) (*model.Signal, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+signalColumns+` FROM signals s WHERE s.id = ?`, id)
 
-	tweet, err := scanTweet(row)
+	sig, err := scanSignal(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("store: get tweet: not found: %w", err)
+			return nil, fmt.Errorf("store: get signal: not found: %w", err)
 		}
-		return nil, fmt.Errorf("store: get tweet: %w", err)
+		return nil, fmt.Errorf("store: get signal: %w", err)
 	}
 
-	// Populate Rules via join
+	// Populate XRules via join
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT r.id, r.name, r.expression, r.compiled_value, r.x_rule_id, r.active, r.local, r.created_at, r.updated_at
 		 FROM rules r
-		 JOIN tweet_rules tr ON tr.rule_id = r.id
-		 WHERE tr.tweet_id = ?`, id)
+		 JOIN x_rule_matches m ON m.rule_id = r.id
+		 WHERE m.signal_id = ?`, id)
 	if err != nil {
-		return nil, fmt.Errorf("store: get tweet: list rules: %w", err)
+		return nil, fmt.Errorf("store: get signal: list rules: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		rule, err := scanRule(rows)
 		if err != nil {
-			return nil, fmt.Errorf("store: get tweet: scan rule: %w", err)
+			return nil, fmt.Errorf("store: get signal: scan rule: %w", err)
 		}
-		tweet.Rules = append(tweet.Rules, rule)
+		sig.XRules = append(sig.XRules, rule)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: get tweet: rules rows: %w", err)
+		return nil, fmt.Errorf("store: get signal: rules rows: %w", err)
 	}
 
-	return tweet, nil
+	return sig, nil
 }
 
-func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*model.Tweet, error) {
+// signalFilterSQL returns the JOIN and WHERE clauses (with args) for filter.
+func signalFilterSQL(filter SignalFilter) (joins string, where []string, args []any) {
+	if filter.RuleID != nil {
+		joins += ` JOIN x_rule_matches m ON m.signal_id = s.id`
+		where = append(where, "m.rule_id = ?")
+		args = append(args, *filter.RuleID)
+	}
+	if filter.EntityID != nil {
+		joins += ` JOIN entity_tracks et ON et.signal_id = s.id`
+		where = append(where, "et.entity_id = ?")
+		args = append(args, *filter.EntityID)
+	} else if filter.HasEntityTrack {
+		joins += ` JOIN entity_tracks et ON et.signal_id = s.id`
+	}
+	if filter.Kind != nil {
+		where = append(where, "s.kind = ?")
+		args = append(args, string(*filter.Kind))
+	}
+	if filter.From != nil {
+		where = append(where, "s.published_at >= ?")
+		args = append(args, filter.From.UTC().Format(time.RFC3339))
+	}
+	if filter.To != nil {
+		where = append(where, "s.published_at <= ?")
+		args = append(args, filter.To.UTC().Format(time.RFC3339))
+	}
+	return joins, where, args
+}
+
+func (s *sqliteStore) ListSignals(ctx context.Context, filter SignalFilter) ([]*model.Signal, error) {
 	page := filter.Page
 	if page < 1 {
 		page = 1
@@ -132,170 +181,87 @@ func (s *sqliteStore) ListTweets(ctx context.Context, filter TweetFilter) ([]*mo
 	}
 	offset := (page - 1) * perPage
 
-	query := `SELECT DISTINCT t.id, t.author_id, t.author_handle, t.text, t.raw_json, t.created_at, t.fetched_at
-	          FROM tweets t`
-	var args []any
-	var where []string
-
-	if filter.RuleID != nil {
-		query += ` JOIN tweet_rules tr ON tr.tweet_id = t.id`
-		where = append(where, "tr.rule_id = ?")
-		args = append(args, *filter.RuleID)
-	}
-	if filter.SourceID != nil {
-		query += ` JOIN tweet_sources ts ON ts.tweet_id = t.id`
-		where = append(where, "ts.source_id = ?")
-		args = append(args, *filter.SourceID)
-	}
-	if filter.EntityID != nil {
-		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
-		where = append(where, "et.entity_id = ?")
-		args = append(args, *filter.EntityID)
-	} else if filter.HasEntityTrack {
-		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
-	}
-	if filter.From != nil {
-		where = append(where, "t.created_at >= ?")
-		args = append(args, filter.From.UTC().Format(time.RFC3339))
-	}
-	if filter.To != nil {
-		where = append(where, "t.created_at <= ?")
-		args = append(args, filter.To.UTC().Format(time.RFC3339))
-	}
+	joins, where, args := signalFilterSQL(filter)
+	query := `SELECT DISTINCT ` + signalColumns + ` FROM signals s` + joins
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	if filter.OrderAsc {
-		query += " ORDER BY t.created_at ASC LIMIT ? OFFSET ?"
+		query += " ORDER BY s.published_at ASC LIMIT ? OFFSET ?"
 	} else {
-		query += " ORDER BY t.created_at DESC LIMIT ? OFFSET ?"
+		query += " ORDER BY s.published_at DESC LIMIT ? OFFSET ?"
 	}
 	args = append(args, perPage, offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("store: list tweets: %w", err)
+		return nil, fmt.Errorf("store: list signals: %w", err)
 	}
 	defer rows.Close()
 
-	tweets := make([]*model.Tweet, 0)
+	signals := make([]*model.Signal, 0)
 	for rows.Next() {
-		t, err := scanTweet(rows)
+		sig, err := scanSignal(rows)
 		if err != nil {
-			return nil, fmt.Errorf("store: list tweets: scan: %w", err)
+			return nil, fmt.Errorf("store: list signals: scan: %w", err)
 		}
-		tweets = append(tweets, t)
+		signals = append(signals, sig)
 	}
-	return tweets, rows.Err()
+	return signals, rows.Err()
 }
 
-func (s *sqliteStore) CountTweets(ctx context.Context, filter TweetFilter) (int, error) {
-	query := `SELECT COUNT(DISTINCT t.id) FROM tweets t`
-	var args []any
-	var where []string
-
-	if filter.RuleID != nil {
-		query += ` JOIN tweet_rules tr ON tr.tweet_id = t.id`
-		where = append(where, "tr.rule_id = ?")
-		args = append(args, *filter.RuleID)
-	}
-	if filter.SourceID != nil {
-		query += ` JOIN tweet_sources ts ON ts.tweet_id = t.id`
-		where = append(where, "ts.source_id = ?")
-		args = append(args, *filter.SourceID)
-	}
-	if filter.EntityID != nil {
-		query += ` JOIN entity_tracks et ON et.tweet_id = t.id`
-		where = append(where, "et.entity_id = ?")
-		args = append(args, *filter.EntityID)
-	}
-	if filter.From != nil {
-		where = append(where, "t.created_at >= ?")
-		args = append(args, filter.From.UTC().Format(time.RFC3339))
-	}
-	if filter.To != nil {
-		where = append(where, "t.created_at <= ?")
-		args = append(args, filter.To.UTC().Format(time.RFC3339))
-	}
+func (s *sqliteStore) CountSignals(ctx context.Context, filter SignalFilter) (int, error) {
+	joins, where, args := signalFilterSQL(filter)
+	query := `SELECT COUNT(DISTINCT s.id) FROM signals s` + joins
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 
 	var count int
 	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
-		return 0, fmt.Errorf("store: count tweets: %w", err)
+		return 0, fmt.Errorf("store: count signals: %w", err)
 	}
 	return count, nil
 }
 
-func (s *sqliteStore) DeleteTweets(ctx context.Context, ids []string) (int64, error) {
+func (s *sqliteStore) DeleteSignals(ctx context.Context, ids []int64) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	placeholders := strings.Repeat("?,", len(ids))
-	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
+	placeholders, args := int64Placeholders(ids)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM signals WHERE id IN (`+placeholders+`)`, args...)
 	if err != nil {
-		return 0, fmt.Errorf("store: delete tweets: begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Clean up tweet_rules (categorizations table was dropped in migration 018)
-	if _, err := tx.ExecContext(ctx, `DELETE FROM tweet_rules WHERE tweet_id IN (`+placeholders+`)`, args...); err != nil {
-		return 0, fmt.Errorf("store: delete tweets: clear tweet_rules: %w", err)
-	}
-	res, err := tx.ExecContext(ctx, `DELETE FROM tweets WHERE id IN (`+placeholders+`)`, args...)
-	if err != nil {
-		return 0, fmt.Errorf("store: delete tweets: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("store: delete tweets: commit: %w", err)
+		return 0, fmt.Errorf("store: delete signals: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
 }
 
-func (s *sqliteStore) DeleteNoiseTweets(ctx context.Context) (int64, error) {
-	// A "noise" tweet is one that either:
-	//   (a) has no entries in tweet_rules at all, OR
+func (s *sqliteStore) DeleteNoiseSignals(ctx context.Context) (int64, error) {
+	// A "noise" signal is an X signal that either:
+	//   (a) has no entries in x_rule_matches at all, OR
 	//   (b) every rule it matches has local=true
-	//
-	// We identify them with a single query, then delete in a transaction that
-	// also cleans up tweet_rules (same as DeleteTweets).
-	const noiseQuery = `
-		SELECT t.id FROM tweets t
-		WHERE NOT EXISTS (
-			SELECT 1 FROM tweet_rules tr
-			JOIN rules r ON r.id = tr.rule_id
-			WHERE tr.tweet_id = t.id AND r.local = FALSE
-		)`
-
-	rows, err := s.db.QueryContext(ctx, noiseQuery)
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM signals
+		WHERE ext_ns = 'x' AND NOT EXISTS (
+			SELECT 1 FROM x_rule_matches m
+			JOIN rules r ON r.id = m.rule_id
+			WHERE m.signal_id = signals.id AND r.local = FALSE
+		)`)
 	if err != nil {
-		return 0, fmt.Errorf("store: delete noise tweets: query: %w", err)
+		return 0, fmt.Errorf("store: delete noise signals: %w", err)
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("store: delete noise tweets: scan: %w", err)
-		}
-		ids = append(ids, id)
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// int64Placeholders returns "?,?,…" for ids and the matching argument slice.
+func int64Placeholders(ids []int64) (string, []any) {
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("store: delete noise tweets: rows: %w", err)
-	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	return s.DeleteTweets(ctx, ids)
+	return strings.TrimSuffix(strings.Repeat("?,", len(ids)), ","), args
 }
 
 // ── Sources ───────────────────────────────────────────────────────────────────
@@ -606,40 +572,40 @@ func nodeReferencesRule(node model.ExprNode, ruleID int64) bool {
 	return false
 }
 
-func (s *sqliteStore) TweetRuleCount(ctx context.Context, ruleID int64) (int, error) {
+func (s *sqliteStore) XRuleMatchCount(ctx context.Context, ruleID int64) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM tweet_rules WHERE rule_id = ?`, ruleID).Scan(&count)
+		`SELECT COUNT(*) FROM x_rule_matches WHERE rule_id = ?`, ruleID).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("store: tweet rule count: %w", err)
+		return 0, fmt.Errorf("store: x rule match count: %w", err)
 	}
 	return count, nil
 }
 
-// ── TweetRules ────────────────────────────────────────────────────────────────
+// ── XRuleMatches ──────────────────────────────────────────────────────────────
 
-func (s *sqliteStore) SaveTweetRule(ctx context.Context, tr *model.TweetRule) error {
+func (s *sqliteStore) SaveXRuleMatch(ctx context.Context, m *model.XRuleMatch) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO tweet_rules (tweet_id, rule_id) VALUES (?, ?)`,
-		tr.TweetID, tr.RuleID)
+		`INSERT OR IGNORE INTO x_rule_matches (signal_id, rule_id) VALUES (?, ?)`,
+		m.SignalID, m.RuleID)
 	if err != nil {
-		return fmt.Errorf("store: save tweet rule: %w", err)
+		return fmt.Errorf("store: save x rule match: %w", err)
 	}
 	return nil
 }
 
-func (s *sqliteStore) ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error) {
+func (s *sqliteStore) ListXRuleIDs(ctx context.Context, signalID int64) ([]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT rule_id FROM tweet_rules WHERE tweet_id = ?`, tweetID)
+		`SELECT rule_id FROM x_rule_matches WHERE signal_id = ?`, signalID)
 	if err != nil {
-		return nil, fmt.Errorf("store: list tweet rule ids: %w", err)
+		return nil, fmt.Errorf("store: list x rule ids: %w", err)
 	}
 	defer rows.Close()
 	var ids []int64
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("store: list tweet rule ids: scan: %w", err)
+			return nil, fmt.Errorf("store: list x rule ids: scan: %w", err)
 		}
 		ids = append(ids, id)
 	}
@@ -652,22 +618,30 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func scanTweet(s scanner) (*model.Tweet, error) {
-	var t model.Tweet
-	var createdAt, fetchedAt string
-	if err := s.Scan(&t.ID, &t.AuthorID, &t.AuthorHandle, &t.Text, &t.RawJSON, &createdAt, &fetchedAt); err != nil {
+func scanSignal(s scanner) (*model.Signal, error) {
+	var sig model.Signal
+	var kind, attrsJSON, publishedAt, fetchedAt string
+	if err := s.Scan(&sig.ID, &kind, &sig.ExtNS, &sig.ExternalID, &sig.Author, &sig.AuthorID, &sig.Title,
+		&sig.Text, &sig.URL, &sig.Lang, &sig.Lat, &sig.Lon, &attrsJSON, &sig.RawJSON, &publishedAt, &fetchedAt); err != nil {
 		return nil, err
 	}
-	var err error
-	t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse created_at: %w", err)
+	sig.Kind = model.SignalKind(kind)
+	if err := json.Unmarshal([]byte(attrsJSON), &sig.Attrs); err != nil {
+		return nil, fmt.Errorf("parse attrs: %w", err)
 	}
-	t.FetchedAt, err = time.Parse(time.RFC3339, fetchedAt)
+	if sig.Attrs == nil {
+		sig.Attrs = map[string]any{}
+	}
+	var err error
+	sig.PublishedAt, err = time.Parse(time.RFC3339, publishedAt)
+	if err != nil {
+		return nil, fmt.Errorf("parse published_at: %w", err)
+	}
+	sig.FetchedAt, err = time.Parse(time.RFC3339, fetchedAt)
 	if err != nil {
 		return nil, fmt.Errorf("parse fetched_at: %w", err)
 	}
-	return &t, nil
+	return &sig, nil
 }
 
 func scanSource(s scanner) (*model.Source, error) {
@@ -845,17 +819,17 @@ func (s *sqliteStore) SetTrackedEntityActive(ctx context.Context, id int64, acti
 
 // ── EntityTracks ──────────────────────────────────────────────────────────────
 
-// SaveEntityTrack inserts a track record. Duplicate (entity_id, tweet_id) pairs
+// SaveEntityTrack inserts a track record. Duplicate (entity_id, signal_id) pairs
 // are silently ignored via INSERT OR IGNORE so callers can always call this safely.
 func (s *sqliteStore) SaveEntityTrack(ctx context.Context, t *model.EntityTrack) error {
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO entity_tracks (entity_id, tweet_id, match_source, context, summary, created_at)
+		`INSERT INTO entity_tracks (entity_id, signal_id, match_source, context, summary, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(entity_id, tweet_id) DO UPDATE SET
+		 ON CONFLICT(entity_id, signal_id) DO UPDATE SET
 		     match_source = excluded.match_source,
 		     context      = excluded.context,
 		     summary      = excluded.summary`,
-		t.EntityID, t.TweetID, t.MatchSource, t.Context, t.Summary,
+		t.EntityID, t.SignalID, t.MatchSource, t.Context, t.Summary,
 		time.Now().UTC().Format(time.RFC3339),
 	)
 	if err != nil {
@@ -867,11 +841,11 @@ func (s *sqliteStore) SaveEntityTrack(ctx context.Context, t *model.EntityTrack)
 }
 
 func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFilter) ([]*model.EntityTrack, error) {
-	query := `SELECT et.id, et.entity_id, te.name, et.tweet_id, et.match_source, et.context, et.summary,
-	                 COALESCE(tw.text, ''), COALESCE(tw.author_handle, ''), tw.created_at, et.created_at
+	query := `SELECT et.id, et.entity_id, te.name, et.signal_id, et.match_source, et.context, et.summary,
+	                 COALESCE(sg.text, ''), COALESCE(sg.author, ''), sg.published_at, et.published_at
 	          FROM entity_tracks et
 	          JOIN tracked_entities te ON te.id = et.entity_id
-	          LEFT JOIN tweets tw ON tw.id = et.tweet_id`
+	          LEFT JOIN signals sg ON sg.id = et.signal_id`
 	var args []any
 	var where []string
 
@@ -879,22 +853,22 @@ func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFi
 		where = append(where, "et.entity_id = ?")
 		args = append(args, *filter.EntityID)
 	}
-	if filter.TweetID != nil {
-		where = append(where, "et.tweet_id = ?")
-		args = append(args, *filter.TweetID)
+	if filter.SignalID != nil {
+		where = append(where, "et.signal_id = ?")
+		args = append(args, *filter.SignalID)
 	}
 	if filter.From != nil {
-		where = append(where, "COALESCE(tw.created_at, et.created_at) >= ?")
+		where = append(where, "COALESCE(sg.published_at, et.published_at) >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "COALESCE(tw.created_at, et.created_at) <= ?")
+		where = append(where, "COALESCE(sg.published_at, et.published_at) <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	query += " ORDER BY COALESCE(tw.created_at, et.created_at) DESC"
+	query += " ORDER BY COALESCE(sg.published_at, et.published_at) DESC"
 
 	if filter.PerPage > 0 {
 		query += fmt.Sprintf(" LIMIT %d OFFSET %d", filter.PerPage, (filter.Page-1)*filter.PerPage)
@@ -919,9 +893,9 @@ func (s *sqliteStore) ListEntityTracks(ctx context.Context, filter EntityTrackFi
 
 func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackFilter) (int, error) {
 	query := `SELECT COUNT(*) FROM entity_tracks et`
-	needTweetJoin := filter.From != nil || filter.To != nil
-	if needTweetJoin {
-		query += ` LEFT JOIN tweets tw ON tw.id = et.tweet_id`
+	needSignalJoin := filter.From != nil || filter.To != nil
+	if needSignalJoin {
+		query += ` LEFT JOIN signals sg ON sg.id = et.signal_id`
 	}
 	var args []any
 	var where []string
@@ -930,16 +904,16 @@ func (s *sqliteStore) CountEntityTracks(ctx context.Context, filter EntityTrackF
 		where = append(where, "et.entity_id = ?")
 		args = append(args, *filter.EntityID)
 	}
-	if filter.TweetID != nil {
-		where = append(where, "et.tweet_id = ?")
-		args = append(args, *filter.TweetID)
+	if filter.SignalID != nil {
+		where = append(where, "et.signal_id = ?")
+		args = append(args, *filter.SignalID)
 	}
 	if filter.From != nil {
-		where = append(where, "COALESCE(tw.created_at, et.created_at) >= ?")
+		where = append(where, "COALESCE(sg.published_at, et.published_at) >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "COALESCE(tw.created_at, et.created_at) <= ?")
+		where = append(where, "COALESCE(sg.published_at, et.published_at) <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 	if len(where) > 0 {
@@ -1014,26 +988,21 @@ func (s *sqliteStore) summaryFilterQuery(filter SummaryFilter) (string, []any) {
 	var joins, where []string
 
 	if filter.RuleID != nil {
-		joins = append(joins, `JOIN tweet_rules tr ON tr.tweet_id = t.id`)
-		where = append(where, "tr.rule_id = ?")
+		joins = append(joins, `JOIN x_rule_matches m ON m.signal_id = t.id`)
+		where = append(where, "m.rule_id = ?")
 		args = append(args, *filter.RuleID)
 	}
-	if filter.SourceID != nil {
-		joins = append(joins, `JOIN tweet_sources ts ON ts.tweet_id = t.id`)
-		where = append(where, "ts.source_id = ?")
-		args = append(args, *filter.SourceID)
-	}
 	if filter.EntityID != nil {
-		joins = append(joins, `JOIN entity_tracks et ON et.tweet_id = t.id`)
+		joins = append(joins, `JOIN entity_tracks et ON et.signal_id = t.id`)
 		where = append(where, "et.entity_id = ?")
 		args = append(args, *filter.EntityID)
 	}
 	if filter.From != nil {
-		where = append(where, "t.created_at >= ?")
+		where = append(where, "t.published_at >= ?")
 		args = append(args, filter.From.UTC().Format(time.RFC3339))
 	}
 	if filter.To != nil {
-		where = append(where, "t.created_at <= ?")
+		where = append(where, "t.published_at <= ?")
 		args = append(args, filter.To.UTC().Format(time.RFC3339))
 	}
 
@@ -1059,10 +1028,10 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 	offset := (page - 1) * perPage
 
 	filterClause, args := s.summaryFilterQuery(filter)
-	query := `SELECT t.id, t.author_handle, t.text, t.created_at,
+	query := `SELECT t.id, t.author, t.text, t.published_at,
                      aem.value, a.name, ae.executed_at
-              FROM tweets t
-              JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
+              FROM signals t
+              JOIN action_executions ae ON ae.signal_id = t.id AND ae.status = 'success'
               JOIN actions a ON a.id = ae.action_id AND a.type = 'ollama'
               JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause +
@@ -1078,15 +1047,15 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 	var items []*model.SummaryItem
 	for rows.Next() {
 		var item model.SummaryItem
-		var summaryJSON, createdAt, summarizedAt string
+		var summaryJSON, publishedAt, summarizedAt string
 		if err := rows.Scan(
-			&item.TweetID, &item.AuthorHandle, &item.TweetText, &createdAt,
+			&item.SignalID, &item.Author, &item.Text, &publishedAt,
 			&summaryJSON, &item.ModelName, &summarizedAt,
 		); err != nil {
 			return nil, fmt.Errorf("store: list summaries: scan: %w", err)
 		}
-		if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
-			item.CreatedAt = t
+		if t, err := time.Parse(time.RFC3339, publishedAt); err == nil {
+			item.PublishedAt = t
 		}
 		if t, err := time.Parse(time.RFC3339, summarizedAt); err == nil {
 			item.SummarizedAt = t
@@ -1105,8 +1074,8 @@ func (s *sqliteStore) ListSummaries(ctx context.Context, filter SummaryFilter) (
 
 func (s *sqliteStore) CountSummaries(ctx context.Context, filter SummaryFilter) (int, error) {
 	filterClause, args := s.summaryFilterQuery(filter)
-	query := `SELECT COUNT(*) FROM tweets t
-              JOIN action_executions ae ON ae.tweet_id = t.id AND ae.status = 'success'
+	query := `SELECT COUNT(*) FROM signals t
+              JOIN action_executions ae ON ae.signal_id = t.id AND ae.status = 'success'
               JOIN actions a ON a.id = ae.action_id AND a.type = 'ollama'
               JOIN action_execution_metadata aem ON aem.execution_id = ae.id AND aem.key = 'summary'` +
 		filterClause
@@ -1144,16 +1113,16 @@ func scanTrackedEntity(s scanner) (*model.TrackedEntity, error) {
 
 func scanEntityTrack(s scanner) (*model.EntityTrack, error) {
 	var t model.EntityTrack
-	var tweetCreatedAt, createdAt *string
-	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.TweetID, &t.MatchSource, &t.Context, &t.Summary, &t.TweetText, &t.TweetAuthorHandle, &tweetCreatedAt, &createdAt); err != nil {
+	var signalPublishedAt, createdAt *string
+	if err := s.Scan(&t.ID, &t.EntityID, &t.EntityName, &t.SignalID, &t.MatchSource, &t.Context, &t.Summary, &t.SignalText, &t.SignalAuthor, &signalPublishedAt, &createdAt); err != nil {
 		return nil, err
 	}
-	if tweetCreatedAt != nil {
-		parsed, err := time.Parse(time.RFC3339, *tweetCreatedAt)
+	if signalPublishedAt != nil {
+		parsed, err := time.Parse(time.RFC3339, *signalPublishedAt)
 		if err != nil {
-			return nil, fmt.Errorf("parse entity_track tweet_created_at: %w", err)
+			return nil, fmt.Errorf("parse entity_track signal_published_at: %w", err)
 		}
-		t.TweetCreatedAt = &parsed
+		t.SignalPublishedAt = &parsed
 	}
 	if createdAt != nil {
 		var err error
@@ -1173,12 +1142,12 @@ func (s *sqliteStore) SaveDigestJob(ctx context.Context, job *model.DigestJob) e
 		return fmt.Errorf("store: save digest job: marshal params: %w", err)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO digest_jobs (id, status, params, tweet_count, created_at)
+		`INSERT INTO digest_jobs (id, status, params, signal_count, created_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		job.ID,
 		string(job.Status),
 		string(paramsJSON),
-		job.TweetCount,
+		job.SignalCount,
 		job.CreatedAt.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
@@ -1189,7 +1158,7 @@ func (s *sqliteStore) SaveDigestJob(ctx context.Context, job *model.DigestJob) e
 
 func (s *sqliteStore) GetDigestJob(ctx context.Context, id string) (*model.DigestJob, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, status, params, result, error, tweet_count, created_at, completed_at
+		`SELECT id, status, params, result, error, signal_count, created_at, completed_at
 		 FROM digest_jobs WHERE id = ?`, id)
 	job, err := scanDigestJob(row)
 	if err != nil {
@@ -1208,11 +1177,11 @@ func (s *sqliteStore) UpdateDigestJob(ctx context.Context, job *model.DigestJob)
 		completedAt = &s
 	}
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE digest_jobs SET status=?, result=?, error=?, tweet_count=?, completed_at=? WHERE id=?`,
+		`UPDATE digest_jobs SET status=?, result=?, error=?, signal_count=?, completed_at=? WHERE id=?`,
 		string(job.Status),
 		nullString(job.Result),
 		nullString(job.Error),
-		job.TweetCount,
+		job.SignalCount,
 		completedAt,
 		job.ID,
 	)
@@ -1227,7 +1196,7 @@ func (s *sqliteStore) ListDigestJobs(ctx context.Context, limit int) ([]*model.D
 		limit = 20
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, status, params, result, error, tweet_count, created_at, completed_at
+		`SELECT id, status, params, result, error, signal_count, created_at, completed_at
 		 FROM digest_jobs ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: list digest jobs: %w", err)
@@ -1268,7 +1237,7 @@ func scanDigestJob(s digestJobScanner) (*model.DigestJob, error) {
 	var job model.DigestJob
 	var status, paramsJSON, createdAt string
 	var result, errStr, completedAt sql.NullString
-	if err := s.Scan(&job.ID, &status, &paramsJSON, &result, &errStr, &job.TweetCount, &createdAt, &completedAt); err != nil {
+	if err := s.Scan(&job.ID, &status, &paramsJSON, &result, &errStr, &job.SignalCount, &createdAt, &completedAt); err != nil {
 		return nil, err
 	}
 	job.Status = model.DigestStatus(status)
@@ -1538,28 +1507,28 @@ func scanUser(s userScanner) (*model.User, error) {
 
 func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*MapPin, error) {
 	query := `
-        SELECT ae.tweet_id,
-               COALESCE(t.created_at, ae.executed_at) AS tweet_created_at,
-               COALESCE(t.text, '') AS tweet_text,
+        SELECT ae.signal_id,
+               COALESCE(t.published_at, ae.executed_at) AS signal_published_at,
+               COALESCE(t.text, '') AS signal_text,
                a.name AS model_name,
                aem_loc.value AS coordinates_json,
                COALESCE(json_extract(a.config, '$.map_config.coordinate_type'), '') AS coordinate_type,
                COALESCE((SELECT json_group_object(aem2.key, json(aem2.value))
                          FROM action_execution_metadata aem2
                          JOIN action_executions ae2 ON ae2.id = aem2.execution_id
-                         WHERE ae2.tweet_id = ae.tweet_id
+                         WHERE ae2.signal_id = ae.signal_id
                            AND ae2.status = 'success'), '{}') AS metadata_json,
                COALESCE(json_extract(a.config, '$.map_config.popup_template'), '') AS popup_template
         FROM action_execution_metadata aem_loc
         JOIN action_executions ae ON ae.id = aem_loc.execution_id AND ae.status = 'success'
         JOIN actions a ON a.id = ae.action_id
-        LEFT JOIN tweets t ON t.id = ae.tweet_id
+        LEFT JOIN signals t ON t.id = ae.signal_id
         WHERE aem_loc.key = json_extract(a.config, '$.map_config.coordinate_key')
           AND json_extract(a.config, '$.map_config.coordinate_key') IS NOT NULL
           AND json_extract(a.config, '$.map_config.coordinate_key') != ''
           AND aem_loc.value != 'null'
           AND aem_loc.value != '[]'
-        ORDER BY tweet_created_at DESC
+        ORDER BY signal_published_at DESC
         LIMIT ? OFFSET ?`
 
 	rows, err := s.db.QueryContext(ctx, query, limit, offset)
@@ -1573,7 +1542,7 @@ func (s *sqliteStore) ListMapPins(ctx context.Context, limit, offset int) ([]*Ma
 		var pin MapPin
 		var coordType string
 		if err := rows.Scan(
-			&pin.TweetID, &pin.TweetCreatedAt, &pin.TweetText, &pin.ModelName,
+			&pin.SignalID, &pin.SignalPublishedAt, &pin.SignalText, &pin.ModelName,
 			&pin.CoordinatesJSON, &coordType,
 			&pin.MetadataJSON, &pin.PopupTemplate,
 		); err != nil {

@@ -1,24 +1,23 @@
 package notifier
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
-func sampleTweet() *model.Tweet {
-	return &model.Tweet{
-		ID:           "1234567890",
-		AuthorHandle: "testuser",
-		Text:         "This is a test tweet about Iran.",
+func sampleSignal() *model.Signal {
+	return &model.Signal{
+		ID:         42,
+		ExternalID: "1234567890",
+		Author:     "testuser",
+		Text:       "This is a test post about Iran.",
 	}
 }
 
 func TestRenderMessage_DefaultTemplates(t *testing.T) {
-	tweet := sampleTweet()
-	results, _ := json.Marshal(map[string]float32{"relevant": 0.95})
+	sig := sampleSignal()
 
 	tests := []struct {
 		name     string
@@ -26,32 +25,12 @@ func TestRenderMessage_DefaultTemplates(t *testing.T) {
 		contains string
 	}{
 		{
-			name: EventTweetMatched,
+			name: EventSignalIngested,
 			event: NotificationEvent{
-				Type:  EventTweetMatched,
-				Tweet: tweet,
+				Type:   EventSignalIngested,
+				Signal: sig,
 			},
-			contains: "@testuser",
-		},
-		{
-			name: EventTweetCategorized,
-			event: NotificationEvent{
-				Type:      EventTweetCategorized,
-				Tweet:     tweet,
-				ModelName: "relevance",
-				Results:   json.RawMessage(results),
-			},
-			contains: "relevance",
-		},
-		{
-			name: EventCategorizationFailed,
-			event: NotificationEvent{
-				Type:      EventCategorizationFailed,
-				Tweet:     tweet,
-				ModelName: "relevance",
-				Error:     "model unavailable",
-			},
-			contains: "1234567890",
+			contains: "testuser",
 		},
 		{
 			name: EventStreamConnected,
@@ -91,12 +70,12 @@ func TestRenderMessage_DefaultTemplates(t *testing.T) {
 }
 
 func TestRenderMessage_CustomTemplate(t *testing.T) {
-	tweet := sampleTweet()
+	sig := sampleSignal()
 	event := NotificationEvent{
-		Type:  EventTweetMatched,
-		Tweet: tweet,
+		Type:   EventSignalIngested,
+		Signal: sig,
 	}
-	custom := "Custom: {{.Tweet.ID}}"
+	custom := "Custom: {{.Signal.ExternalID}}"
 	msg, err := RenderMessage(event, &custom)
 	if err != nil {
 		t.Fatalf("RenderMessage returned error: %v", err)
@@ -104,11 +83,11 @@ func TestRenderMessage_CustomTemplate(t *testing.T) {
 	if !strings.Contains(msg, "Custom:") {
 		t.Errorf("expected custom template prefix, got %q", msg)
 	}
-	if !strings.Contains(msg, tweet.ID) {
-		t.Errorf("expected tweet ID %q in message, got %q", tweet.ID, msg)
+	if !strings.Contains(msg, sig.ExternalID) {
+		t.Errorf("expected external ID %q in message, got %q", sig.ExternalID, msg)
 	}
-	// Ensure default was overridden (default would contain @testuser)
-	if strings.Contains(msg, "@testuser") {
+	// Ensure default was overridden (default would contain testuser)
+	if strings.Contains(msg, "testuser") {
 		t.Errorf("expected custom template to override default, but got %q", msg)
 	}
 }
@@ -140,13 +119,13 @@ func TestValidateTemplate_Invalid(t *testing.T) {
 	}
 }
 
-func TestExpandURL_WithTweet(t *testing.T) {
-	tweet := sampleTweet()
+func TestExpandURL_WithSignal(t *testing.T) {
+	sig := sampleSignal()
 	event := NotificationEvent{
-		Type:  EventTweetMatched,
-		Tweet: tweet,
+		Type:   EventSignalIngested,
+		Signal: sig,
 	}
-	urlTmpl := "https://x.com/{{.Tweet.AuthorHandle}}/status/{{.Tweet.ID}}"
+	urlTmpl := "https://x.com/{{.Signal.Author}}/status/{{.Signal.ExternalID}}"
 	result := ExpandURL(urlTmpl, event)
 	expected := "https://x.com/testuser/status/1234567890"
 	if result != expected {
@@ -154,14 +133,14 @@ func TestExpandURL_WithTweet(t *testing.T) {
 	}
 }
 
-func TestExpandURL_NilTweet(t *testing.T) {
+func TestExpandURL_NilSignal(t *testing.T) {
 	event := NotificationEvent{
-		Type:  EventStreamConnected,
-		Tweet: nil,
+		Type:   EventStreamConnected,
+		Signal: nil,
 	}
-	urlTmpl := "https://example.com/{{.Tweet.AuthorHandle}}/{{.Tweet.ID}}"
+	urlTmpl := "https://example.com/{{.Signal.Author}}/{{.Signal.ExternalID}}"
 	result := ExpandURL(urlTmpl, event)
-	expected := urlTmpl // returned as-is on template execute error (nil Tweet dereference)
+	expected := urlTmpl // returned as-is on template execute error (nil Signal dereference)
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
 	}

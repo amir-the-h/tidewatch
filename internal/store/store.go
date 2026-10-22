@@ -7,10 +7,10 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/model"
 )
 
-// TweetFilter defines optional filters for listing tweets.
-type TweetFilter struct {
+// SignalFilter defines optional filters for listing signals.
+type SignalFilter struct {
 	RuleID         *int64
-	SourceID       *int64
+	Kind           *model.SignalKind
 	EntityID       *int64
 	HasEntityTrack bool
 	From           *time.Time
@@ -20,10 +20,9 @@ type TweetFilter struct {
 	OrderAsc       bool
 }
 
-// SummaryFilter defines optional filters for listing tweet+summary pairs.
+// SummaryFilter defines optional filters for listing signal+summary pairs.
 type SummaryFilter struct {
 	RuleID   *int64
-	SourceID *int64
 	EntityID *int64
 	From     *time.Time
 	To       *time.Time
@@ -53,7 +52,7 @@ type TrackedEntityFilter struct {
 // EntityTrackFilter defines optional filters for listing entity tracks.
 type EntityTrackFilter struct {
 	EntityID *int64
-	TweetID  *string
+	SignalID *int64
 	From     *time.Time
 	To       *time.Time
 	Page     int
@@ -76,21 +75,21 @@ type ActionFilter struct {
 
 // MapPin is a geo-event pin derived from action_execution_metadata.
 type MapPin struct {
-	TweetID         string               `json:"tweet_id"`
-	TweetCreatedAt  string               `json:"tweet_created_at"`
-	TweetText       string               `json:"tweet_text"`
-	ModelName       string               `json:"model_name"`
-	CoordinatesJSON string               `json:"-"` // raw JSON, format indicated by CoordinateType
-	CoordinateType  model.CoordinateType `json:"-"`
-	MetadataJSON    string               `json:"-"` // JSON object of all execution metadata keys
-	PopupTemplate   string               `json:"-"` // from map_config.popup_template, may be empty
+	SignalID          int64                `json:"signal_id"`
+	SignalPublishedAt string               `json:"signal_published_at"`
+	SignalText        string               `json:"signal_text"`
+	ModelName         string               `json:"model_name"`
+	CoordinatesJSON   string               `json:"-"` // raw JSON, format indicated by CoordinateType
+	CoordinateType    model.CoordinateType `json:"-"`
+	MetadataJSON      string               `json:"-"` // JSON object of all execution metadata keys
+	PopupTemplate     string               `json:"-"` // from map_config.popup_template, may be empty
 }
 
-// TweetActionSummary is the aggregated result of all successful executions of one
-// action on a single tweet. Metadata holds the latest value per key (parsed from
+// SignalActionSummary is the aggregated result of all successful executions of one
+// action on a single signal. Metadata holds the latest value per key (parsed from
 // JSON) across all executions. Empty Metadata means the action ran but produced no
 // persistent metadata (e.g. a twitter_retweet action).
-type TweetActionSummary struct {
+type SignalActionSummary struct {
 	ActionID   int64
 	ActionName string
 	Metadata   map[string]any
@@ -99,7 +98,7 @@ type TweetActionSummary struct {
 // ExecutionFilter defines optional filters for listing action executions.
 type ExecutionFilter struct {
 	ActionID *int64
-	TweetID  *string
+	SignalID *int64
 	Status   *string
 	From     *time.Time
 	To       *time.Time
@@ -194,15 +193,20 @@ type BulkDeleteDigestJobsFilter struct {
 
 // Store is the repository interface for all persistent data.
 type Store interface {
-	// Tweets
-	SaveTweet(ctx context.Context, tweet *model.Tweet) error
-	GetTweet(ctx context.Context, id string) (*model.Tweet, error)
-	ListTweets(ctx context.Context, filter TweetFilter) ([]*model.Tweet, error)
-	CountTweets(ctx context.Context, filter TweetFilter) (int, error)
-	DeleteTweets(ctx context.Context, ids []string) (int64, error)
-	// DeleteNoiseTweets deletes tweets that either match no rules at all, or
+	// Signals
+	// SaveSignal inserts s unless a signal with the same (ExtNS, ExternalID)
+	// exists. Either way it sets s.ID to the stored row's ID, and reports
+	// whether the row is new.
+	SaveSignal(ctx context.Context, s *model.Signal) (isNew bool, err error)
+	GetSignal(ctx context.Context, id int64) (*model.Signal, error)
+	ListSignals(ctx context.Context, filter SignalFilter) ([]*model.Signal, error)
+	CountSignals(ctx context.Context, filter SignalFilter) (int, error)
+	// DeleteSignals deletes the given signals; executions, metadata, entity
+	// tracks and rule matches go with them through ON DELETE CASCADE.
+	DeleteSignals(ctx context.Context, ids []int64) (int64, error)
+	// DeleteNoiseSignals deletes X signals that either match no rules at all, or
 	// whose every matching rule is marked local=true. Returns the count deleted.
-	DeleteNoiseTweets(ctx context.Context) (int64, error)
+	DeleteNoiseSignals(ctx context.Context) (int64, error)
 
 	// Sources
 	SaveSource(ctx context.Context, source *model.Source) error
@@ -225,13 +229,11 @@ type Store interface {
 	DeleteRule(ctx context.Context, id int64) error
 	BulkDeleteRules(ctx context.Context, f BulkDeleteRulesFilter) (int64, error)
 	SetRuleActive(ctx context.Context, id int64, active bool, xRuleID string) error
-	TweetRuleCount(ctx context.Context, ruleID int64) (int, error)
+	XRuleMatchCount(ctx context.Context, ruleID int64) (int, error)
 
-	// TweetRules
-	SaveTweetRule(ctx context.Context, tr *model.TweetRule) error
-
-	// TweetRuleIDs (kept — used by stream listener rule matching)
-	ListTweetRuleIDs(ctx context.Context, tweetID string) ([]int64, error)
+	// XRuleMatches
+	SaveXRuleMatch(ctx context.Context, m *model.XRuleMatch) error
+	ListXRuleIDs(ctx context.Context, signalID int64) ([]int64, error)
 
 	// NotificationProviders
 	SaveNotificationProvider(ctx context.Context, p *model.NotificationProvider) error
@@ -357,42 +359,42 @@ type Store interface {
 	SetTriggerPipelineLinkActive(ctx context.Context, id int64, active bool) error
 
 	// Pipeline node execution tracking (for sub-pipeline fan-in)
-	InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) error
-	MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) (allDone bool, err error)
+	InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, signalID int64, leafNodeID int64) error
+	MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, signalID int64, leafNodeID int64) (allDone bool, err error)
 
 	// Pipeline run tracking (for pipeline_finished trigger)
-	// InitPipelineRunTracking seeds a tracking row for (pipelineID, tweetID) with initialCount
+	// InitPipelineRunTracking seeds a tracking row for (pipelineID, signalID) with initialCount
 	// active tasks. Upserts — resets an existing row if the pipeline is re-run.
-	InitPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string, initialCount int, eventPayload []byte) error
-	// IncrementPipelineRunTracking atomically adds 1 to active_tasks for (pipelineID, tweetID).
+	InitPipelineRunTracking(ctx context.Context, pipelineID int64, signalID int64, initialCount int, eventPayload []byte) error
+	// IncrementPipelineRunTracking atomically adds 1 to active_tasks for (pipelineID, signalID).
 	// No-op if no tracking row exists (untracked pipelines, e.g. backfill start-from-node runs).
-	IncrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) error
+	IncrementPipelineRunTracking(ctx context.Context, pipelineID int64, signalID int64) error
 	// DecrementPipelineRunTracking atomically subtracts 1 from active_tasks.
 	// Returns done=true when active_tasks reaches 0. Returns done=false with no error
 	// if no tracking row exists (untracked pipelines). Sets completed_at when done.
-	DecrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) (done bool, err error)
-	// GetPipelineRunEventPayload returns the original TweetEvent JSON stored at tracking time.
-	GetPipelineRunEventPayload(ctx context.Context, pipelineID int64, tweetID string) ([]byte, error)
+	DecrementPipelineRunTracking(ctx context.Context, pipelineID int64, signalID int64) (done bool, err error)
+	// GetPipelineRunEventPayload returns the original SignalEvent JSON stored at tracking time.
+	GetPipelineRunEventPayload(ctx context.Context, pipelineID int64, signalID int64) ([]byte, error)
 
 	// ActionExecutions
 	SaveActionExecution(ctx context.Context, e *model.ActionExecution) error
 	ListActionExecutions(ctx context.Context, filter ExecutionFilter) ([]*model.ActionExecution, error)
 	ListActionExecutionMetadata(ctx context.Context, execID int64) (map[string]string, error)
-	MergeActionExecutionMetadata(ctx context.Context, actionID int64, tweetID string) (map[string]string, error)
-	// MergeAllTweetExecutionMetadata returns the latest value per key across all
-	// successful executions for tweetID regardless of action. This gives notification
+	MergeActionExecutionMetadata(ctx context.Context, actionID int64, signalID int64) (map[string]string, error)
+	// MergeAllSignalExecutionMetadata returns the latest value per key across all
+	// successful executions for signalID regardless of action. This gives notification
 	// pipelines access to upstream ONNX/Ollama outputs even when not triggered via chain.
-	MergeAllTweetExecutionMetadata(ctx context.Context, tweetID string) (map[string]string, error)
-	// ListTweetActionSummaries returns one TweetActionSummary per action that had at
-	// least one successful execution on tweetID. Each summary carries the latest value
+	MergeAllSignalExecutionMetadata(ctx context.Context, signalID int64) (map[string]string, error)
+	// ListSignalActionSummaries returns one SignalActionSummary per action that had at
+	// least one successful execution on signalID. Each summary carries the latest value
 	// per metadata key (same merge logic as MergeActionExecutionMetadata). Actions with
 	// no metadata rows are included with an empty Metadata map.
-	ListTweetActionSummaries(ctx context.Context, tweetID string) ([]TweetActionSummary, error)
+	ListSignalActionSummaries(ctx context.Context, signalID int64) ([]SignalActionSummary, error)
 	SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error
 	// DeleteActionExecutions deletes all execution records and their metadata for
-	// the given tweets. If actionIDs is non-empty, only executions for those actions
+	// the given signals. If actionIDs is non-empty, only executions for those actions
 	// are deleted. Returns the count of deleted execution rows.
-	DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error)
+	DeleteActionExecutions(ctx context.Context, signalIDs []int64, actionIDs []int64) (int64, error)
 
 	// TwitterCredentials
 	SaveTwitterCredentials(ctx context.Context, c *model.TwitterCredentials) error

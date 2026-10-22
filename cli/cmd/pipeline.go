@@ -191,8 +191,8 @@ var pipelineRunNewOnly bool
 
 var pipelineRunCmd = &cobra.Command{
 	Use:   "run <id>",
-	Short: "Dispatch historical tweets through a pipeline",
-	Long:  "Queue all eligible tweets through the pipeline's start node, replicating what the stream listener does on arrival. Use --new-only to skip tweets that already have executions for any action node in the pipeline.",
+	Short: "Dispatch historical signals through a pipeline",
+	Long:  "Queue all eligible signals through the pipeline's start node, replicating what ingest does on arrival. Use --new-only to skip signals that already have executions for any action node in the pipeline.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		body, err := jsonBody(map[string]any{"new_only": pipelineRunNewOnly})
@@ -211,7 +211,7 @@ var pipelineRunCmd = &cobra.Command{
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			return fmt.Errorf("pipeline run: decode: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Queued %s tweets for pipeline #%s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "Queued %s signals for pipeline #%s\n",
 			formatField(result["queued"]), args[0])
 		return nil
 	},
@@ -223,7 +223,7 @@ func init() {
 	pipelineUpdateCmd.Flags().StringVar(&pipelineUpdateName, "name", "", "New name")
 	pipelineUpdateCmd.Flags().StringVar(&pipelineUpdateDesc, "description", "", "New description")
 
-	pipelineRunCmd.Flags().BoolVar(&pipelineRunNewOnly, "new-only", false, "Only dispatch tweets without existing executions in this pipeline")
+	pipelineRunCmd.Flags().BoolVar(&pipelineRunNewOnly, "new-only", false, "Only dispatch signals without existing executions in this pipeline")
 
 	pipelineCmd.AddCommand(pipelineListCmd)
 	pipelineCmd.AddCommand(pipelineShowCmd)

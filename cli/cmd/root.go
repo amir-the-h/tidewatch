@@ -18,7 +18,7 @@ var baseURL string
 var rootCmd = &cobra.Command{
 	Use:   "tidewatch",
 	Short: "Real-time X (Twitter) stream monitor with ONNX/LLM processing pipelines",
-	Long:  "tidewatch monitors X (Twitter) filtered streams, stores tweets, and runs them through configurable DAG pipelines of local ONNX models, Ollama LLMs, and internal handlers (entity tracking, geocoding, notifications).",
+	Long:  "tidewatch monitors X (Twitter) filtered streams, stores what they deliver as signals, and runs them through configurable DAG pipelines of local ONNX models, Ollama LLMs, and internal handlers (entity tracking, geocoding, notifications).",
 }
 
 func init() {

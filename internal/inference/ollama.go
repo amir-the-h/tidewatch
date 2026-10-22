@@ -136,9 +136,9 @@ type ContextSummary struct {
 	Metadata   map[string]any
 }
 
-// ContextSummaryLoader fetches ContextSummary records for a tweet, filtered
+// ContextSummaryLoader fetches ContextSummary records for a signal, filtered
 // to the provided action IDs. Injected at construction time; nil = disabled.
-type ContextSummaryLoader func(ctx context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error)
+type ContextSummaryLoader func(ctx context.Context, signalID int64, actionIDs []int64) ([]ContextSummary, error)
 
 // OllamaPipeline implements Pipeline by calling one or more locally-running
 // Ollama servers via a shared BackendPool. The model Path stored in the
@@ -316,15 +316,15 @@ func (p *OllamaPipeline) Run(ctx context.Context, input PipelineInput) (map[stri
 	userText := input.Text
 
 	if p.inputMode != "text_only" && p.loadSummaries != nil && len(p.contextActionIDs) > 0 {
-		summaries, err := p.loadSummaries(ctx, input.TweetID, p.contextActionIDs)
+		summaries, err := p.loadSummaries(ctx, input.SignalID, p.contextActionIDs)
 		if err == nil {
-			tweetVars := map[string]any{
-				"tweet_id":     input.Context["tweet_id"],
-				"tweet_url":    input.Context["tweet_url"],
-				"tweet_author": input.Context["tweet_author"],
-				"tweet_short":  input.Context["tweet_short"],
+			signalVars := make(map[string]any, len(contextSignalKeys))
+			for _, k := range contextSignalKeys {
+				if v, ok := input.Context[k]; ok {
+					signalVars[k] = v
+				}
 			}
-			contextBlock := buildContextBlock(tweetVars, summaries)
+			contextBlock := buildContextBlock(signalVars, summaries)
 			switch p.inputMode {
 			case "context_only":
 				userText = contextBlock
@@ -516,11 +516,11 @@ func (p *OllamaPipeline) sendChat(ctx context.Context, userText string) (string,
 }
 
 // Digest calls Ollama with the OllamaDigestSystem prompt and a numbered list of
-// pre-formatted tweet strings, returning a single plain-text briefing.
+// pre-formatted signal strings, returning a single plain-text briefing.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries.
-func (p *OllamaPipeline) Digest(ctx context.Context, tweets []string) (string, error) {
+func (p *OllamaPipeline) Digest(ctx context.Context, signals []string) (string, error) {
 	var sb strings.Builder
-	for i, t := range tweets {
+	for i, t := range signals {
 		fmt.Fprintf(&sb, "[%d] %s\n\n", i+1, t)
 	}
 
@@ -609,8 +609,8 @@ func (p *OllamaPipeline) Digest(ctx context.Context, tweets []string) (string, e
 	}
 }
 
-// OllamaDigestSystem is the prompt for multi-tweet digest/briefing generation.
-const OllamaDigestSystem = `You are an open-source intelligence analyst. You will receive a numbered list of tweets from open-source social media monitoring.
+// OllamaDigestSystem is the prompt for multi-signal digest/briefing generation.
+const OllamaDigestSystem = `You are an open-source intelligence analyst. You will receive a numbered list of signals (social media posts and news articles) from open-source monitoring.
 
 Produce a structured intelligence briefing that:
 - Opens with a one-sentence executive summary of the overall situation
@@ -618,7 +618,7 @@ Produce a structured intelligence briefing that:
 - Within each theme, summarises the key developments in bullet points
 - Concludes with any notable patterns, escalations, or trends
 
-Write in plain text with clear section headings. Be concise and factual. Synthesise across tweets — do not list them individually.`
+Write in plain text with clear section headings. Be concise and factual. Synthesise across signals — do not list them individually.`
 
 // AgentStream runs the agentic tool-calling loop. It sends messages + tool
 // definitions to Ollama (stream:false), executes any tool_calls via executor,
@@ -863,7 +863,7 @@ RULES:
 - ALWAYS call a tool to fetch live data before answering. Never answer from memory.
 - NEVER say a tool is missing or unavailable — always try.
 - NEVER invent data. If a tool returns nothing, say so.
-- When asked to "summarize tweets": call tweets_list (per_page = requested count), then write your own summary of the returned texts. Do not call summaries_run for this.`
+- When asked to "summarize signals" (or tweets, posts, articles): call signals_list (per_page = requested count), then write your own summary of the returned texts. Do not call summaries_run for this.`
 
 // Summarize calls Ollama with a summarization prompt over the given text.
 // On backend errors (network or 5xx) it marks the backend unhealthy and retries.
@@ -876,17 +876,21 @@ func (p *OllamaPipeline) Summarize(ctx context.Context, text string) (string, er
 	return content, nil
 }
 
+// contextSignalKeys are the signal context keys rendered at the top of the
+// <context> block, in this order.
+var contextSignalKeys = []string{"signal_id", "url", "author", "title", "text_short"}
+
 // buildContextBlock formats a <context>...</context> string from built-in
-// tweet vars and a list of upstream action summaries. Tweet vars are rendered
+// signal vars and a list of upstream action summaries. Signal vars are rendered
 // first in a fixed order; action sections follow in the order supplied.
 // Actions with empty Metadata are omitted. Complex values (arrays, objects)
 // are JSON-serialised on a single line; scalars are rendered as plain text.
-func buildContextBlock(tweetVars map[string]any, summaries []ContextSummary) string {
+func buildContextBlock(signalVars map[string]any, summaries []ContextSummary) string {
 	var sb strings.Builder
 	sb.WriteString("<context>\n")
 
-	for _, key := range []string{"tweet_id", "tweet_url", "tweet_author", "tweet_short"} {
-		if v, ok := tweetVars[key]; ok {
+	for _, key := range contextSignalKeys {
+		if v, ok := signalVars[key]; ok && v != "" {
 			sb.WriteString(key + ": " + renderContextValue(v) + "\n")
 		}
 	}

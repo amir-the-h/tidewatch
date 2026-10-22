@@ -1,6 +1,7 @@
 package mcpserver_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/amir-the-h/tidewatch/internal/mcpserver"
@@ -25,7 +26,7 @@ func TestBuildOllamaTools_EmptySlice_ReturnsAll(t *testing.T) {
 }
 
 func TestBuildOllamaTools_FilteredAllowed(t *testing.T) {
-	tools := mcpserver.BuildOllamaTools([]string{"tweets_list", "health_get"})
+	tools := mcpserver.BuildOllamaTools([]string{"signals_list", "health_get"})
 	if len(tools) != 2 {
 		t.Errorf("expected 2 tools, got %d", len(tools))
 	}
@@ -33,8 +34,8 @@ func TestBuildOllamaTools_FilteredAllowed(t *testing.T) {
 	for _, tool := range tools {
 		names[tool.Function.Name] = true
 	}
-	if !names["tweets_list"] {
-		t.Error("expected tweets_list in filtered tools")
+	if !names["signals_list"] {
+		t.Error("expected signals_list in filtered tools")
 	}
 	if !names["health_get"] {
 		t.Error("expected health_get in filtered tools")
@@ -42,14 +43,14 @@ func TestBuildOllamaTools_FilteredAllowed(t *testing.T) {
 }
 
 func TestBuildOllamaTools_FilteredUnknownName_Ignored(t *testing.T) {
-	tools := mcpserver.BuildOllamaTools([]string{"tweets_list", "does_not_exist"})
+	tools := mcpserver.BuildOllamaTools([]string{"signals_list", "does_not_exist"})
 	if len(tools) != 1 {
 		t.Errorf("expected 1 tool (unknown ignored), got %d", len(tools))
 	}
 }
 
 func TestBuildOllamaTools_PathParamMapped(t *testing.T) {
-	tools := mcpserver.BuildOllamaTools([]string{"tweets_get"})
+	tools := mcpserver.BuildOllamaTools([]string{"signals_get"})
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(tools))
 	}
@@ -62,7 +63,7 @@ func TestBuildOllamaTools_PathParamMapped(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'id' property")
 	}
-	if idProp["type"] != "string" {
+	if idProp["type"] != "integer" {
 		t.Errorf("expected type=string for id, got %v", idProp["type"])
 	}
 	req, ok := tool.Function.Parameters["required"].([]string)
@@ -99,6 +100,28 @@ func TestBuildOllamaTools_TypeField(t *testing.T) {
 	for _, tool := range tools {
 		if tool.Type != "function" {
 			t.Errorf("tool %s: expected type=function, got %q", tool.Function.Name, tool.Type)
+		}
+	}
+}
+
+// TestAllTools_SignalRename checks the tweet tools were renamed to signals_*
+// and no tool still targets a /api/tweets route.
+func TestAllTools_SignalRename(t *testing.T) {
+	byName := map[string]mcpserver.ToolDef{}
+	for _, td := range mcpserver.AllTools() {
+		byName[td.Name] = td
+		if strings.HasPrefix(td.Name, "tweets_") || strings.HasPrefix(td.Path, "/api/tweets") {
+			t.Errorf("tool %s (%s) still uses the tweets name or route", td.Name, td.Path)
+		}
+	}
+	for _, name := range []string{"signals_list", "signals_get", "signals_delete", "signals_reprocess", "signals_noise_delete"} {
+		td, ok := byName[name]
+		if !ok {
+			t.Errorf("missing tool %s", name)
+			continue
+		}
+		if !strings.HasPrefix(td.Path, "/api/signals") {
+			t.Errorf("tool %s: path %s, want /api/signals…", name, td.Path)
 		}
 	}
 }

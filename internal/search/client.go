@@ -14,6 +14,7 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/model"
 	"github.com/amir-the-h/tidewatch/internal/queue"
 	"github.com/amir-the-h/tidewatch/internal/store"
+	"github.com/amir-the-h/tidewatch/internal/stream"
 	"github.com/amir-the-h/tidewatch/internal/worker"
 )
 
@@ -40,8 +41,8 @@ type SearchParams struct {
 	PollFields  []string
 }
 
-// Client fetches tweets from the X API v2 search endpoints and pushes them
-// into the existing worker pipeline via Redis.
+// Client fetches tweets from the X API v2 search endpoints and ingests them
+// as post signals through the shared X ingest path.
 type Client struct {
 	httpClient  *http.Client
 	bearerToken string
@@ -199,7 +200,7 @@ func (c *Client) fetchPage(ctx context.Context, endpoint string, params url.Valu
 }
 
 // RunForRule fetches all pages for a single rule's compiled query, storing
-// each tweet in SQLite and pushing it onto the raw Redis queue.
+// each tweet as a signal and dispatching new ones to the new_signal pipelines.
 // Returns the total number of tweets fetched and the newest tweet ID seen
 // (meta.newest_id from the first page), which callers can use as since_id
 // on subsequent runs to avoid re-fetching already-processed tweets.
@@ -232,7 +233,7 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 			return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: %w", rule.ID, err)
 		}
 
-		page, err := NormalizeSearchResponse(body, rule)
+		page, err := NormalizeSearchResponse(body)
 		if err != nil {
 			return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: normalize: %w", rule.ID, err)
 		}
@@ -243,29 +244,14 @@ func (c *Client) RunForRule(ctx context.Context, rule *model.Rule, params Search
 			newestID = page.NewestID
 		}
 
-		for _, st := range page.Tweets {
-			if err := c.store.SaveTweet(ctx, st.Tweet); err != nil {
-				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet %s: %w", rule.ID, st.Tweet.ID, err)
-			}
-			tr := &model.TweetRule{
-				TweetID: st.Tweet.ID,
-				RuleID:  rule.ID,
-			}
-			if err := c.store.SaveTweetRule(ctx, tr); err != nil {
-				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: save tweet rule %s: %w", rule.ID, st.Tweet.ID, err)
-			}
-			ev := queue.TweetEvent{
-				TweetID:      st.Tweet.ID,
-				Text:         st.Tweet.Text,
-				AuthorHandle: st.Tweet.AuthorHandle,
-				RuleIDs:      []int64{rule.ID},
-			}
-			if pushErr := worker.PushInitialPipelineTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger, 0); pushErr != nil && c.logger != nil {
-				c.logger.Warn("search: chain dispatch failed", "tweet_id", st.Tweet.ID, "error", pushErr)
+		deps := stream.IngestDeps{Store: c.store, Producer: c.producer, Cache: c.cache, Logger: c.logger}
+		for _, sig := range page.Signals {
+			if _, err := stream.Ingest(ctx, deps, sig, []int64{rule.ID}, stream.SourceTypeXSearch); err != nil {
+				return fetched, newestID, fmt.Errorf("search: RunForRule rule %d: %w", rule.ID, err)
 			}
 		}
 
-		fetched += len(page.Tweets)
+		fetched += len(page.Signals)
 
 		if page.NextToken == "" {
 			break

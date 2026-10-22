@@ -16,20 +16,26 @@ func TestSourceTypeConstants(t *testing.T) {
 	}
 }
 
-// Test 2: Verify Tweet JSON marshal/unmarshal round-trips without data loss,
+// Test 2: Verify Signal JSON marshal/unmarshal round-trips without data loss,
 // and that RawJSON is excluded from JSON output.
-func TestTweetJSONRoundTrip(t *testing.T) {
-	createdAt := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
+func TestSignalJSONRoundTrip(t *testing.T) {
+	publishedAt := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
 	fetchedAt := time.Date(2026, 3, 23, 12, 1, 0, 0, time.UTC)
+	lat := 35.7
 
-	original := &Tweet{
-		ID:           "tweet-123",
-		AuthorID:     "author-456",
-		AuthorHandle: "somehandle",
-		Text:         "Hello, world!",
-		RawJSON:      []byte(`{"raw":"data"}`),
-		CreatedAt:    createdAt,
-		FetchedAt:    fetchedAt,
+	original := &Signal{
+		ID:          7,
+		Kind:        SignalKindPost,
+		ExtNS:       "x",
+		ExternalID:  "tweet-123",
+		Author:      "somehandle",
+		AuthorID:    "author-456",
+		Text:        "Hello, world!",
+		Lat:         &lat,
+		Attrs:       map[string]any{"x_tweet_id": "tweet-123"},
+		RawJSON:     []byte(`{"raw":"data"}`),
+		PublishedAt: publishedAt,
+		FetchedAt:   fetchedAt,
 	}
 
 	data, err := json.Marshal(original)
@@ -37,74 +43,37 @@ func TestTweetJSONRoundTrip(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 
-	// Verify RawJSON is excluded from the JSON output.
+	// Verify RawJSON is excluded and nil coordinates are omitted.
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("json.Unmarshal into map failed: %v", err)
 	}
-	if _, ok := raw["raw_json"]; ok {
-		t.Error("RawJSON should not appear in JSON output but found key 'raw_json'")
-	}
-	if _, ok := raw["RawJSON"]; ok {
-		t.Error("RawJSON should not appear in JSON output but found key 'RawJSON'")
+	for _, k := range []string{"raw_json", "RawJSON", "lon"} {
+		if _, ok := raw[k]; ok {
+			t.Errorf("unexpected key %q in JSON output", k)
+		}
 	}
 
-	// Unmarshal back and verify fields.
-	var got Tweet
+	var got Signal
 	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatalf("json.Unmarshal into Tweet failed: %v", err)
+		t.Fatalf("json.Unmarshal into Signal failed: %v", err)
 	}
-
-	if got.ID != original.ID {
-		t.Errorf("ID = %q, want %q", got.ID, original.ID)
+	if got.ID != original.ID || got.Kind != original.Kind || got.ExternalID != original.ExternalID {
+		t.Errorf("identity = %d/%s/%s", got.ID, got.Kind, got.ExternalID)
 	}
-	if got.AuthorID != original.AuthorID {
-		t.Errorf("AuthorID = %q, want %q", got.AuthorID, original.AuthorID)
+	if got.Author != original.Author || got.Text != original.Text {
+		t.Errorf("author/text = %q/%q", got.Author, got.Text)
 	}
-	if got.AuthorHandle != original.AuthorHandle {
-		t.Errorf("AuthorHandle = %q, want %q", got.AuthorHandle, original.AuthorHandle)
+	if got.Lat == nil || *got.Lat != lat || got.Lon != nil {
+		t.Errorf("lat/lon = %v/%v", got.Lat, got.Lon)
 	}
-	if got.Text != original.Text {
-		t.Errorf("Text = %q, want %q", got.Text, original.Text)
+	if got.Attrs["x_tweet_id"] != "tweet-123" {
+		t.Errorf("attrs = %v", got.Attrs)
 	}
-	if !got.CreatedAt.Equal(original.CreatedAt) {
-		t.Errorf("CreatedAt = %v, want %v", got.CreatedAt, original.CreatedAt)
+	if !got.PublishedAt.Equal(original.PublishedAt) || !got.FetchedAt.Equal(original.FetchedAt) {
+		t.Errorf("times = %v/%v", got.PublishedAt, got.FetchedAt)
 	}
-	if !got.FetchedAt.Equal(original.FetchedAt) {
-		t.Errorf("FetchedAt = %v, want %v", got.FetchedAt, original.FetchedAt)
-	}
-	// RawJSON should be nil/empty after unmarshal since it is excluded.
 	if len(got.RawJSON) != 0 {
 		t.Errorf("RawJSON should be empty after unmarshal, got %q", got.RawJSON)
-	}
-}
-
-// Test 3: Verify StreamTweet can be created with a Tweet pointer and MatchingRules slice.
-func TestStreamTweetCreation(t *testing.T) {
-	tweet := &Tweet{
-		ID:   "tweet-789",
-		Text: "Iran news",
-	}
-	rules := []MatchingRule{
-		{ID: "rule-1", Tag: "iran"},
-		{ID: "rule-2", Tag: "tehran"},
-	}
-
-	st := StreamTweet{
-		Tweet:         tweet,
-		MatchingRules: rules,
-	}
-
-	if st.Tweet != tweet {
-		t.Error("StreamTweet.Tweet pointer does not match original")
-	}
-	if len(st.MatchingRules) != 2 {
-		t.Errorf("MatchingRules len = %d, want 2", len(st.MatchingRules))
-	}
-	if st.MatchingRules[0].ID != "rule-1" || st.MatchingRules[0].Tag != "iran" {
-		t.Errorf("MatchingRules[0] = %+v, want {ID:rule-1 Tag:iran}", st.MatchingRules[0])
-	}
-	if st.MatchingRules[1].ID != "rule-2" || st.MatchingRules[1].Tag != "tehran" {
-		t.Errorf("MatchingRules[1] = %+v, want {ID:rule-2 Tag:tehran}", st.MatchingRules[1])
 	}
 }

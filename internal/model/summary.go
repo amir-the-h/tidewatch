@@ -2,12 +2,12 @@ package model
 
 import "time"
 
-// SummaryItem pairs a tweet with its summarizer output from action_execution_metadata.
+// SummaryItem pairs a signal with its summarizer output from action_execution_metadata.
 type SummaryItem struct {
-	TweetID      string    `json:"tweet_id"`
-	AuthorHandle string    `json:"author_handle"`
-	TweetText    string    `json:"tweet_text"`
-	CreatedAt    time.Time `json:"created_at"`
+	SignalID     int64     `json:"signal_id"`
+	Author       string    `json:"author"`
+	Text         string    `json:"text"`
+	PublishedAt  time.Time `json:"published_at"`
 	Summary      string    `json:"summary"`
 	ModelName    string    `json:"model_name"`
 	SummarizedAt time.Time `json:"summarized_at"`

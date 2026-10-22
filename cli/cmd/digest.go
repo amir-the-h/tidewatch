@@ -31,12 +31,12 @@ var digestListCmd = &cobra.Command{
 			return fmt.Errorf("digest list: decode: %w", err)
 		}
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tSTATUS\tTWEET_COUNT\tCREATED_AT")
+		fmt.Fprintln(w, "ID\tSTATUS\tSIGNAL_COUNT\tCREATED_AT")
 		for _, j := range jobs {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 				formatField(j["id"]),
 				formatField(j["status"]),
-				formatField(j["tweet_count"]),
+				formatField(j["signal_count"]),
 				formatField(j["created_at"]),
 			)
 		}
@@ -61,10 +61,10 @@ var digestShowCmd = &cobra.Command{
 		if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
 			return fmt.Errorf("digest show: decode: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "ID:          %s\nStatus:      %s\nTweet Count: %s\nCreated:     %s\nCompleted:   %s\n\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "ID:           %s\nStatus:       %s\nSignal Count: %s\nCreated:      %s\nCompleted:    %s\n\n",
 			formatField(job["id"]),
 			formatField(job["status"]),
-			formatField(job["tweet_count"]),
+			formatField(job["signal_count"]),
 			formatField(job["created_at"]),
 			formatField(job["completed_at"]),
 		)

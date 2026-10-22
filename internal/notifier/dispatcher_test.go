@@ -17,7 +17,7 @@ func TestDispatcher_EmitAndReceive(t *testing.T) {
 
 	go d.Start(ctx)
 
-	d.Emit(NotificationEvent{Type: EventTweetMatched, Timestamp: time.Now()})
+	d.Emit(NotificationEvent{Type: EventSignalIngested, Timestamp: time.Now()})
 	d.Emit(NotificationEvent{Type: EventDigestDone, Timestamp: time.Now()})
 
 	// Give the dispatcher a moment to process, then stop.
@@ -29,7 +29,7 @@ func TestDispatcher_DropWhenFull(t *testing.T) {
 	d := newTestDispatcher()
 	// Fill beyond capacity without starting the loop.
 	for i := 0; i < channelBufferSize+10; i++ {
-		d.Emit(NotificationEvent{Type: EventTweetMatched})
+		d.Emit(NotificationEvent{Type: EventSignalIngested})
 	}
 	if len(d.ch) != channelBufferSize {
 		t.Errorf("expected channel at capacity %d, got %d", channelBufferSize, len(d.ch))

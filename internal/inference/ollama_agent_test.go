@@ -57,7 +57,7 @@ func newAgentTestServer(t *testing.T, model string) *httptest.Server {
 						"tool_calls": []map[string]any{
 							{
 								"function": map[string]any{
-									"name":      "tweets_list",
+									"name":      "signals_list",
 									"arguments": map[string]any{"limit": float64(5)},
 								},
 							},
@@ -70,7 +70,7 @@ func newAgentTestServer(t *testing.T, model string) *httptest.Server {
 				json.NewEncoder(w).Encode(map[string]any{
 					"message": map[string]any{
 						"role":    "assistant",
-						"content": "There are 5 recent tweets.",
+						"content": "There are 5 recent signals.",
 					},
 					"done": true,
 				})
@@ -97,14 +97,14 @@ func TestAgentStream_ToolCallThenText(t *testing.T) {
 		{
 			Type: "function",
 			Function: mcpserver.OllamaToolFunc{
-				Name:        "tweets_list",
-				Description: "list tweets",
+				Name:        "signals_list",
+				Description: "list signals",
 				Parameters:  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 			},
 		},
 	}
 
-	messages := []ChatMessage{{Role: "user", Content: "How many recent tweets?"}}
+	messages := []ChatMessage{{Role: "user", Content: "How many recent signals?"}}
 
 	var buf bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -129,7 +129,7 @@ func TestAgentStream_ToolCallThenText(t *testing.T) {
 	if !strings.Contains(output, `"type":"text_chunk"`) {
 		t.Errorf("expected text_chunk event in output, got:\n%s", output)
 	}
-	if !strings.Contains(output, "5 recent tweets") {
+	if !strings.Contains(output, "5 recent signals") {
 		t.Errorf("expected final answer in text_chunk, got:\n%s", output)
 	}
 	// Must end with [DONE]
@@ -137,9 +137,9 @@ func TestAgentStream_ToolCallThenText(t *testing.T) {
 		t.Errorf("expected [DONE] sentinel in output, got:\n%s", output)
 	}
 
-	// Executor must have been called with tweets_list
-	if len(executor.calls) != 1 || executor.calls[0] != "tweets_list" {
-		t.Errorf("expected executor called with tweets_list, got %v", executor.calls)
+	// Executor must have been called with signals_list
+	if len(executor.calls) != 1 || executor.calls[0] != "signals_list" {
+		t.Errorf("expected executor called with signals_list, got %v", executor.calls)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestAgentStream_DirectTextNoTools(t *testing.T) {
 func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
 	const model = "test-model"
 	// Simulate what Ollama < 0.3 emits: garbled prefix + JSON + </tool_call>.
-	embeddedContent := "\xef\xbf\xbd" + `{"name":"tweets_list","arguments":{"limit":3}}` + "</tool_call>"
+	embeddedContent := "\xef\xbf\xbd" + `{"name":"signals_list","arguments":{"limit":3}}` + "</tool_call>"
 
 	var callCount int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +221,7 @@ func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{
 				"message": map[string]any{
 					"role":    "assistant",
-					"content": "Here are 3 tweets.",
+					"content": "Here are 3 signals.",
 				},
 				"done": true,
 			})
@@ -240,7 +240,7 @@ func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := p.AgentStream(ctx, []ChatMessage{{Role: "user", Content: "list 3 tweets"}}, nil, executor, &buf)
+	err := p.AgentStream(ctx, []ChatMessage{{Role: "user", Content: "list 3 signals"}}, nil, executor, &buf)
 	if err != nil {
 		t.Fatalf("AgentStream returned error: %v", err)
 	}
@@ -249,8 +249,8 @@ func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
 	if !strings.Contains(output, `"type":"tool_call"`) {
 		t.Errorf("expected tool_call event, got:\n%s", output)
 	}
-	if !strings.Contains(output, `"tweets_list"`) {
-		t.Errorf("expected tweets_list tool call, got:\n%s", output)
+	if !strings.Contains(output, `"signals_list"`) {
+		t.Errorf("expected signals_list tool call, got:\n%s", output)
 	}
 	if !strings.Contains(output, `"type":"tool_result"`) {
 		t.Errorf("expected tool_result event, got:\n%s", output)
@@ -261,8 +261,8 @@ func TestAgentStream_EmbeddedToolCallInContent(t *testing.T) {
 	if !strings.Contains(output, "data: [DONE]") {
 		t.Errorf("expected [DONE], got:\n%s", output)
 	}
-	if len(executor.calls) != 1 || executor.calls[0] != "tweets_list" {
-		t.Errorf("expected executor called once with tweets_list, got %v", executor.calls)
+	if len(executor.calls) != 1 || executor.calls[0] != "signals_list" {
+		t.Errorf("expected executor called once with signals_list, got %v", executor.calls)
 	}
 }
 
@@ -280,8 +280,8 @@ func TestExtractEmbeddedToolCalls(t *testing.T) {
 		},
 		{
 			name:    "single tool call",
-			content: `{"name":"tweets_list","arguments":{"limit":5}}` + "</tool_call>",
-			want:    []string{"tweets_list"},
+			content: `{"name":"signals_list","arguments":{"limit":5}}` + "</tool_call>",
+			want:    []string{"signals_list"},
 		},
 		{
 			name: "two tool calls",
@@ -296,8 +296,8 @@ func TestExtractEmbeddedToolCalls(t *testing.T) {
 		},
 		{
 			name:    "invalid JSON skipped",
-			content: `not-json</tool_call>{"name":"tweets_list","arguments":{}}` + "</tool_call>",
-			want:    []string{"tweets_list"},
+			content: `not-json</tool_call>{"name":"signals_list","arguments":{}}` + "</tool_call>",
+			want:    []string{"signals_list"},
 		},
 		{
 			name:    "missing name skipped",
