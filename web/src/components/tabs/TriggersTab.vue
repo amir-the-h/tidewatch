@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { PlusIcon, XIcon } from '@lucide/vue'
 import {
-  NFlex, NCard, NTag, NText, NSwitch, NButton, NIcon, NSpin, NSelect, NFormItem,
-  useMessage,
-} from 'naive-ui'
-import { AddOutline } from '@vicons/ionicons5'
-import FormDrawer from '../FormDrawer.vue'
+  AlertDialog, Button, FormField, IconButton, Select, Sheet, Skeleton, Switch,
+} from '@/components/ui'
+import { useToast } from '@/composables/useToast'
 import {
   listTriggers, listTriggerPipelineLinks, createTriggerPipelineLink,
   deleteTriggerPipelineLink, activateTriggerPipelineLink, deactivateTriggerPipelineLink,
@@ -13,13 +12,14 @@ import {
 } from '../../api/trigger_links'
 import { listPipelines, type Pipeline } from '../../api/pipelines'
 
-const msg = useMessage()
+const toast = useToast()
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
 const triggers        = ref<TriggerInfo[]>([])
 const links           = ref<TriggerPipelineLink[]>([])
 const triggersLoading = ref(false)
+const loadError       = ref('')
 const pipelinesData   = ref<Pipeline[]>([])
 
 // ── Create link form ──────────────────────────────────────────────────────────
@@ -29,6 +29,12 @@ const linkFormTrigger          = ref('')
 const linkFormPipelineId       = ref<number | null>(null)
 const linkFormSourcePipelineId = ref<number | null>(null)
 const savingLink               = ref(false)
+
+// ── Remove confirm ────────────────────────────────────────────────────────────
+
+const removeTarget = ref<TriggerPipelineLink | null>(null)
+const showRemove   = ref(false)
+const removing     = ref(false)
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 
@@ -51,7 +57,28 @@ function pipelineName(pipelineId: number) {
   return pipelinesData.value.find(p => p.id === pipelineId)?.name ?? `#${pipelineId}`
 }
 
+function linkLabel(link: TriggerPipelineLink) {
+  const target = pipelineName(link.pipeline_id)
+  return link.source_pipeline_id ? `${pipelineName(link.source_pipeline_id)} → ${target}` : target
+}
+
 // ── Functions ─────────────────────────────────────────────────────────────────
+
+async function load() {
+  triggersLoading.value = true
+  loadError.value = ''
+  try {
+    const [t, l, pipelines] = await Promise.all([
+      listTriggers(),
+      listTriggerPipelineLinks(),
+      listPipelines(),
+    ])
+    triggers.value      = t        ?? []
+    links.value         = l        ?? []
+    pipelinesData.value = pipelines ?? []
+  } catch (e: any) { loadError.value = e.message }
+  finally { triggersLoading.value = false }
+}
 
 function openAddLink(triggerType: string) {
   linkFormTrigger.value = triggerType
@@ -61,9 +88,9 @@ function openAddLink(triggerType: string) {
 }
 
 async function onSaveLink() {
-  if (!linkFormPipelineId.value) { msg.error('Pipeline is required'); return }
+  if (!linkFormPipelineId.value) { toast.error('Select the pipeline to start'); return }
   if (linkFormTrigger.value === 'pipeline_finished' && !linkFormSourcePipelineId.value) {
-    msg.error('Source Pipeline is required for pipeline_finished trigger'); return
+    toast.error('Select the source pipeline that must finish first'); return
   }
   savingLink.value = true
   try {
@@ -76,116 +103,134 @@ async function onSaveLink() {
     }
     const l = await createTriggerPipelineLink(body)
     links.value.push(l)
-    msg.success('Link created')
+    toast.success('Pipeline connected')
     showLinkForm.value = false
-  } catch (e: any) { msg.error(e.message) }
+  } catch (e: any) { toast.error(`Could not connect pipeline: ${e.message}`) }
   finally { savingLink.value = false }
 }
 
-async function removeLink(id: number) {
-  try {
-    await deleteTriggerPipelineLink(id)
-    links.value = links.value.filter(l => l.id !== id)
-  } catch (e: any) { msg.error(e.message) }
+function askRemove(link: TriggerPipelineLink) {
+  removeTarget.value = link
+  showRemove.value = true
 }
 
-async function toggleLink(link: TriggerPipelineLink) {
+async function onConfirmRemove() {
+  const target = removeTarget.value
+  if (!target) return
+  removing.value = true
   try {
-    if (link.active) {
-      await deactivateTriggerPipelineLink(link.id)
-      link.active = false
-    } else {
-      await activateTriggerPipelineLink(link.id)
-      link.active = true
-    }
-  } catch (e: any) { msg.error(e.message) }
+    await deleteTriggerPipelineLink(target.id)
+    links.value = links.value.filter(l => l.id !== target.id)
+    toast.success('Pipeline disconnected')
+    showRemove.value = false
+  } catch (e: any) { toast.error(`Could not disconnect pipeline: ${e.message}`) }
+  finally { removing.value = false }
 }
 
-onMounted(async () => {
-  triggersLoading.value = true
+async function toggleLink(link: TriggerPipelineLink, active: boolean) {
   try {
-    const [t, l, pipelines] = await Promise.all([
-      listTriggers(),
-      listTriggerPipelineLinks(),
-      listPipelines(),
-    ])
-    triggers.value      = t        ?? []
-    links.value         = l        ?? []
-    pipelinesData.value = pipelines ?? []
-  } catch (e: any) { msg.error(e.message) }
-  finally { triggersLoading.value = false }
-})
+    if (active) await activateTriggerPipelineLink(link.id)
+    else await deactivateTriggerPipelineLink(link.id)
+    link.active = active
+  } catch (e: any) { toast.error(e.message) }
+}
+
+onMounted(load)
 </script>
 
 <template>
-  <n-spin v-if="triggersLoading" style="display: flex; justify-content: center; padding: 24px 0;" />
-  <div v-else>
-    <n-card
-      v-for="trigger in triggers"
-      :key="trigger.type"
-      size="small"
-      style="margin-bottom: 12px;"
-    >
-      <n-flex align="center" justify="space-between" style="margin-bottom: 8px;">
-        <div>
-          <n-tag type="info" size="small" style="font-family: monospace; margin-right: 8px;">
-            {{ trigger.type }}
-          </n-tag>
-          <n-text depth="3" style="font-size: 12px;">{{ trigger.description }}</n-text>
-        </div>
-        <n-button size="tiny" ghost type="primary" @click="openAddLink(trigger.type)">
-          <template #icon><n-icon><AddOutline /></n-icon></template>
-          Connect pipeline
-        </n-button>
-      </n-flex>
-
-      <n-flex v-if="linksByTrigger[trigger.type]?.length" :size="6" wrap>
-        <n-flex
-          v-for="link in linksByTrigger[trigger.type]"
-          :key="link.id"
-          align="center" :size="4"
-          style="
-            background: #313244; border-radius: 4px; padding: 2px 6px;
-            font-size: 12px;
-          "
-        >
-          <n-switch :value="link.active" size="small" @update:value="toggleLink(link)" />
-          <span :style="{ color: link.active ? '#cdd6f4' : '#6c7086' }">
-            {{ link.source_pipeline_id ? `[${pipelineName(link.source_pipeline_id)}] → ` : '' }}{{ pipelineName(link.pipeline_id) }}
-          </span>
-          <n-button text size="tiny" style="color: #f38ba8;" @click="removeLink(link.id)">×</n-button>
-        </n-flex>
-      </n-flex>
-      <n-text v-else depth="3" style="font-size: 12px;">No pipelines connected.</n-text>
-    </n-card>
+  <div v-if="triggersLoading" class="flex flex-col gap-3">
+    <Skeleton v-for="i in 3" :key="i" class="h-24" />
   </div>
 
-  <!-- Connect Pipeline to Trigger Drawer -->
-  <FormDrawer
-    v-model:show="showLinkForm"
-    :title="`Connect pipeline to ${linkFormTrigger}`"
-    save-label="Connect"
-    :loading="savingLink"
-    @save="onSaveLink"
+  <div
+    v-else-if="loadError"
+    class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive p-4 text-small"
   >
-    <n-form-item
-      v-if="linkFormTrigger === 'pipeline_finished'"
-      label="Source Pipeline"
+    <span class="text-destructive">Could not load triggers: {{ loadError }}</span>
+    <Button variant="outline" @click="load">Retry</Button>
+  </div>
+
+  <div v-else class="flex flex-col gap-3">
+    <section
+      v-for="trigger in triggers"
+      :key="trigger.type"
+      class="flex flex-col gap-3 rounded-lg border border-border bg-card p-4"
     >
-      <n-select
-        v-model:value="linkFormSourcePipelineId"
-        :options="pipelineSelectOptions"
-        placeholder="Pipeline that must finish first"
-        clearable
-      />
-    </n-form-item>
-    <n-form-item label="Pipeline">
-      <n-select
-        v-model:value="linkFormPipelineId"
-        :options="pipelineSelectOptions"
-        placeholder="Select a pipeline"
-        clearable
-      />
-    </n-form-item>
-  </FormDrawer>
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div class="min-w-0">
+          <h2 class="m-0 font-mono text-body font-medium">{{ trigger.type }}</h2>
+          <p class="m-0 mt-0.5 text-small text-muted-foreground">{{ trigger.description }}</p>
+        </div>
+        <Button variant="outline" @click="openAddLink(trigger.type)">
+          <template #icon><PlusIcon :stroke-width="1.75" /></template>
+          Connect pipeline
+        </Button>
+      </div>
+
+      <ul v-if="linksByTrigger[trigger.type]?.length" class="m-0 flex list-none flex-wrap gap-2 p-0">
+        <li
+          v-for="link in linksByTrigger[trigger.type]"
+          :key="link.id"
+          class="flex items-center gap-2 rounded-md border border-border bg-muted py-0.5 pr-0.5 pl-2 text-small"
+        >
+          <Switch
+            :model-value="link.active"
+            :aria-label="`${link.active ? 'Pause' : 'Resume'} ${linkLabel(link)}`"
+            @update:model-value="toggleLink(link, $event)"
+          />
+          <span :class="link.active ? 'text-foreground' : 'text-muted-foreground'">{{ linkLabel(link) }}</span>
+          <IconButton :icon="XIcon" :label="`Disconnect ${linkLabel(link)}`" @click="askRemove(link)" />
+        </li>
+      </ul>
+      <p v-else class="m-0 text-small text-muted-foreground">No pipelines connected. Connect one to run it on this trigger.</p>
+    </section>
+  </div>
+
+  <!-- Connect pipeline to trigger -->
+  <Sheet
+    v-model:open="showLinkForm"
+    title="Connect pipeline"
+    :description="`Runs the pipeline whenever ${linkFormTrigger} fires.`"
+  >
+    <form class="flex flex-col gap-3 p-4" @submit.prevent="onSaveLink">
+      <FormField
+        v-if="linkFormTrigger === 'pipeline_finished'"
+        label="Source pipeline"
+        description="The pipeline that must finish first."
+        required
+      >
+        <Select
+          v-model="linkFormSourcePipelineId"
+          :options="pipelineSelectOptions"
+          placeholder="Select a pipeline"
+          filterable
+          clearable
+        />
+      </FormField>
+      <FormField label="Pipeline" required>
+        <Select
+          v-model="linkFormPipelineId"
+          :options="pipelineSelectOptions"
+          placeholder="Select a pipeline"
+          filterable
+          clearable
+        />
+      </FormField>
+    </form>
+    <template #footer>
+      <Button variant="outline" size="default" @click="showLinkForm = false">Cancel</Button>
+      <Button size="default" :loading="savingLink" @click="onSaveLink">Connect</Button>
+    </template>
+  </Sheet>
+
+  <!-- Disconnect confirm -->
+  <AlertDialog
+    v-model:open="showRemove"
+    title="Disconnect pipeline?"
+    :description="removeTarget ? `${linkLabel(removeTarget)} will no longer run on ${removeTarget.trigger_type}.` : undefined"
+    action-label="Disconnect"
+    :loading="removing"
+    @confirm="onConfirmRemove"
+  />
 </template>

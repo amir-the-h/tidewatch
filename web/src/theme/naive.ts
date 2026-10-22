@@ -111,6 +111,18 @@ export function buildNaiveOverrides(): GlobalThemeOverrides {
     Drawer: {
       color: token('card'),
     },
+    // Naive's dark inputs are borderless fills; the standard wants an `input` hairline.
+    Input: {
+      border: `1px solid ${token('input')}`,
+      borderHover: `1px solid ${primary.hover}`,
+      borderFocus: `1px solid ${primary.base}`,
+    },
+    InternalSelection: {
+      border: `1px solid ${token('input')}`,
+      borderHover: `1px solid ${primary.hover}`,
+      borderActive: `1px solid ${primary.base}`,
+      borderFocus: `1px solid ${primary.base}`,
+    },
     Tooltip: {
       color: token('popover'),
       textColor: token('popover-foreground'),
