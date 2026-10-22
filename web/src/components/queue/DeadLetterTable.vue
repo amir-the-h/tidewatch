@@ -4,10 +4,10 @@ import { computed, h } from 'vue'
 import { InfoIcon } from '@lucide/vue'
 import { Badge, Button, DataTable, IconButton, Pagination, Select, type DataTableColumns } from '@/components/ui'
 import { useFailuresStore } from '../../stores/failures'
-import type { FailedTweet } from '../../api/failures'
+import type { FailedTask } from '../../api/failures'
 import { formatDateTime } from '../../utils/format'
 
-const emit = defineEmits<{ open: [row: FailedTweet] }>()
+const emit = defineEmits<{ open: [row: FailedTask] }>()
 
 const store = useFailuresStore()
 
@@ -25,19 +25,18 @@ const perPage = computed({
 
 const none = () => h('span', { class: 'text-muted-foreground' }, '—')
 
-const columns: DataTableColumns<FailedTweet> = [
+const columns: DataTableColumns<FailedTask> = [
   {
-    title: 'Tweet', key: 'text', ellipsis: { tooltip: true },
-    render: (row) => row.tweet?.Tweet?.text ?? none(),
+    title: 'Signal', key: 'signal_id', width: 100,
+    render: (row) => row.task?.event?.signal_id
+      ? h('span', { class: 'font-mono tabular' }, String(row.task.event.signal_id))
+      : none(),
   },
   {
-    title: 'Author', key: 'author', width: 140,
-    render: (row) => {
-      const handle = row.tweet?.Tweet?.author_handle
-      const id = row.tweet?.Tweet?.author_id
-      if (handle) return `@${handle}`
-      return id ? h('span', { class: 'font-mono tabular text-muted-foreground' }, id) : none()
-    },
+    title: 'Trigger', key: 'trigger_type', ellipsis: { tooltip: true },
+    render: (row) => row.task?.trigger_type
+      ? h('span', { class: 'font-mono text-muted-foreground' }, row.task.trigger_type)
+      : none(),
   },
   {
     title: 'Failed actions', key: 'failed_models', width: 220,

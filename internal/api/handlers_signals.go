@@ -14,8 +14,8 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/worker"
 )
 
-func (s *Server) handleListTweets(w http.ResponseWriter, r *http.Request) {
-	filter := store.TweetFilter{
+func (s *Server) handleListSignals(w http.ResponseWriter, r *http.Request) {
+	filter := store.SignalFilter{
 		Page:    1,
 		PerPage: 20,
 	}
@@ -29,6 +29,14 @@ func (s *Server) handleListTweets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		filter.RuleID = &id
+	}
+	if v := q.Get("kind"); v != "" {
+		kind := model.SignalKind(v)
+		if kind != model.SignalKindPost && kind != model.SignalKindArticle {
+			writeError(w, http.StatusBadRequest, "invalid kind (post or article)")
+			return
+		}
+		filter.Kind = &kind
 	}
 	if v := q.Get("from"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
@@ -63,36 +71,38 @@ func (s *Server) handleListTweets(w http.ResponseWriter, r *http.Request) {
 		filter.PerPage = pp
 	}
 
-	tweets, err := s.store.ListTweets(r.Context(), filter)
+	signals, err := s.store.ListSignals(r.Context(), filter)
 	if err != nil {
-		s.logger.Error("api: list tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list tweets")
+		s.logger.Error("api: list signals", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to list signals")
 		return
 	}
-	total, err := s.store.CountTweets(r.Context(), filter)
+	total, err := s.store.CountSignals(r.Context(), filter)
 	if err != nil {
-		s.logger.Error("api: count tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to count tweets")
+		s.logger.Error("api: count signals", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to count signals")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tweets": tweets, "total": total})
+	writeJSON(w, http.StatusOK, map[string]any{"signals": signals, "total": total})
 }
 
-func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-
-	tweet, err := s.store.GetTweet(r.Context(), id)
+func (s *Server) handleGetSignal(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "tweet not found")
+		writeError(w, http.StatusBadRequest, "invalid signal id")
 		return
 	}
 
-	tweetID := tweet.ID
-
-	// Load action executions for this tweet, with latest-per-action deduplication.
-	execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{TweetID: &tweetID})
+	signal, err := s.store.GetSignal(r.Context(), id)
 	if err != nil {
-		s.logger.Error("api: list executions for tweet", "tweet_id", id, "error", err)
+		writeError(w, http.StatusNotFound, "signal not found")
+		return
+	}
+
+	// Load action executions for this signal, with latest-per-action deduplication.
+	execs, err := s.store.ListActionExecutions(r.Context(), store.ExecutionFilter{SignalID: &signal.ID})
+	if err != nil {
+		s.logger.Error("api: list executions for signal", "signal_id", id, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to list executions")
 		return
 	}
@@ -154,14 +164,14 @@ func (s *Server) handleGetTweet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tweet":   tweet,
+		"signal":  signal,
 		"actions": actions,
 	})
 }
 
-func (s *Server) handleDeleteTweets(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteSignals(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		IDs []string `json:"ids"`
+		IDs []int64 `json:"ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -171,59 +181,53 @@ func (s *Server) handleDeleteTweets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ids is required")
 		return
 	}
-	n, err := s.store.DeleteTweets(r.Context(), req.IDs)
+	n, err := s.store.DeleteSignals(r.Context(), req.IDs)
 	if err != nil {
-		s.logger.Error("api: delete tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete tweets")
+		s.logger.Error("api: delete signals", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete signals")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
 }
 
-func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleReprocessSignals(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TweetIDs  []string `json:"tweet_ids"`
-		ActionIDs []int64  `json:"action_ids"`
+		SignalIDs []int64 `json:"signal_ids"`
+		ActionIDs []int64 `json:"action_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if len(req.TweetIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "tweet_ids is required")
+	if len(req.SignalIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "signal_ids is required")
 		return
 	}
 
-	var tweets []*model.Tweet
-	for _, id := range req.TweetIDs {
-		tweet, err := s.store.GetTweet(r.Context(), id)
+	var signals []*model.Signal
+	for _, id := range req.SignalIDs {
+		signal, err := s.store.GetSignal(r.Context(), id)
 		if err != nil {
-			s.logger.Warn("api: reprocess: tweet not found", "tweet_id", id, "error", err)
+			s.logger.Warn("api: reprocess: signal not found", "signal_id", id, "error", err)
 			continue
 		}
-		tweets = append(tweets, tweet)
+		signals = append(signals, signal)
 	}
 
-	if len(tweets) == 0 {
-		writeError(w, http.StatusNotFound, "tweet not found")
+	if len(signals) == 0 {
+		writeError(w, http.StatusNotFound, "signal not found")
 		return
 	}
 
 	count := 0
-	for _, tweet := range tweets {
-		ruleIDs, _ := s.store.ListTweetRuleIDs(r.Context(), tweet.ID)
-		ev := queue.TweetEvent{
-			TweetID:      tweet.ID,
-			Text:         tweet.Text,
-			AuthorHandle: tweet.AuthorHandle,
-			RuleIDs:      ruleIDs,
-		}
+	for _, signal := range signals {
+		ev := queue.SignalEvent{SignalID: signal.ID, Kind: string(signal.Kind)}
 
 		if len(req.ActionIDs) == 0 {
-			// Chain-based dispatch — mirrors what the stream listener does.
-			if err := worker.PushInitialPipelineTasks(r.Context(), s.store, s.producer, s.actionCache, "new_tweet", ev, s.logger, 0); err != nil {
-				s.logger.Error("api: reprocess chain dispatch", "tweet_id", tweet.ID, "error", err)
+			// Pipeline dispatch — mirrors what ingest does for a new signal.
+			if err := worker.PushInitialPipelineTasks(r.Context(), s.store, s.producer, s.actionCache, "new_signal", ev, s.logger, 0); err != nil {
+				s.logger.Error("api: reprocess pipeline dispatch", "signal_id", signal.ID, "error", err)
 				continue
 			}
 			count++
@@ -234,13 +238,13 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 			pushed := false
 			for _, actionID := range req.ActionIDs {
 				task := &queue.Task{
-					TriggerType: "new_tweet",
+					TriggerType: "new_signal",
 					Event:       evBytes,
 					ActionID:    actionID,
 					Context:     map[string]any{},
 				}
 				if err := s.producer.PushTask(r.Context(), task); err != nil {
-					s.logger.Error("api: reprocess push", "tweet_id", tweet.ID, "action_id", actionID, "error", err)
+					s.logger.Error("api: reprocess push", "signal_id", signal.ID, "action_id", actionID, "error", err)
 				} else {
 					pushed = true
 				}
@@ -254,11 +258,11 @@ func (s *Server) handleReprocessTweets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]int{"requeued": count})
 }
 
-func (s *Server) handleDeleteNoiseTweets(w http.ResponseWriter, r *http.Request) {
-	n, err := s.store.DeleteNoiseTweets(r.Context())
+func (s *Server) handleDeleteNoiseSignals(w http.ResponseWriter, r *http.Request) {
+	n, err := s.store.DeleteNoiseSignals(r.Context())
 	if err != nil {
-		s.logger.Error("api: delete noise tweets", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete noise tweets")
+		s.logger.Error("api: delete noise signals", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete noise signals")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"deleted": n})
@@ -266,9 +270,9 @@ func (s *Server) handleDeleteNoiseTweets(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDeleteExecutions(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TweetIDs   []string `json:"tweet_ids"`
-		ActionIDs  []int64  `json:"action_ids"`
-		PipelineID *int64   `json:"pipeline_id"`
+		SignalIDs  []int64 `json:"signal_ids"`
+		ActionIDs  []int64 `json:"action_ids"`
+		PipelineID *int64  `json:"pipeline_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -290,7 +294,7 @@ func (s *Server) handleDeleteExecutions(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	n, err := s.store.DeleteActionExecutions(r.Context(), req.TweetIDs, actionIDs)
+	n, err := s.store.DeleteActionExecutions(r.Context(), req.SignalIDs, actionIDs)
 	if err != nil {
 		s.logger.Error("api: delete executions", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete executions")

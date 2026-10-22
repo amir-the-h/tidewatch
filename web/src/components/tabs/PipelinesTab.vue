@@ -44,11 +44,11 @@ const runNodeOptions = computed(() =>
   runGraphNodes.value.map(n => ({ label: n.label || `Node #${n.id}`, value: n.id }))
 )
 const runScopeOptions = computed(() => [
-  { label: 'All eligible tweets', value: false },
+  { label: 'All eligible signals', value: false },
   {
     label: runStartNodeId.value
-      ? "Only tweets not yet processed by the selected node's action"
-      : "Only tweets without existing executions for this pipeline's actions",
+      ? "Only signals not yet processed by the selected node's action"
+      : "Only signals without existing executions for this pipeline's actions",
     value: true,
   },
 ])
@@ -124,7 +124,7 @@ async function onConfirmRunPipeline() {
     )
     toast.success(res.async
       ? `Backfill started for "${runPipelineRow.value.name}"`
-      : `Queued ${res.queued} tweets for "${runPipelineRow.value.name}"`)
+      : `Queued ${res.queued} signals for "${runPipelineRow.value.name}"`)
     showRunModal.value = false
   } catch (e: any) { toast.error(`Could not start backfill: ${e.message}`) }
   finally { runningPipeline.value = false }
@@ -225,7 +225,7 @@ onMounted(() => { fetchPipelinesData() })
   >
     <template #empty>
       <div class="flex flex-col items-center gap-3 py-8 text-center">
-        <p class="m-0 text-muted-foreground">No pipelines yet. Create one to start processing tweets from a trigger.</p>
+        <p class="m-0 text-muted-foreground">No pipelines yet. Create one to start processing signals from a trigger.</p>
         <Button @click="openCreate">New pipeline</Button>
       </div>
     </template>
@@ -251,12 +251,12 @@ onMounted(() => { fetchPipelinesData() })
   <Dialog
     v-model:open="showRunModal"
     :title="`Run ${runPipelineRow?.name ?? 'pipeline'}`"
-    description="Dispatch stored tweets through this pipeline."
+    description="Dispatch stored signals through this pipeline."
   >
     <div class="flex flex-col gap-4">
       <FormField
         label="Start from"
-        :description="runStartNodeId ? 'Prior results for each tweet are available as context.' : undefined"
+        :description="runStartNodeId ? 'Prior results for each signal are available as context.' : undefined"
       >
         <Select
           v-model="runStartNodeId"
@@ -266,7 +266,7 @@ onMounted(() => { fetchPipelinesData() })
           clearable
         />
       </FormField>
-      <FormField label="Tweets">
+      <FormField label="Signals">
         <RadioGroup v-model="runNewOnly" :options="runScopeOptions" name="run-scope" />
       </FormField>
       <FormField label="Order">

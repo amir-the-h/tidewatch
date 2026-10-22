@@ -21,14 +21,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	saveTweetCalled     atomic.Bool // set from the client's stream goroutine
-	saveTweetRuleCalled atomic.Bool
+	saveSignalCalled    atomic.Bool // set from the client's stream goroutine
+	saveRuleMatchCalled atomic.Bool
 	rulesByXRuleID      map[string]*model.Rule
 }
 
-func (m *mockStore) SaveTweet(_ context.Context, _ *model.Tweet) error {
-	m.saveTweetCalled.Store(true)
-	return nil
+func (m *mockStore) SaveSignal(_ context.Context, _ *model.Signal) (bool, error) {
+	m.saveSignalCalled.Store(true)
+	return true, nil
 }
 func (m *mockStore) GetRuleByXRuleID(_ context.Context, xRuleID string) (*model.Rule, error) {
 	if r, ok := m.rulesByXRuleID[xRuleID]; ok {
@@ -36,12 +36,12 @@ func (m *mockStore) GetRuleByXRuleID(_ context.Context, xRuleID string) (*model.
 	}
 	return nil, fmt.Errorf("rule not found: %s", xRuleID)
 }
-func (m *mockStore) SaveTweetRule(_ context.Context, _ *model.TweetRule) error {
-	m.saveTweetRuleCalled.Store(true)
+func (m *mockStore) SaveXRuleMatch(_ context.Context, _ *model.XRuleMatch) error {
+	m.saveRuleMatchCalled.Store(true)
 	return nil
 }
-func (m *mockStore) GetTweet(_ context.Context, _ string) (*model.Tweet, error) { return nil, nil }
-func (m *mockStore) ListTweets(_ context.Context, _ store.TweetFilter) ([]*model.Tweet, error) {
+func (m *mockStore) GetSignal(_ context.Context, _ int64) (*model.Signal, error) { return nil, nil }
+func (m *mockStore) ListSignals(_ context.Context, _ store.SignalFilter) ([]*model.Signal, error) {
 	return nil, nil
 }
 func (m *mockStore) SaveSource(_ context.Context, _ *model.Source) error { return nil }
@@ -63,7 +63,7 @@ func (m *mockStore) ListRules(_ context.Context, _ store.RuleFilter) ([]*model.R
 func (m *mockStore) UpdateRule(_ context.Context, _ *model.Rule) error                { return nil }
 func (m *mockStore) DeleteRule(_ context.Context, _ int64) error                      { return nil }
 func (m *mockStore) SetRuleActive(_ context.Context, _ int64, _ bool, _ string) error { return nil }
-func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error)           { return 0, nil }
+func (m *mockStore) XRuleMatchCount(_ context.Context, _ int64) (int, error)          { return 0, nil }
 func (m *mockStore) SaveNotificationProvider(_ context.Context, _ *model.NotificationProvider) error {
 	return nil
 }
@@ -96,7 +96,7 @@ func (m *mockStore) DeleteNotificationChannel(_ context.Context, _ int64) error 
 func (m *mockStore) SetNotificationChannelActive(_ context.Context, _ int64, _ bool) error {
 	return nil
 }
-func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error) { return nil, nil }
+func (m *mockStore) ListXRuleIDs(_ context.Context, _ int64) ([]int64, error) { return nil, nil }
 func (m *mockStore) CountEntityTracks(_ context.Context, _ store.EntityTrackFilter) (int, error) {
 	return 0, nil
 }
@@ -135,10 +135,10 @@ func (m *mockStore) DeleteTriggerPipelineLink(_ context.Context, _ int64) error 
 func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ bool) error {
 	return nil
 }
-func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error {
+func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ int64, _ int64) error {
 	return nil
 }
-func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ string, _ int64) (bool, error) {
+func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ int64, _ int64) (bool, error) {
 	return false, nil
 }
 func (m *mockStore) SaveUser(_ context.Context, _ *model.User) error         { return nil }
@@ -155,10 +155,10 @@ func (m *mockStore) ListSummaries(_ context.Context, _ store.SummaryFilter) ([]*
 func (m *mockStore) CountSummaries(_ context.Context, _ store.SummaryFilter) (int, error) {
 	return 0, nil
 }
-func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error) { return 0, nil }
-func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error)       { return 0, nil }
-func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)              { return 0, nil }
-func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error           { return nil }
+func (m *mockStore) CountSignals(_ context.Context, _ store.SignalFilter) (int, error) { return 0, nil }
+func (m *mockStore) DeleteSignals(_ context.Context, _ []int64) (int64, error)         { return 0, nil }
+func (m *mockStore) DeleteNoiseSignals(_ context.Context) (int64, error)               { return 0, nil }
+func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error             { return nil }
 func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
 	return nil, nil
 }
@@ -223,7 +223,7 @@ func (m *mockStore) ListActionExecutions(_ context.Context, _ store.ExecutionFil
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) {
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ int64) (map[string]string, error) {
 	return nil, nil
 }
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
@@ -263,13 +263,13 @@ func (m *mockStore) RemoveActionBackend(_ context.Context, _, _ int64) error { r
 func (m *mockStore) ListAllActionBackendIDs(_ context.Context) (map[int64][]int64, error) {
 	return nil, nil
 }
-func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) {
+func (m *mockStore) MergeAllSignalExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) {
+func (m *mockStore) ListSignalActionSummaries(_ context.Context, _ int64) ([]store.SignalActionSummary, error) {
 	return nil, nil
 }
-func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) {
+func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []int64, _ []int64) (int64, error) {
 	return 0, nil
 }
 func (m *mockStore) ListEntityCandidates(_ context.Context, _ store.EntityCandidateFilter) ([]*model.EntityCandidate, error) {
@@ -296,16 +296,16 @@ func (m *mockStore) DeleteAllEntityConnections(_ context.Context) error { return
 func (m *mockStore) GetEntityConnectionSubgraph(_ context.Context, _ int64, _, _ int) ([]*model.EntityConnection, error) {
 	return []*model.EntityConnection{}, nil
 }
-func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ string, _ int, _ []byte) error {
+func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ int64, _ int, _ []byte) error {
 	return nil
 }
-func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ string) error {
+func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ int64) error {
 	return nil
 }
-func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ string) (bool, error) {
+func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ int64) (bool, error) {
 	return false, nil
 }
-func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ string) ([]byte, error) {
+func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ int64) ([]byte, error) {
 	return nil, nil
 }
 func (m *mockStore) BulkDeleteSources(_ context.Context, _ store.BulkDeleteSourcesFilter) (int64, error) {
@@ -360,7 +360,7 @@ func (m *mockProducer) PushTask(_ context.Context, t *queue.Task) error {
 	m.pushedTasks = append(m.pushedTasks, t)
 	return nil
 }
-func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTweet) error { return nil }
+func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTask) error { return nil }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -377,24 +377,30 @@ func TestNormalize_ValidEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Normalize returned unexpected error: %v", err)
 	}
-	if st.Tweet.ID != "1234567890" {
-		t.Errorf("ID: got %q, want %q", st.Tweet.ID, "1234567890")
+	if st.Signal.ExternalID != "1234567890" || st.Signal.ExtNS != XExtNS || st.Signal.Kind != model.SignalKindPost {
+		t.Errorf("identity: got %s/%s/%s", st.Signal.Kind, st.Signal.ExtNS, st.Signal.ExternalID)
 	}
-	if st.Tweet.AuthorID != "987654321" {
-		t.Errorf("AuthorID: got %q, want %q", st.Tweet.AuthorID, "987654321")
+	if st.Signal.AuthorID != "987654321" {
+		t.Errorf("AuthorID: got %q, want %q", st.Signal.AuthorID, "987654321")
 	}
-	if st.Tweet.AuthorHandle != "handle_without_at" {
-		t.Errorf("AuthorHandle: got %q, want %q", st.Tweet.AuthorHandle, "handle_without_at")
+	if st.Signal.Author != "handle_without_at" {
+		t.Errorf("Author: got %q, want %q", st.Signal.Author, "handle_without_at")
 	}
-	if st.Tweet.Text != "Some tweet text" {
-		t.Errorf("Text: got %q, want %q", st.Tweet.Text, "Some tweet text")
+	if st.Signal.URL != "https://x.com/handle_without_at/status/1234567890" {
+		t.Errorf("URL: got %q", st.Signal.URL)
 	}
-	if st.Tweet.FetchedAt.IsZero() {
+	if st.Signal.Attrs["x_tweet_id"] != "1234567890" || st.Signal.Attrs["x_author_id"] != "987654321" {
+		t.Errorf("attrs: got %v", st.Signal.Attrs)
+	}
+	if st.Signal.Text != "Some tweet text" {
+		t.Errorf("Text: got %q, want %q", st.Signal.Text, "Some tweet text")
+	}
+	if st.Signal.FetchedAt.IsZero() {
 		t.Error("FetchedAt should not be zero")
 	}
 	wantCreated := time.Date(2026, 3, 23, 12, 0, 0, 0, time.UTC)
-	if !st.Tweet.CreatedAt.Equal(wantCreated) {
-		t.Errorf("CreatedAt: got %v, want %v", st.Tweet.CreatedAt, wantCreated)
+	if !st.Signal.PublishedAt.Equal(wantCreated) {
+		t.Errorf("CreatedAt: got %v, want %v", st.Signal.PublishedAt, wantCreated)
 	}
 	if len(st.MatchingRules) != 1 {
 		t.Fatalf("MatchingRules len: got %d, want 1", len(st.MatchingRules))
@@ -402,7 +408,7 @@ func TestNormalize_ValidEvent(t *testing.T) {
 	if st.MatchingRules[0].ID != "rule_id_1" || st.MatchingRules[0].Tag != "my_tag" {
 		t.Errorf("MatchingRules[0]: got %+v", st.MatchingRules[0])
 	}
-	if len(st.Tweet.RawJSON) == 0 {
+	if len(st.Signal.RawJSON) == 0 {
 		t.Error("RawJSON should not be empty")
 	}
 }
@@ -413,8 +419,8 @@ func TestNormalize_MissingUserFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if st.Tweet.AuthorHandle != "999" {
-		t.Errorf("AuthorHandle fallback: got %q, want %q", st.Tweet.AuthorHandle, "999")
+	if st.Signal.Author != "999" {
+		t.Errorf("Author fallback: got %q, want %q", st.Signal.Author, "999")
 	}
 }
 
@@ -445,8 +451,8 @@ func TestNormalize_RetweetExpandsFullText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if st.Tweet.Text != "GeoConfirmed Iran.\n\nFull original text with coordinates 36.42, 43.10\n\nGeoLocated by\n@someuser" {
-		t.Errorf("expected full original text, got: %q", st.Tweet.Text)
+	if st.Signal.Text != "GeoConfirmed Iran.\n\nFull original text with coordinates 36.42, 43.10\n\nGeoLocated by\n@someuser" {
+		t.Errorf("expected full original text, got: %q", st.Signal.Text)
 	}
 }
 
@@ -470,8 +476,8 @@ func TestNormalize_NoteTweetUsesFullText(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := "This is the complete full text of a long note tweet that exceeds 280 characters and contains much more detail."
-	if st.Tweet.Text != want {
-		t.Errorf("expected note_tweet full text, got: %q", st.Tweet.Text)
+	if st.Signal.Text != want {
+		t.Errorf("expected note_tweet full text, got: %q", st.Signal.Text)
 	}
 }
 
@@ -500,8 +506,8 @@ func TestNormalize_RetweetOfNoteTweetUsesFullText(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := "Full text of the retweeted note tweet with all its details intact."
-	if st.Tweet.Text != want {
-		t.Errorf("expected full note_tweet text from retweet, got: %q", st.Tweet.Text)
+	if st.Signal.Text != want {
+		t.Errorf("expected full note_tweet text from retweet, got: %q", st.Signal.Text)
 	}
 }
 
@@ -526,8 +532,8 @@ func TestNormalize_QuoteTweetOnlyUsesQuoteText(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := "This is a direct tweet, not an RT"
-	if st.Tweet.Text != want {
-		t.Errorf("quote tweet should only use the quote's own text, got: %q", st.Tweet.Text)
+	if st.Signal.Text != want {
+		t.Errorf("quote tweet should only use the quote's own text, got: %q", st.Signal.Text)
 	}
 }
 
@@ -586,7 +592,7 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 			<-done
 			goto check
 		case <-time.After(50 * time.Millisecond):
-			if ms.saveTweetCalled.Load() && ms.saveTweetRuleCalled.Load() {
+			if ms.saveSignalCalled.Load() && ms.saveRuleMatchCalled.Load() {
 				cancel()
 				<-done
 				goto check
@@ -594,11 +600,11 @@ func TestClient_Start_ProcessesEvent(t *testing.T) {
 		}
 	}
 check:
-	if !ms.saveTweetCalled.Load() {
-		t.Error("expected SaveTweet to be called")
+	if !ms.saveSignalCalled.Load() {
+		t.Error("expected SaveSignal to be called")
 	}
-	if !ms.saveTweetRuleCalled.Load() {
-		t.Error("expected SaveTweetRule to be called")
+	if !ms.saveRuleMatchCalled.Load() {
+		t.Error("expected SaveXRuleMatch to be called")
 	}
 	// Note: no task push expected because cache is nil in this test.
 }
@@ -643,5 +649,76 @@ func TestClient_Start_ReconnectsAfterDisconnect(t *testing.T) {
 				return
 			}
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Ingest
+// ---------------------------------------------------------------------------
+
+// ingestStore records what Ingest does with a signal.
+type ingestStore struct {
+	mockStore
+	isNew      bool
+	matches    []model.XRuleMatch
+	linkLookup int
+}
+
+func (s *ingestStore) SaveSignal(_ context.Context, sig *model.Signal) (bool, error) {
+	sig.ID = 5
+	return s.isNew, nil
+}
+func (s *ingestStore) SaveXRuleMatch(_ context.Context, m *model.XRuleMatch) error {
+	s.matches = append(s.matches, *m)
+	return nil
+}
+func (s *ingestStore) ListActiveTriggerPipelineLinks(_ context.Context, _ string, _ int64) ([]*model.TriggerPipelineLink, error) {
+	s.linkLookup++
+	return nil, nil
+}
+
+func TestIngest_NewAndDuplicate(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		isNew        bool
+		wantDispatch int
+	}{
+		{"new signal dispatches", true, 1},
+		{"duplicate only records the rule match", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &ingestStore{isNew: tc.isNew}
+			sig := NewXSignal(XPost{ID: "42", AuthorID: "a", Handle: "h", Text: "t", CreatedAt: time.Now()})
+			got, err := Ingest(context.Background(), IngestDeps{Store: st, Producer: &mockProducer{}, Logger: newTestLogger()},
+				sig, []int64{9}, SourceTypeXSearch)
+			if err != nil {
+				t.Fatalf("Ingest: %v", err)
+			}
+			if got != tc.isNew {
+				t.Errorf("isNew: got %v, want %v", got, tc.isNew)
+			}
+			if len(st.matches) != 1 || st.matches[0] != (model.XRuleMatch{SignalID: 5, RuleID: 9}) {
+				t.Errorf("rule matches: got %+v", st.matches)
+			}
+			if st.linkLookup != tc.wantDispatch {
+				t.Errorf("pipeline dispatches: got %d, want %d", st.linkLookup, tc.wantDispatch)
+			}
+			if ids, _ := sig.Attrs["x_rule_ids"].([]int64); len(ids) != 1 || ids[0] != 9 {
+				t.Errorf("x_rule_ids attr: got %v", sig.Attrs["x_rule_ids"])
+			}
+		})
+	}
+}
+
+func TestNormalize_ReferencedAttr(t *testing.T) {
+	data := []byte(`{"data":{"id":"1","text":"q","author_id":"2","created_at":"2026-03-23T12:00:00.000Z",
+		"referenced_tweets":[{"id":"666","type":"quoted"}]},"includes":{"users":[{"id":"2","username":"u"}]}}`)
+	evt, err := Normalize(data)
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+	ref, _ := evt.Signal.Attrs["x_referenced"].(map[string]string)
+	if ref["quoted"] != "666" {
+		t.Errorf("x_referenced: got %v", evt.Signal.Attrs["x_referenced"])
 	}
 }

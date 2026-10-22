@@ -11,13 +11,13 @@ import (
 const defaultMapPageSize = 50
 
 type mapPinResponse struct {
-	TweetID        string            `json:"tweet_id"`
-	TweetCreatedAt string            `json:"tweet_created_at"`
-	TweetText      string            `json:"tweet_text,omitempty"`
-	ModelName      string            `json:"model_name"`
-	Coordinates    [][2]float64      `json:"coordinates"`
-	Metadata       map[string]string `json:"metadata,omitempty"`
-	PopupTemplate  string            `json:"popup_template,omitempty"`
+	SignalID          int64             `json:"signal_id"`
+	SignalPublishedAt string            `json:"signal_published_at"`
+	SignalText        string            `json:"signal_text,omitempty"`
+	ModelName         string            `json:"model_name"`
+	Coordinates       [][2]float64      `json:"coordinates"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	PopupTemplate     string            `json:"popup_template,omitempty"`
 }
 
 // decodeMetadata parses the JSON object produced by json_group_object into a
@@ -74,13 +74,13 @@ func (s *Server) handleListMapPins(w http.ResponseWriter, r *http.Request) {
 		}
 
 		out = append(out, mapPinResponse{
-			TweetID:        pin.TweetID,
-			TweetCreatedAt: pin.TweetCreatedAt,
-			TweetText:      pin.TweetText,
-			ModelName:      pin.ModelName,
-			Coordinates:    coords,
-			Metadata:       decodeMetadata(pin.MetadataJSON),
-			PopupTemplate:  pin.PopupTemplate,
+			SignalID:          pin.SignalID,
+			SignalPublishedAt: pin.SignalPublishedAt,
+			SignalText:        pin.SignalText,
+			ModelName:         pin.ModelName,
+			Coordinates:       coords,
+			Metadata:          decodeMetadata(pin.MetadataJSON),
+			PopupTemplate:     pin.PopupTemplate,
 		})
 	}
 

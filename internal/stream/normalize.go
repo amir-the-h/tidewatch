@@ -42,11 +42,17 @@ type xStreamEvent struct {
 	} `json:"matching_rules"`
 }
 
-// Normalize parses a raw X API v2 stream event JSON payload and returns a StreamTweet.
-// Sets Tweet.FetchedAt to time.Now(). Sets Tweet.RawJSON to the raw bytes.
-// author_handle is looked up from includes.users by matching author_id.
-// If no matching user is found, author_handle is set to the author_id.
-func Normalize(data []byte) (*model.StreamTweet, error) {
+// Event is a normalized X stream event: the post signal plus the X rules the
+// stream says it matched (resolved to local rule IDs by the caller).
+type Event struct {
+	Signal        *model.Signal
+	MatchingRules []MatchingRule
+}
+
+// Normalize parses a raw X API v2 stream event JSON payload into an Event.
+// The signal's author (handle) is looked up from includes.users by matching
+// author_id; if no matching user is found, the author_id is used.
+func Normalize(data []byte) (*Event, error) {
 	var evt xStreamEvent
 	if err := json.Unmarshal(data, &evt); err != nil {
 		return nil, fmt.Errorf("stream: normalize: unmarshal event: %w", err)
@@ -93,26 +99,34 @@ func Normalize(data []byte) (*model.StreamTweet, error) {
 		}
 	}
 
-	tweet := &model.Tweet{
-		ID:           evt.Data.ID,
-		AuthorID:     evt.Data.AuthorID,
-		AuthorHandle: authorHandle,
-		Text:         text,
-		RawJSON:      data,
-		CreatedAt:    createdAt,
-		FetchedAt:    time.Now(),
+	var referenced map[string]string
+	for _, ref := range evt.Data.ReferencedTweets {
+		if referenced == nil {
+			referenced = make(map[string]string, len(evt.Data.ReferencedTweets))
+		}
+		referenced[ref.Type] = ref.ID
 	}
 
-	rules := make([]model.MatchingRule, 0, len(evt.MatchingRules))
+	sig := NewXSignal(XPost{
+		ID:         evt.Data.ID,
+		AuthorID:   evt.Data.AuthorID,
+		Handle:     authorHandle,
+		Text:       text,
+		CreatedAt:  createdAt,
+		RawJSON:    data,
+		Referenced: referenced,
+	})
+
+	rules := make([]MatchingRule, 0, len(evt.MatchingRules))
 	for _, r := range evt.MatchingRules {
-		rules = append(rules, model.MatchingRule{
+		rules = append(rules, MatchingRule{
 			ID:  r.ID,
 			Tag: r.Tag,
 		})
 	}
 
-	return &model.StreamTweet{
-		Tweet:         tweet,
+	return &Event{
+		Signal:        sig,
 		MatchingRules: rules,
 	}, nil
 }

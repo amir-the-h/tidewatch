@@ -62,9 +62,9 @@ func TestPushTasksFromNode_ActionNode(t *testing.T) {
 	startNode := graph.Nodes[2] // node ID 3 — second action, not the start
 	pushed := PushTasksFromNode(
 		context.Background(), &mockStore{}, mp, cache,
-		graph, 10, "new_tweet",
-		[]byte(`{"tweet_id":"t1","text":"hello","author_handle":"u1"}`),
-		"t1", startNode, nil,
+		graph, 10, "new_signal",
+		[]byte(`{"signal_id":1,"kind":"post"}`),
+		1, startNode, nil,
 	)
 	if pushed != 1 {
 		t.Fatalf("expected 1 pushed, got %d", pushed)
@@ -79,7 +79,7 @@ func TestPushTasksFromNode_ActionNode(t *testing.T) {
 
 func TestEvalRuleMatch(t *testing.T) {
 	ctx := map[string]any{
-		"rule_ids": []int64{3, 7, 42},
+		"x_rule_ids": []int64{3, 7, 42},
 	}
 
 	cases := []struct {
@@ -107,19 +107,19 @@ func TestEvalRuleMatch(t *testing.T) {
 }
 
 func TestEvalRuleMatch_NilRuleIDs(t *testing.T) {
-	ctx := map[string]any{} // rule_ids absent (non-tweet task)
+	ctx := map[string]any{} // x_rule_ids absent (non-X signal)
 
 	if evalRuleMatch(ctx, "3", true) {
-		t.Error("rule_matches should return false when rule_ids absent")
+		t.Error("rule_matches should return false when x_rule_ids absent")
 	}
 	if !evalRuleMatch(ctx, "3", false) {
-		t.Error("rule_not_matches should return true when rule_ids absent (rule is not matched)")
+		t.Error("rule_not_matches should return true when x_rule_ids absent (rule is not matched)")
 	}
 }
 
 func TestEvaluateConditionsVerbose_RuleMatches(t *testing.T) {
 	ctx := map[string]any{
-		"rule_ids": []int64{10, 20},
+		"x_rule_ids": []any{float64(10), float64(20)}, // JSON round-trip shape
 	}
 
 	passCond := []model.PipelineCondition{

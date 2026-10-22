@@ -5,7 +5,7 @@ import { ref } from 'vue'
 export interface ActionExecution {
   id: number
   action_id: number
-  tweet_id: string
+  signal_id: number
   status: string
   error?: string
   executed_at: string

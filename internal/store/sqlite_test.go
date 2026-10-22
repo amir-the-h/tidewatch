@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,16 +24,34 @@ func newTestStore(t *testing.T) Store {
 	return s
 }
 
-func sampleTweet() *model.Tweet {
-	return &model.Tweet{
-		ID:           "tweet-1",
-		AuthorID:     "author-1",
-		AuthorHandle: "handle1",
-		Text:         "Hello Iran",
-		RawJSON:      []byte(`{"id":"tweet-1"}`),
-		CreatedAt:    time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
-		FetchedAt:    time.Date(2026, 1, 1, 12, 1, 0, 0, time.UTC),
+func sampleSignal() *model.Signal {
+	return &model.Signal{
+		Kind:        model.SignalKindPost,
+		ExtNS:       "x",
+		ExternalID:  "tweet-1",
+		Author:      "handle1",
+		AuthorID:    "author-1",
+		Text:        "Hello Iran",
+		URL:         "https://x.com/handle1/status/tweet-1",
+		Attrs:       map[string]any{"x_tweet_id": "tweet-1"},
+		RawJSON:     []byte(`{"id":"tweet-1"}`),
+		PublishedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
+		FetchedAt:   time.Date(2026, 1, 1, 12, 1, 0, 0, time.UTC),
 	}
+}
+
+// mustSaveSignal stores a post signal with the given external ID and publish
+// time and returns it with its ID set.
+func mustSaveSignal(t *testing.T, s Store, externalID string, publishedAt time.Time) *model.Signal {
+	t.Helper()
+	sig := &model.Signal{
+		Kind: model.SignalKindPost, ExtNS: "x", ExternalID: externalID,
+		Author: "h-" + externalID, Text: "text " + externalID, PublishedAt: publishedAt,
+	}
+	if _, err := s.SaveSignal(context.Background(), sig); err != nil {
+		t.Fatalf("SaveSignal %s: %v", externalID, err)
+	}
+	return sig
 }
 
 func sampleSource() *model.Source {
@@ -71,63 +90,137 @@ func sampleAction() *model.Action {
 	}
 }
 
-// 1. TestSaveTweet_GetTweet
-func TestSaveTweet_GetTweet(t *testing.T) {
+// 1. TestSaveSignal_GetSignal
+func TestSaveSignal_GetSignal(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	tw := sampleTweet()
-	if err := s.SaveTweet(ctx, tw); err != nil {
-		t.Fatalf("SaveTweet: %v", err)
-	}
-
-	got, err := s.GetTweet(ctx, tw.ID)
+	sig := sampleSignal()
+	isNew, err := s.SaveSignal(ctx, sig)
 	if err != nil {
-		t.Fatalf("GetTweet: %v", err)
+		t.Fatalf("SaveSignal: %v", err)
+	}
+	if !isNew || sig.ID == 0 {
+		t.Fatalf("SaveSignal: isNew=%v id=%d, want new row with an ID", isNew, sig.ID)
 	}
 
-	if got.ID != tw.ID {
-		t.Errorf("ID: got %q, want %q", got.ID, tw.ID)
+	got, err := s.GetSignal(ctx, sig.ID)
+	if err != nil {
+		t.Fatalf("GetSignal: %v", err)
 	}
-	if got.AuthorID != tw.AuthorID {
-		t.Errorf("AuthorID: got %q, want %q", got.AuthorID, tw.AuthorID)
+
+	if got.Kind != sig.Kind || got.ExtNS != sig.ExtNS || got.ExternalID != sig.ExternalID {
+		t.Errorf("identity: got %s/%s/%s", got.Kind, got.ExtNS, got.ExternalID)
 	}
-	if got.AuthorHandle != tw.AuthorHandle {
-		t.Errorf("AuthorHandle: got %q, want %q", got.AuthorHandle, tw.AuthorHandle)
+	if got.Author != sig.Author || got.AuthorID != sig.AuthorID {
+		t.Errorf("author: got %q/%q", got.Author, got.AuthorID)
 	}
-	if got.Text != tw.Text {
-		t.Errorf("Text: got %q, want %q", got.Text, tw.Text)
+	if got.Text != sig.Text || got.URL != sig.URL {
+		t.Errorf("text/url: got %q/%q", got.Text, got.URL)
 	}
-	if string(got.RawJSON) != string(tw.RawJSON) {
-		t.Errorf("RawJSON: got %q, want %q", got.RawJSON, tw.RawJSON)
+	if got.Attrs["x_tweet_id"] != "tweet-1" {
+		t.Errorf("attrs: got %v", got.Attrs)
 	}
-	if !got.CreatedAt.Equal(tw.CreatedAt) {
-		t.Errorf("CreatedAt: got %v, want %v", got.CreatedAt, tw.CreatedAt)
+	if got.Lat != nil || got.Lon != nil {
+		t.Errorf("lat/lon: got %v/%v, want nil", got.Lat, got.Lon)
 	}
-	if !got.FetchedAt.Equal(tw.FetchedAt) {
-		t.Errorf("FetchedAt: got %v, want %v", got.FetchedAt, tw.FetchedAt)
+	if string(got.RawJSON) != string(sig.RawJSON) {
+		t.Errorf("RawJSON: got %q, want %q", got.RawJSON, sig.RawJSON)
+	}
+	if !got.PublishedAt.Equal(sig.PublishedAt) {
+		t.Errorf("PublishedAt: got %v, want %v", got.PublishedAt, sig.PublishedAt)
+	}
+	if !got.FetchedAt.Equal(sig.FetchedAt) {
+		t.Errorf("FetchedAt: got %v, want %v", got.FetchedAt, sig.FetchedAt)
 	}
 }
 
-// 2. TestSaveTweet_Idempotent
-func TestSaveTweet_Idempotent(t *testing.T) {
+// 2. TestSaveSignal_Dedup: the same (ext_ns, external_id) is stored once and
+// the second save reports isNew=false with the existing ID.
+func TestSaveSignal_Dedup(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	tw := sampleTweet()
-	if err := s.SaveTweet(ctx, tw); err != nil {
-		t.Fatalf("first SaveTweet: %v", err)
+	first := sampleSignal()
+	if _, err := s.SaveSignal(ctx, first); err != nil {
+		t.Fatalf("first SaveSignal: %v", err)
 	}
-	if err := s.SaveTweet(ctx, tw); err != nil {
-		t.Fatalf("second SaveTweet: %v", err)
+	second := sampleSignal()
+	second.Text = "seen again by search"
+	isNew, err := s.SaveSignal(ctx, second)
+	if err != nil {
+		t.Fatalf("second SaveSignal: %v", err)
+	}
+	if isNew {
+		t.Error("second SaveSignal: isNew=true, want false")
+	}
+	if second.ID != first.ID {
+		t.Errorf("second SaveSignal: ID %d, want existing %d", second.ID, first.ID)
 	}
 
-	tweets, err := s.ListTweets(ctx, TweetFilter{})
-	if err != nil {
-		t.Fatalf("ListTweets: %v", err)
+	// A different namespace with the same external ID is a different signal.
+	other := sampleSignal()
+	other.ExtNS = "rss"
+	if isNew, err := s.SaveSignal(ctx, other); err != nil || !isNew {
+		t.Errorf("other namespace: isNew=%v err=%v, want new", isNew, err)
 	}
-	if len(tweets) != 1 {
-		t.Errorf("expected 1 tweet, got %d", len(tweets))
+
+	signals, err := s.ListSignals(ctx, SignalFilter{})
+	if err != nil {
+		t.Fatalf("ListSignals: %v", err)
+	}
+	if len(signals) != 2 {
+		t.Errorf("expected 2 signals, got %d", len(signals))
+	}
+}
+
+// TestDeleteSignals_Cascades checks that deleting a signal removes its
+// executions, their metadata, entity tracks and rule matches.
+func TestDeleteSignals_Cascades(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	sig := mustSaveSignal(t, s, "c1", time.Now())
+	action := sampleAction()
+	if err := s.SaveAction(ctx, action); err != nil {
+		t.Fatalf("SaveAction: %v", err)
+	}
+	exec := &model.ActionExecution{ActionID: action.ID, SignalID: sig.ID, Status: model.ExecutionStatusSuccess, ExecutedAt: time.Now()}
+	if err := s.SaveActionExecution(ctx, exec); err != nil {
+		t.Fatalf("SaveActionExecution: %v", err)
+	}
+	if err := s.SaveActionExecutionMetadata(ctx, exec.ID, "label", `"strike"`); err != nil {
+		t.Fatalf("SaveActionExecutionMetadata: %v", err)
+	}
+	entity := &model.TrackedEntity{Name: "e", Type: "PER", Active: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if err := s.SaveTrackedEntity(ctx, entity); err != nil {
+		t.Fatalf("SaveTrackedEntity: %v", err)
+	}
+	if err := s.SaveEntityTrack(ctx, &model.EntityTrack{EntityID: entity.ID, SignalID: sig.ID, MatchSource: "text"}); err != nil {
+		t.Fatalf("SaveEntityTrack: %v", err)
+	}
+	rule := sampleRule()
+	if err := s.SaveRule(ctx, rule); err != nil {
+		t.Fatalf("SaveRule: %v", err)
+	}
+	if err := s.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: rule.ID}); err != nil {
+		t.Fatalf("SaveXRuleMatch: %v", err)
+	}
+
+	n, err := s.DeleteSignals(ctx, []int64{sig.ID})
+	if err != nil || n != 1 {
+		t.Fatalf("DeleteSignals: n=%d err=%v", n, err)
+	}
+
+	db := s.(*sqliteStore).db
+	for _, table := range []string{"action_executions", "action_execution_metadata", "entity_tracks", "x_rule_matches"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if count != 0 {
+			t.Errorf("%s: %d rows left after signal delete, want 0", table, count)
+		}
 	}
 }
 
@@ -289,56 +382,54 @@ func TestGetRuleByXRuleID(t *testing.T) {
 	}
 }
 
-// 10. TestTweetRuleCount
-func TestTweetRuleCount(t *testing.T) {
+// 10. TestXRuleMatchCount
+func TestXRuleMatchCount(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	tw := sampleTweet()
-	_ = s.SaveTweet(ctx, tw)
+	sig := sampleSignal()
+	_, _ = s.SaveSignal(ctx, sig)
 
 	rule := sampleRule()
 	_ = s.SaveRule(ctx, rule)
 
-	tr := &model.TweetRule{TweetID: tw.ID, RuleID: rule.ID}
-	if err := s.SaveTweetRule(ctx, tr); err != nil {
-		t.Fatalf("SaveTweetRule: %v", err)
+	if err := s.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: rule.ID}); err != nil {
+		t.Fatalf("SaveXRuleMatch: %v", err)
 	}
 
-	count, err := s.TweetRuleCount(ctx, rule.ID)
+	count, err := s.XRuleMatchCount(ctx, rule.ID)
 	if err != nil {
-		t.Fatalf("TweetRuleCount: %v", err)
+		t.Fatalf("XRuleMatchCount: %v", err)
 	}
 	if count != 1 {
 		t.Errorf("expected 1, got %d", count)
 	}
 }
 
-// 11. TestSaveTweetRule_GetTweet_PopulatesRules
-func TestSaveTweetRule_GetTweet_PopulatesRules(t *testing.T) {
+// 11. TestSaveXRuleMatch_GetSignal_PopulatesRules
+func TestSaveXRuleMatch_GetSignal_PopulatesRules(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 
-	tw := sampleTweet()
-	_ = s.SaveTweet(ctx, tw)
+	sig := sampleSignal()
+	_, _ = s.SaveSignal(ctx, sig)
 
 	rule := sampleRule()
 	_ = s.SaveRule(ctx, rule)
 
-	tr := &model.TweetRule{TweetID: tw.ID, RuleID: rule.ID}
-	if err := s.SaveTweetRule(ctx, tr); err != nil {
-		t.Fatalf("SaveTweetRule: %v", err)
+	if err := s.SaveXRuleMatch(ctx, &model.XRuleMatch{SignalID: sig.ID, RuleID: rule.ID}); err != nil {
+		t.Fatalf("SaveXRuleMatch: %v", err)
 	}
 
-	got, err := s.GetTweet(ctx, tw.ID)
+	got, err := s.GetSignal(ctx, sig.ID)
 	if err != nil {
-		t.Fatalf("GetTweet: %v", err)
+		t.Fatalf("GetSignal: %v", err)
 	}
-	if len(got.Rules) != 1 {
-		t.Errorf("expected 1 rule on tweet, got %d", len(got.Rules))
+	if len(got.XRules) != 1 {
+		t.Fatalf("expected 1 rule on signal, got %d", len(got.XRules))
 	}
-	if got.Rules[0].ID != rule.ID {
-		t.Errorf("rule ID: got %d, want %d", got.Rules[0].ID, rule.ID)
+	if got.XRules[0].ID != rule.ID {
+		t.Errorf("rule ID: got %d, want %d", got.XRules[0].ID, rule.ID)
 	}
 }
 
@@ -392,18 +483,31 @@ func TestRunMigrations_Idempotent(t *testing.T) {
 	}
 }
 
-func TestListTweets_HasEntityTrack(t *testing.T) {
+// TestRunMigrations_RefusesOldSchema: a database that recorded a migration
+// which is no longer embedded (pre phase 1) is refused, not upgraded.
+func TestRunMigrations_RefusesOldSchema(t *testing.T) {
+	db, err := openTestDB(t)
+	if err != nil {
+		t.Fatalf("openTestDB: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (filename TEXT PRIMARY KEY, applied_at DATETIME NOT NULL DEFAULT (datetime('now')))`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO schema_migrations (filename) VALUES ('001_initial.sql')`); err != nil {
+		t.Fatalf("seed schema_migrations: %v", err)
+	}
+	err = RunMigrations(db, migrations.FS)
+	if err == nil || !strings.Contains(err.Error(), "older schema") {
+		t.Fatalf("RunMigrations: err=%v, want older-schema error", err)
+	}
+}
+
+func TestListSignals_HasEntityTrack(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tw1 := &model.Tweet{ID: "t1", AuthorID: "a1", AuthorHandle: "h1", Text: "tweet 1", RawJSON: []byte(`{}`), CreatedAt: time.Now()}
-	tw2 := &model.Tweet{ID: "t2", AuthorID: "a2", AuthorHandle: "h2", Text: "tweet 2", RawJSON: []byte(`{}`), CreatedAt: time.Now()}
-	if err := s.SaveTweet(ctx, tw1); err != nil {
-		t.Fatalf("SaveTweet tw1: %v", err)
-	}
-	if err := s.SaveTweet(ctx, tw2); err != nil {
-		t.Fatalf("SaveTweet tw2: %v", err)
-	}
+	sig1 := mustSaveSignal(t, s, "t1", time.Now())
+	mustSaveSignal(t, s, "t2", time.Now())
 
 	// Create a tracked entity so the foreign key constraint is satisfied.
 	entity := &model.TrackedEntity{Name: "test-entity", Type: "PER", Active: true, CreatedAt: time.Now(), UpdatedAt: time.Now()}
@@ -411,66 +515,60 @@ func TestListTweets_HasEntityTrack(t *testing.T) {
 		t.Fatalf("SaveTrackedEntity: %v", err)
 	}
 
-	// Only tw1 has an entity track
-	if err := s.SaveEntityTrack(ctx, &model.EntityTrack{EntityID: entity.ID, TweetID: "t1", MatchSource: "ner", CreatedAt: time.Now()}); err != nil {
+	// Only sig1 has an entity track
+	if err := s.SaveEntityTrack(ctx, &model.EntityTrack{EntityID: entity.ID, SignalID: sig1.ID, MatchSource: "ner", CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("SaveEntityTrack: %v", err)
 	}
 
-	all, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100})
+	all, err := s.ListSignals(ctx, SignalFilter{Page: 1, PerPage: 100})
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
 	if len(all) != 2 {
-		t.Fatalf("expected 2 tweets, got %d", len(all))
+		t.Fatalf("expected 2 signals, got %d", len(all))
 	}
 
-	tracked, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100, HasEntityTrack: true})
+	tracked, err := s.ListSignals(ctx, SignalFilter{Page: 1, PerPage: 100, HasEntityTrack: true})
 	if err != nil {
 		t.Fatalf("list tracked: %v", err)
 	}
 	if len(tracked) != 1 {
-		t.Fatalf("expected 1 tracked tweet, got %d", len(tracked))
+		t.Fatalf("expected 1 tracked signal, got %d", len(tracked))
 	}
-	if tracked[0].ID != "t1" {
-		t.Errorf("expected tweet t1, got %s", tracked[0].ID)
+	if tracked[0].ID != sig1.ID {
+		t.Errorf("expected signal %d, got %d", sig1.ID, tracked[0].ID)
 	}
 }
 
-func TestListTweets_OrderAsc(t *testing.T) {
+func TestListSignals_OrderAscAndKind(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	old := &model.Tweet{
-		ID: "t_old", AuthorID: "a1", AuthorHandle: "h1", Text: "old",
-		RawJSON: []byte(`{}`), CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-	}
-	new_ := &model.Tweet{
-		ID: "t_new", AuthorID: "a2", AuthorHandle: "h2", Text: "new",
-		RawJSON: []byte(`{}`), CreatedAt: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
-	}
-	if err := s.SaveTweet(ctx, old); err != nil {
-		t.Fatalf("SaveTweet old: %v", err)
-	}
-	if err := s.SaveTweet(ctx, new_); err != nil {
-		t.Fatalf("SaveTweet new: %v", err)
-	}
+	old := mustSaveSignal(t, s, "t_old", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	new_ := mustSaveSignal(t, s, "t_new", time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC))
 
 	// Default (no OrderAsc): newest first.
-	desc, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100})
+	desc, err := s.ListSignals(ctx, SignalFilter{Page: 1, PerPage: 100})
 	if err != nil {
 		t.Fatalf("list desc: %v", err)
 	}
-	if len(desc) != 2 || desc[0].ID != "t_new" || desc[1].ID != "t_old" {
-		t.Errorf("expected newest-first [t_new,t_old], got [%s,%s]", desc[0].ID, desc[1].ID)
+	if len(desc) != 2 || desc[0].ID != new_.ID || desc[1].ID != old.ID {
+		t.Errorf("expected newest-first, got %+v", desc)
 	}
 
 	// OrderAsc: oldest first.
-	asc, err := s.ListTweets(ctx, TweetFilter{Page: 1, PerPage: 100, OrderAsc: true})
+	asc, err := s.ListSignals(ctx, SignalFilter{Page: 1, PerPage: 100, OrderAsc: true})
 	if err != nil {
 		t.Fatalf("list asc: %v", err)
 	}
-	if len(asc) != 2 || asc[0].ID != "t_old" || asc[1].ID != "t_new" {
-		t.Errorf("expected oldest-first [t_old,t_new], got [%s,%s]", asc[0].ID, asc[1].ID)
+	if len(asc) != 2 || asc[0].ID != old.ID || asc[1].ID != new_.ID {
+		t.Errorf("expected oldest-first, got %+v", asc)
+	}
+
+	article := model.SignalKindArticle
+	n, err := s.CountSignals(ctx, SignalFilter{Kind: &article})
+	if err != nil || n != 0 {
+		t.Errorf("CountSignals(kind=article): n=%d err=%v, want 0", n, err)
 	}
 }
 

@@ -25,53 +25,57 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockStore struct {
-	sources             map[int64]*model.Source
-	rules               map[int64]*model.Rule
-	tweets              map[string]*model.Tweet
-	tweetRules          []*model.TweetRule
-	pipelines           map[int64]*model.Pipeline
-	pipelineGraphs      map[int64]*model.PipelineGraph
-	triggerLinks        []*model.TriggerPipelineLink
-	executions          []*model.ActionExecution
-	entityTrackedTweets map[string]bool
-	nextID              int64
+	sources        map[int64]*model.Source
+	rules          map[int64]*model.Rule
+	signals        map[int64]*model.Signal
+	ruleMatches    []*model.XRuleMatch
+	pipelines      map[int64]*model.Pipeline
+	pipelineGraphs map[int64]*model.PipelineGraph
+	triggerLinks   []*model.TriggerPipelineLink
+	executions     []*model.ActionExecution
+	entityTracked  map[int64]bool
+	nextID         int64
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		sources:             make(map[int64]*model.Source),
-		rules:               make(map[int64]*model.Rule),
-		tweets:              make(map[string]*model.Tweet),
-		pipelines:           make(map[int64]*model.Pipeline),
-		pipelineGraphs:      make(map[int64]*model.PipelineGraph),
-		entityTrackedTweets: make(map[string]bool),
+		sources:        make(map[int64]*model.Source),
+		rules:          make(map[int64]*model.Rule),
+		signals:        make(map[int64]*model.Signal),
+		pipelines:      make(map[int64]*model.Pipeline),
+		pipelineGraphs: make(map[int64]*model.PipelineGraph),
+		entityTracked:  make(map[int64]bool),
 	}
 }
 
-func (m *mockStore) SaveTweet(_ context.Context, t *model.Tweet) error {
-	m.tweets[t.ID] = t
-	return nil
-}
-func (m *mockStore) GetTweet(_ context.Context, id string) (*model.Tweet, error) {
-	t, ok := m.tweets[id]
-	if !ok {
-		return nil, fmt.Errorf("tweet not found: %s", id)
+func (m *mockStore) SaveSignal(_ context.Context, sig *model.Signal) (bool, error) {
+	if sig.ID == 0 {
+		m.nextID++
+		sig.ID = m.nextID
 	}
-	return t, nil
+	m.signals[sig.ID] = sig
+	return true, nil
 }
-func (m *mockStore) ListTweets(_ context.Context, f store.TweetFilter) ([]*model.Tweet, error) {
-	out := make([]*model.Tweet, 0, len(m.tweets))
-	for _, t := range m.tweets {
-		if f.HasEntityTrack && !m.entityTrackedTweets[t.ID] {
+func (m *mockStore) GetSignal(_ context.Context, id int64) (*model.Signal, error) {
+	sig, ok := m.signals[id]
+	if !ok {
+		return nil, fmt.Errorf("signal not found: %d", id)
+	}
+	return sig, nil
+}
+func (m *mockStore) ListSignals(_ context.Context, f store.SignalFilter) ([]*model.Signal, error) {
+	out := make([]*model.Signal, 0, len(m.signals))
+	for _, sig := range m.signals {
+		if f.HasEntityTrack && !m.entityTracked[sig.ID] {
 			continue
 		}
-		out = append(out, t)
+		out = append(out, sig)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if f.OrderAsc {
-			return out[i].CreatedAt.Before(out[j].CreatedAt)
+			return out[i].PublishedAt.Before(out[j].PublishedAt)
 		}
-		return out[i].CreatedAt.After(out[j].CreatedAt)
+		return out[i].PublishedAt.After(out[j].PublishedAt)
 	})
 	return out, nil
 }
@@ -152,10 +156,10 @@ func (m *mockStore) SetRuleActive(_ context.Context, id int64, active bool, xRul
 	}
 	return nil
 }
-func (m *mockStore) TweetRuleCount(_ context.Context, _ int64) (int, error) { return 0, nil }
+func (m *mockStore) XRuleMatchCount(_ context.Context, _ int64) (int, error) { return 0, nil }
 
-func (m *mockStore) SaveTweetRule(_ context.Context, tr *model.TweetRule) error {
-	m.tweetRules = append(m.tweetRules, tr)
+func (m *mockStore) SaveXRuleMatch(_ context.Context, rm *model.XRuleMatch) error {
+	m.ruleMatches = append(m.ruleMatches, rm)
 	return nil
 }
 
@@ -226,10 +230,10 @@ func (m *mockStore) SetTriggerPipelineLinkActive(_ context.Context, _ int64, _ b
 }
 
 // Pipeline node execution tracking (sub-pipeline fan-in)
-func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ string, _ int64) error {
+func (m *mockStore) InsertPipelineNodeExecution(_ context.Context, _ int64, _ int64, _ int64) error {
 	return nil
 }
-func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ string, _ int64) (bool, error) {
+func (m *mockStore) MarkPipelineNodeLeafComplete(_ context.Context, _ int64, _ int64, _ int64) (bool, error) {
 	return false, nil
 }
 
@@ -271,16 +275,16 @@ func (m *mockStore) SetNotificationChannelActive(_ context.Context, _ int64, _ b
 	return nil
 }
 
-func (m *mockStore) CountTweets(_ context.Context, _ store.TweetFilter) (int, error) {
-	return len(m.tweets), nil
+func (m *mockStore) CountSignals(_ context.Context, _ store.SignalFilter) (int, error) {
+	return len(m.signals), nil
 }
-func (m *mockStore) DeleteTweets(_ context.Context, _ []string) (int64, error) { return 0, nil }
-func (m *mockStore) DeleteNoiseTweets(_ context.Context) (int64, error)        { return 0, nil }
+func (m *mockStore) DeleteSignals(_ context.Context, _ []int64) (int64, error) { return 0, nil }
+func (m *mockStore) DeleteNoiseSignals(_ context.Context) (int64, error)       { return 0, nil }
 func (m *mockStore) UpdateSource(_ context.Context, _ *model.Source) error     { return nil }
 func (m *mockStore) ListRulesDependingOn(_ context.Context, _ int64) ([]*model.Rule, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweetRuleIDs(_ context.Context, _ string) ([]int64, error)     { return nil, nil }
+func (m *mockStore) ListXRuleIDs(_ context.Context, _ int64) ([]int64, error)          { return nil, nil }
 func (m *mockStore) SaveTrackedEntity(_ context.Context, _ *model.TrackedEntity) error { return nil }
 func (m *mockStore) GetTrackedEntity(_ context.Context, _ int64) (*model.TrackedEntity, error) {
 	return nil, fmt.Errorf("not found")
@@ -377,19 +381,19 @@ func (m *mockStore) ListActionExecutions(_ context.Context, f store.ExecutionFil
 func (m *mockStore) ListActionExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ string) (map[string]string, error) {
+func (m *mockStore) MergeActionExecutionMetadata(_ context.Context, _ int64, _ int64) (map[string]string, error) {
 	return nil, nil
 }
 func (m *mockStore) SaveActionExecutionMetadata(_ context.Context, _ int64, _, _ string) error {
 	return nil
 }
-func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []string, _ []int64) (int64, error) {
+func (m *mockStore) DeleteActionExecutions(_ context.Context, _ []int64, _ []int64) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) MergeAllTweetExecutionMetadata(_ context.Context, _ string) (map[string]string, error) {
+func (m *mockStore) MergeAllSignalExecutionMetadata(_ context.Context, _ int64) (map[string]string, error) {
 	return nil, nil
 }
-func (m *mockStore) ListTweetActionSummaries(_ context.Context, _ string) ([]store.TweetActionSummary, error) {
+func (m *mockStore) ListSignalActionSummaries(_ context.Context, _ int64) ([]store.SignalActionSummary, error) {
 	return nil, nil
 }
 func (m *mockStore) SaveTwitterCredentials(_ context.Context, _ *model.TwitterCredentials) error {
@@ -506,16 +510,16 @@ func (m *mockStore) BulkDeleteSearchJobs(_ context.Context, _ store.BulkDeleteSe
 func (m *mockStore) BulkDeleteDigestJobs(_ context.Context, _ store.BulkDeleteDigestJobsFilter) (int64, error) {
 	return 0, nil
 }
-func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ string, _ int, _ []byte) error {
+func (m *mockStore) InitPipelineRunTracking(_ context.Context, _ int64, _ int64, _ int, _ []byte) error {
 	return nil
 }
-func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ string) error {
+func (m *mockStore) IncrementPipelineRunTracking(_ context.Context, _ int64, _ int64) error {
 	return nil
 }
-func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ string) (bool, error) {
+func (m *mockStore) DecrementPipelineRunTracking(_ context.Context, _ int64, _ int64) (bool, error) {
 	return false, nil
 }
-func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ string) ([]byte, error) {
+func (m *mockStore) GetPipelineRunEventPayload(_ context.Context, _ int64, _ int64) ([]byte, error) {
 	return nil, nil
 }
 
@@ -534,7 +538,7 @@ func (m *mockProducer) PushTask(_ context.Context, t *queue.Task) error {
 	m.pushed = append(m.pushed, t)
 	return nil
 }
-func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTweet) error { return nil }
+func (m *mockProducer) PushFailed(_ context.Context, _ *queue.FailedTask) error { return nil }
 
 // waitForPushes polls until mp.pushed has at least n entries or deadline is exceeded.
 func (m *mockProducer) waitForPushes(t *testing.T, n int, timeout time.Duration) {
@@ -658,19 +662,21 @@ func TestDeleteSource(t *testing.T) {
 	}
 }
 
-func TestListTweets_Pagination(t *testing.T) {
+func TestListSignals_Pagination(t *testing.T) {
 	srv, ms, _, _ := newTestServer(t)
 
 	for i := 0; i < 3; i++ {
-		tw := &model.Tweet{
-			ID:        fmt.Sprintf("tweet_%d", i),
-			Text:      "test",
-			FetchedAt: time.Now(),
+		sig := &model.Signal{
+			Kind:       model.SignalKindPost,
+			ExtNS:      "x",
+			ExternalID: fmt.Sprintf("tweet_%d", i),
+			Text:       "test",
+			FetchedAt:  time.Now(),
 		}
-		_ = ms.SaveTweet(context.Background(), tw)
+		_, _ = ms.SaveSignal(context.Background(), sig)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tweets?page=2&per_page=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/signals?page=2&per_page=10", nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -680,25 +686,26 @@ func TestListTweets_Pagination(t *testing.T) {
 	}
 
 	var result struct {
-		Tweets []*model.Tweet `json:"tweets"`
-		Total  int64          `json:"total"`
+		Signals []*model.Signal `json:"signals"`
+		Total   int64           `json:"total"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
 }
 
-func TestGetTweet_ReturnsDetail(t *testing.T) {
+func TestGetSignal_ReturnsDetail(t *testing.T) {
 	srv, ms, _, _ := newTestServer(t)
 
-	tw := &model.Tweet{
-		ID:        "t1",
-		Text:      "test tweet",
+	sig := &model.Signal{
+		ID:        1,
+		Kind:      model.SignalKindPost,
+		Text:      "test post",
 		FetchedAt: time.Now(),
 	}
-	_ = ms.SaveTweet(context.Background(), tw)
+	_, _ = ms.SaveSignal(context.Background(), sig)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/tweets/t1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/signals/1", nil)
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
 	srv.router.ServeHTTP(w, req)
@@ -708,30 +715,28 @@ func TestGetTweet_ReturnsDetail(t *testing.T) {
 	}
 
 	var result struct {
-		Tweet *model.Tweet `json:"tweet"`
+		Signal *model.Signal `json:"signal"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if result.Tweet == nil {
-		t.Fatal("expected tweet in response")
+	if result.Signal == nil {
+		t.Fatal("expected signal in response")
 	}
-	if result.Tweet.ID != "t1" {
-		t.Errorf("expected tweet ID t1, got %s", result.Tweet.ID)
+	if result.Signal.ID != 1 {
+		t.Errorf("expected signal ID 1, got %d", result.Signal.ID)
 	}
 }
 
-func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
+func TestReprocessSignals_EnqueuesSignals(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 
-	tw1 := &model.Tweet{ID: "t1", Text: "iran news", FetchedAt: time.Now()}
-	tw2 := &model.Tweet{ID: "t2", Text: "more news", FetchedAt: time.Now()}
-	_ = ms.SaveTweet(context.Background(), tw1)
-	_ = ms.SaveTweet(context.Background(), tw2)
+	_, _ = ms.SaveSignal(context.Background(), &model.Signal{ID: 1, Kind: model.SignalKindPost, Text: "iran news", FetchedAt: time.Now()})
+	_, _ = ms.SaveSignal(context.Background(), &model.Signal{ID: 2, Kind: model.SignalKindPost, Text: "more news", FetchedAt: time.Now()})
 
 	// Use targeted action_ids dispatch to bypass the pipeline/trigger system.
-	body := `{"tweet_ids":["t1","t2"],"action_ids":[42]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/tweets/reprocess", strings.NewReader(body))
+	body := `{"signal_ids":[1,2],"action_ids":[42]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/signals/reprocess", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+adminToken(t))
 	w := httptest.NewRecorder()
@@ -751,7 +756,7 @@ func TestReprocessTweets_EnqueuesTweets(t *testing.T) {
 		t.Errorf("expected requeued=2, got %d", result.Requeued)
 	}
 	if len(mp.pushedSnapshot()) != 2 {
-		t.Errorf("expected 2 pushed tweets, got %d", len(mp.pushedSnapshot()))
+		t.Errorf("expected 2 pushed signals, got %d", len(mp.pushedSnapshot()))
 	}
 }
 
@@ -825,7 +830,7 @@ func TestRunPipeline_Inactive(t *testing.T) {
 	}
 }
 
-func TestRunPipeline_QueuesTweets(t *testing.T) {
+func TestRunPipeline_QueuesSignals(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 
 	// active pipeline
@@ -833,7 +838,7 @@ func TestRunPipeline_QueuesTweets(t *testing.T) {
 
 	// trigger link for this pipeline
 	ms.triggerLinks = []*model.TriggerPipelineLink{
-		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+		{ID: 1, PipelineID: 1, TriggerType: "new_signal", Active: true},
 	}
 
 	// pipeline graph: start → action node (action_id=5, node_id=10)
@@ -848,9 +853,9 @@ func TestRunPipeline_QueuesTweets(t *testing.T) {
 		},
 	}
 
-	// 2 tweets
-	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
-	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+	// 2 signals
+	ms.signals[1] = &model.Signal{ID: 1, Text: "post 1", Author: "h1"}
+	ms.signals[2] = &model.Signal{ID: 2, Text: "post 2", Author: "h2"}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{"new_only":false}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -886,7 +891,7 @@ func TestRunPipeline_NewOnly(t *testing.T) {
 
 	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
 	ms.triggerLinks = []*model.TriggerPipelineLink{
-		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+		{ID: 1, PipelineID: 1, TriggerType: "new_signal", Active: true},
 	}
 	actionID := int64(5)
 	ms.pipelineGraphs[1] = &model.PipelineGraph{
@@ -898,12 +903,12 @@ func TestRunPipeline_NewOnly(t *testing.T) {
 			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
 		},
 	}
-	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
-	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+	ms.signals[1] = &model.Signal{ID: 1, Text: "post 1", Author: "h1"}
+	ms.signals[2] = &model.Signal{ID: 2, Text: "post 2", Author: "h2"}
 
 	// t1 already executed
 	ms.executions = []*model.ActionExecution{
-		{ID: 1, ActionID: 5, TweetID: "t1", Status: "success"},
+		{ID: 1, ActionID: 5, SignalID: 1, Status: "success"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{"new_only":true}`))
@@ -944,10 +949,10 @@ func TestRunPipeline_EntityMatched(t *testing.T) {
 			{ID: 1, PipelineID: 1, SourceNodeID: 9, TargetNodeID: 10},
 		},
 	}
-	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
-	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
-	ms.tweets["t3"] = &model.Tweet{ID: "t3", Text: "tweet 3", AuthorHandle: "h3"}
-	ms.entityTrackedTweets = map[string]bool{"t1": true, "t2": true}
+	ms.signals[1] = &model.Signal{ID: 1, Text: "post 1", Author: "h1"}
+	ms.signals[2] = &model.Signal{ID: 2, Text: "post 2", Author: "h2"}
+	ms.signals[3] = &model.Signal{ID: 3, Text: "post 3", Author: "h3"}
+	ms.entityTracked = map[int64]bool{1: true, 2: true}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -971,7 +976,7 @@ func TestRunPipeline_InvalidStartNodeType(t *testing.T) {
 	srv, ms, _, _ := newTestServer(t)
 	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
 	ms.triggerLinks = []*model.TriggerPipelineLink{
-		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+		{ID: 1, PipelineID: 1, TriggerType: "new_signal", Active: true},
 	}
 	ms.pipelineGraphs[1] = &model.PipelineGraph{
 		Nodes: []*model.PipelineNode{
@@ -996,7 +1001,7 @@ func TestRunPipeline_StartNodeIdDispatchesFromNode(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
 	ms.triggerLinks = []*model.TriggerPipelineLink{
-		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+		{ID: 1, PipelineID: 1, TriggerType: "new_signal", Active: true},
 	}
 	actionID1 := int64(5)
 	actionID2 := int64(6)
@@ -1011,7 +1016,7 @@ func TestRunPipeline_StartNodeIdDispatchesFromNode(t *testing.T) {
 			{ID: 2, PipelineID: 1, SourceNodeID: 10, TargetNodeID: 11},
 		},
 	}
-	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
+	ms.signals[1] = &model.Signal{ID: 1, Text: "post 1", Author: "h1"}
 
 	body := `{"start_node_id": 11}` // start from node 11 (action 6), skipping node 10
 	req := httptest.NewRequest(http.MethodPost, "/api/pipelines/1/run", strings.NewReader(body))
@@ -1043,7 +1048,7 @@ func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
 	ms.triggerLinks = []*model.TriggerPipelineLink{
-		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+		{ID: 1, PipelineID: 1, TriggerType: "new_signal", Active: true},
 	}
 	actionID1 := int64(5)
 	actionID2 := int64(6)
@@ -1058,14 +1063,14 @@ func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
 			{ID: 2, PipelineID: 1, SourceNodeID: 10, TargetNodeID: 11},
 		},
 	}
-	ms.tweets["t1"] = &model.Tweet{ID: "t1", Text: "tweet 1", AuthorHandle: "h1"}
-	ms.tweets["t2"] = &model.Tweet{ID: "t2", Text: "tweet 2", AuthorHandle: "h2"}
+	ms.signals[1] = &model.Signal{ID: 1, Text: "post 1", Author: "h1"}
+	ms.signals[2] = &model.Signal{ID: 2, Text: "post 2", Author: "h2"}
 
 	// t1 already ran action 6 (node 11's action) — should be excluded.
 	// t1 also ran action 5 (node 10) — irrelevant when start_node_id=11.
 	ms.executions = []*model.ActionExecution{
-		{ID: 1, ActionID: 6, TweetID: "t1", Status: "success"},
-		{ID: 2, ActionID: 5, TweetID: "t2", Status: "success"}, // only ran upstream action, NOT action 6
+		{ID: 1, ActionID: 6, SignalID: 1, Status: "success"},
+		{ID: 2, ActionID: 5, SignalID: 2, Status: "success"}, // only ran upstream action, NOT action 6
 	}
 
 	body := `{"new_only": true, "start_node_id": 11}`
@@ -1087,16 +1092,16 @@ func TestRunPipeline_StartNodeIdNewOnlyScoped(t *testing.T) {
 	if len(pushed) != 1 {
 		t.Fatalf("expected 1 pushed task, got %d", len(pushed))
 	}
-	tweetIDs := make(map[string]bool)
+	signalIDs := make(map[int64]bool)
 	for _, task := range pushed {
 		var ev struct {
-			TweetID string `json:"tweet_id"`
+			SignalID int64 `json:"signal_id"`
 		}
 		_ = json.Unmarshal(task.Event, &ev)
-		tweetIDs[ev.TweetID] = true
+		signalIDs[ev.SignalID] = true
 	}
-	if !tweetIDs["t2"] {
-		t.Errorf("expected t2 to be queued, got tasks for: %v", tweetIDs)
+	if !signalIDs[2] {
+		t.Errorf("expected signal 2 to be queued, got tasks for: %v", signalIDs)
 	}
 }
 
@@ -1104,7 +1109,7 @@ func TestRunPipeline_AscOrder(t *testing.T) {
 	srv, ms, mp, _ := newTestServer(t)
 	ms.pipelines[1] = &model.Pipeline{ID: 1, Name: "p1", Active: true}
 	ms.triggerLinks = []*model.TriggerPipelineLink{
-		{ID: 1, PipelineID: 1, TriggerType: "new_tweet", Active: true},
+		{ID: 1, PipelineID: 1, TriggerType: "new_signal", Active: true},
 	}
 	actionID := int64(5)
 	ms.pipelineGraphs[1] = &model.PipelineGraph{
@@ -1116,13 +1121,13 @@ func TestRunPipeline_AscOrder(t *testing.T) {
 			{ID: 1, PipelineID: 1, SourceNodeID: 1, TargetNodeID: 2},
 		},
 	}
-	ms.tweets["t_old"] = &model.Tweet{
-		ID: "t_old", Text: "old tweet", AuthorHandle: "h1",
-		CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	ms.signals[11] = &model.Signal{
+		ID: 11, Text: "old post", Author: "h1",
+		PublishedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	ms.tweets["t_new"] = &model.Tweet{
-		ID: "t_new", Text: "new tweet", AuthorHandle: "h2",
-		CreatedAt: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
+	ms.signals[12] = &model.Signal{
+		ID: 12, Text: "new post", Author: "h2",
+		PublishedAt: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC),
 	}
 
 	body := `{"order": "asc"}`
@@ -1144,11 +1149,11 @@ func TestRunPipeline_AscOrder(t *testing.T) {
 		t.Fatalf("expected 2 pushed tasks, got %d", len(pushed))
 	}
 	var ev0 struct {
-		TweetID string `json:"tweet_id"`
+		SignalID int64 `json:"signal_id"`
 	}
 	_ = json.Unmarshal(pushed[0].Event, &ev0)
-	if ev0.TweetID != "t_old" {
-		t.Errorf("expected first task for t_old (oldest), got %s", ev0.TweetID)
+	if ev0.SignalID != 11 {
+		t.Errorf("expected first task for signal 11 (oldest), got %d", ev0.SignalID)
 	}
 }
 

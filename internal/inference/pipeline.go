@@ -21,10 +21,11 @@ const (
 
 // PipelineInput carries all data a pipeline needs to run.
 type PipelineInput struct {
-	// Text is the primary text to process (tweet body).
+	// Text is the primary text to process: the signal text for posts,
+	// title + "\n\n" + text for articles.
 	Text string
-	// TweetID is the ID of the tweet being processed.
-	TweetID string
+	// SignalID is the ID of the signal being processed.
+	SignalID int64
 	// Context is the accumulated flat map of outputs from upstream actions in a chain.
 	Context map[string]any
 	// Config is the pipeline-specific configuration from the DB pipeline row.
@@ -64,7 +65,7 @@ type ExtractionPipeline interface {
 // DigestPipeline is implemented by digest-capable pipelines.
 type DigestPipeline interface {
 	Pipeline
-	Digest(ctx context.Context, tweets []string) (string, error)
+	Digest(ctx context.Context, signals []string) (string, error)
 }
 
 // ConcurrencyLimiter is optionally implemented by pipelines that cap concurrency.

@@ -11,7 +11,7 @@ import FailureSheet from '../components/queue/FailureSheet.vue'
 import { useFailuresStore } from '../stores/failures'
 import { useQueuesStore } from '../stores/queues'
 import { getQueue, flushQueue, flushWorkerBuffer } from '../api/queue'
-import type { FailedTweet } from '../api/failures'
+import type { FailedTask } from '../api/failures'
 
 const toast       = useToast()
 const store       = useFailuresStore()
@@ -45,9 +45,9 @@ const activeWorkers = computed(() => queuesStore.workers.filter(w => w.status ==
 // ── Failure detail ───────────────────────────────────────────────────────────
 
 const showDetail = ref(false)
-const selected   = ref<FailedTweet | null>(null)
+const selected   = ref<FailedTask | null>(null)
 
-function openDetail(row: FailedTweet) {
+function openDetail(row: FailedTask) {
   selected.value   = row
   showDetail.value = true
 }
@@ -156,7 +156,7 @@ onMounted(refresh)
     <AlertDialog
       v-model:open="showClear"
       :title="`Clear ${plural(store.total, 'failed task')}?`"
-      description="Every entry in the dead-letter queue is removed. The tweets themselves are kept. This can't be undone."
+      description="Every entry in the dead-letter queue is removed. The signals themselves are kept. This can't be undone."
       :action-label="`Clear ${plural(store.total, 'entry', 'entries')}`"
       :loading="clearing"
       @confirm="onClear"

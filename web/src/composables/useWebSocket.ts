@@ -12,7 +12,7 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { useStreamStore } from '@/stores/stream'
 import { useFailuresStore } from '@/stores/failures'
 import { useAuthStore } from '@/stores/auth'
-import { useTweetsStore } from '@/stores/tweets'
+import { useSignalsStore } from '@/stores/signals'
 
 let ws: WebSocket | null = null
 let pingInterval: ReturnType<typeof setInterval> | null = null
@@ -48,14 +48,14 @@ function buildHandlers() {
   const sourcesStore = useSourcesStore()
   const entitiesStore = useEntitiesStore()
   const notificationsStore = useNotificationsStore()
-  const tweetsStore = useTweetsStore()
+  const signalsStore = useSignalsStore()
 
   // Suppress unused variable warning — wsStore is referenced in onopen/onclose
   void wsStore
 
   return {
     pong:                   (_: any) => { /* timestamp updated in onmessage */ },
-    new_tweet:              (p: any) => tweetsStore.prependTweet(p),
+    new_signal:             (p: any) => signalsStore.prependSignal(p),
     worker_stats:           (p: any) => queuesStore.setWorkers(p.workers ?? []),
     queue_update:           (_: any) => scheduleQueueRefresh(),
     failed_count:           (p: any) => failuresStore.setTotal(p.count),

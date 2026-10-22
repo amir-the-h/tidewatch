@@ -7,14 +7,12 @@ import (
 )
 
 var defaultTemplates = map[string]string{
-	EventTweetMatched:         `New tweet from @{{.Tweet.AuthorHandle}}: {{.Tweet.Text}}`,
-	EventTweetCategorized:     `Tweet by @{{.Tweet.AuthorHandle}} categorized by {{.ModelName}}: {{.Results}}`,
-	EventCategorizationFailed: `Failed to categorize tweet {{.Tweet.ID}} with {{.ModelName}}: {{.Error}}`,
-	EventStreamConnected:      `Stream connected`,
-	EventStreamDisconnected:   `Stream disconnected`,
-	EventStreamError:          `Stream error: {{.Error}}`,
-	EventDigestDone:           `Digest ready ({{.DigestJob.TweetCount}} tweets): {{.DigestJob.Result}}`,
-	EventDigestFailed:         `Digest failed: {{.Error}}`,
+	EventSignalIngested:     `New signal from {{.Signal.Author}}: {{.Signal.Text}}`,
+	EventStreamConnected:    `Stream connected`,
+	EventStreamDisconnected: `Stream disconnected`,
+	EventStreamError:        `Stream error: {{.Error}}`,
+	EventDigestDone:         `Digest ready ({{.DigestJob.SignalCount}} signals): {{.DigestJob.Result}}`,
+	EventDigestFailed:       `Digest failed: {{.Error}}`,
 }
 
 func RenderMessage(event NotificationEvent, customTemplate *string) (string, error) {

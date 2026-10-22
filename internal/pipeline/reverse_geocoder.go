@@ -83,7 +83,7 @@ func (p *ReverseGeocoderPipeline) Run(ctx context.Context, input inference.Pipel
 	}
 
 	// Normalise context value to a raw JSON string.
-	// Context values are strings when they come from MergeAllTweetExecutionMetadata,
+	// Context values are strings when they come from MergeAllSignalExecutionMetadata,
 	// but may be other types after an in-process JSON round-trip.
 	var rawStr string
 	if s, ok := raw.(string); ok {

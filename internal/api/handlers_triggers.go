@@ -13,14 +13,14 @@ import (
 
 func (s *Server) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	triggers := []map[string]string{
-		{"type": "new_tweet", "description": "Fires when a tweet is received from the stream"},
+		{"type": "new_signal", "description": "Fires when a new signal is ingested (X stream and search today)"},
 		{"type": "new_categorization", "description": "Fires when an ONNX/Ollama action completes"},
 		{"type": "entity_matched", "description": "Fires when an entity matcher action finds a match"},
 		{"type": "digest_requested", "description": "Fires when a digest job is created via POST /api/digest"},
 		{"type": "server_started", "description": "Fires once when the server process starts"},
 		{"type": "stream_connected", "description": "Fires when the X stream connects"},
 		{"type": "digest_completed", "description": "Fires when a digest job finishes"},
-		{"type": "pipeline_finished", "description": "Fires when all branches of a pipeline complete for a tweet"},
+		{"type": "pipeline_finished", "description": "Fires when all branches of a pipeline complete for a signal"},
 	}
 	writeJSON(w, http.StatusOK, triggers)
 }

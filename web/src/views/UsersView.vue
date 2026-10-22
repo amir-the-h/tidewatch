@@ -172,7 +172,7 @@ onMounted(fetchUsers)
   <div class="flex flex-col gap-3">
     <PageHeader
       title="Users"
-      description="Who can sign in. Admins have full access; viewers see the map, tweets and tracker."
+      description="Who can sign in. Admins have full access; viewers see the map, signals and tracker."
       add-label="New user"
       @add="openCreate"
     />

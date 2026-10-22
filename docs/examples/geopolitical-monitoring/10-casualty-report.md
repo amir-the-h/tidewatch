@@ -1,7 +1,7 @@
 # Flow: Casualty Report
 
 **Domain prefix:** `casualty_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are a conflict analyst monitoring the Iran-US-Israel war.
-Your task: determine whether the tweet reports CONFIRMED or OFFICIALLY CLAIMED casualty figures from a conflict event — not estimates, projections, or historical totals.
+Your task: determine whether the text reports CONFIRMED or OFFICIALLY CLAIMED casualty figures from a conflict event — not estimates, projections, or historical totals.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"casualty_is_report": "true|false", "casualty_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "casualty_is_report": "true" if the tweet provides specific casualty numbers (killed, wounded, missing) attributed to a named event, strike, or operation, from an official or credible source
+- "casualty_is_report": "true" if the text provides specific casualty numbers (killed, wounded, missing) attributed to a named event, strike, or operation, from an official or credible source
 - "casualty_is_report": "false" for cumulative war totals without a specific event, historical comparisons, projections, medical system capacity reports, or unverified social media claims without sourcing
 - "casualty_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are a conflict analyst. A tweet has been confirmed to report casualty figures. Extract all available details.
+You are a conflict analyst. A post or article has been confirmed to report casualty figures. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -90,9 +90,9 @@ Rules:
 <b>Missing:</b> ${casualty_missing}
 <b>Source:</b> ${casualty_source} (${casualty_source_reliability})
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #casualties #${casualty_side} #${casualty_location}
 ```

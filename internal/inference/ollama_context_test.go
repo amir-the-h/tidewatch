@@ -7,21 +7,21 @@ import (
 	"testing"
 )
 
-func TestBuildContextBlock_TweetVarsOnly(t *testing.T) {
-	tweetVars := map[string]any{
-		"tweet_id":     "123",
-		"tweet_url":    "https://x.com/user/status/123",
-		"tweet_author": "user",
-		"tweet_short":  "hello world",
+func TestBuildContextBlock_SignalVarsOnly(t *testing.T) {
+	signalVars := map[string]any{
+		"signal_id":  int64(123),
+		"url":        "https://x.com/user/status/123",
+		"author":     "user",
+		"text_short": "hello world",
 	}
-	got := buildContextBlock(tweetVars, nil)
+	got := buildContextBlock(signalVars, nil)
 	if !strings.HasPrefix(got, "<context>\n") {
 		t.Errorf("expected <context> prefix, got: %s", got)
 	}
 	if !strings.HasSuffix(got, "</context>") {
 		t.Errorf("expected </context> suffix, got: %s", got)
 	}
-	for _, want := range []string{"tweet_id: 123", "tweet_url: https://x.com/user/status/123", "tweet_author: user", "tweet_short: hello world"} {
+	for _, want := range []string{"signal_id: 123", "url: https://x.com/user/status/123", "author: user", "text_short: hello world"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in output:\n%s", want, got)
 		}
@@ -122,9 +122,9 @@ func TestOllamaPipelineRun_TextOnly_NoLoader(t *testing.T) {
 		},
 	}
 	_, err := p.Run(context.Background(), PipelineInput{
-		Text:    "raw tweet",
-		TweetID: "t1",
-		Context: map[string]any{},
+		Text:     "raw tweet",
+		SignalID: 1,
+		Context:  map[string]any{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -135,7 +135,7 @@ func TestOllamaPipelineRun_TextOnly_NoLoader(t *testing.T) {
 }
 
 func TestOllamaPipelineRun_ContextOnly(t *testing.T) {
-	loader := func(_ context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error) {
+	loader := func(_ context.Context, signalID int64, actionIDs []int64) ([]ContextSummary, error) {
 		return []ContextSummary{
 			{ActionID: 1, ActionName: "Clf", Metadata: map[string]any{"top_label": "violence"}},
 		}, nil
@@ -152,9 +152,9 @@ func TestOllamaPipelineRun_ContextOnly(t *testing.T) {
 		},
 	}
 	_, err := p.Run(context.Background(), PipelineInput{
-		Text:    "raw tweet",
-		TweetID: "t1",
-		Context: map[string]any{"tweet_id": "t1", "tweet_url": "https://x.com/u/status/t1", "tweet_author": "u", "tweet_short": "raw tweet"},
+		Text:     "raw tweet",
+		SignalID: 1,
+		Context:  map[string]any{"signal_id": int64(1), "url": "https://x.com/u/status/t1", "author": "u", "text_short": "raw tweet"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -162,8 +162,8 @@ func TestOllamaPipelineRun_ContextOnly(t *testing.T) {
 	if !strings.HasPrefix(sentText, "<context>") {
 		t.Errorf("context_only should start with <context>, got:\n%s", sentText)
 	}
-	if !strings.Contains(sentText, "tweet_id: t1") {
-		t.Errorf("context_only should include tweet_id in context block, got:\n%s", sentText)
+	if !strings.Contains(sentText, "signal_id: 1") {
+		t.Errorf("context_only should include signal_id in context block, got:\n%s", sentText)
 	}
 	if !strings.Contains(sentText, "<context>") {
 		t.Errorf("expected <context> block, got:\n%s", sentText)
@@ -174,7 +174,7 @@ func TestOllamaPipelineRun_ContextOnly(t *testing.T) {
 }
 
 func TestOllamaPipelineRun_TextAndContext(t *testing.T) {
-	loader := func(_ context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error) {
+	loader := func(_ context.Context, signalID int64, actionIDs []int64) ([]ContextSummary, error) {
 		return []ContextSummary{
 			{ActionID: 2, ActionName: "NER", Metadata: map[string]any{"entities": []any{"Iran"}}},
 		}, nil
@@ -191,9 +191,9 @@ func TestOllamaPipelineRun_TextAndContext(t *testing.T) {
 		},
 	}
 	_, err := p.Run(context.Background(), PipelineInput{
-		Text:    "raw tweet",
-		TweetID: "t1",
-		Context: map[string]any{"tweet_id": "t1", "tweet_url": "https://x.com/u/status/t1", "tweet_author": "u", "tweet_short": "raw tweet"},
+		Text:     "raw tweet",
+		SignalID: 1,
+		Context:  map[string]any{"signal_id": int64(1), "url": "https://x.com/u/status/t1", "author": "u", "text_short": "raw tweet"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -207,7 +207,7 @@ func TestOllamaPipelineRun_TextAndContext(t *testing.T) {
 }
 
 func TestOllamaPipelineRun_LoaderError_FallsBackToText(t *testing.T) {
-	loader := func(_ context.Context, tweetID string, actionIDs []int64) ([]ContextSummary, error) {
+	loader := func(_ context.Context, signalID int64, actionIDs []int64) ([]ContextSummary, error) {
 		return nil, fmt.Errorf("db error")
 	}
 	var sentText string
@@ -222,9 +222,9 @@ func TestOllamaPipelineRun_LoaderError_FallsBackToText(t *testing.T) {
 		},
 	}
 	_, err := p.Run(context.Background(), PipelineInput{
-		Text:    "raw tweet",
-		TweetID: "t1",
-		Context: map[string]any{},
+		Text:     "raw tweet",
+		SignalID: 1,
+		Context:  map[string]any{},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

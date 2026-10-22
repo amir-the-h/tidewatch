@@ -26,11 +26,11 @@ func (m *mockProvider) Deliver(_ context.Context, text string, config map[string
 
 func TestNotificationPipeline_SubstitutesVars(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "Hello ${author}, tweet: ${tweet}", "", map[string]any{"priority": 1}, mp, nil)
+	p := NewNotificationPipeline("test", "Hello ${author}, text: ${text}", "", map[string]any{"priority": 1}, mp, nil)
 
 	input := inference.PipelineInput{
 		Context: map[string]any{
-			"tweet":  "Iran protests continue",
+			"text":   "Iran protests continue",
 			"author": "reporter1",
 		},
 	}
@@ -38,7 +38,7 @@ func TestNotificationPipeline_SubstitutesVars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	wantText := "Hello reporter1, tweet: Iran protests continue"
+	wantText := "Hello reporter1, text: Iran protests continue"
 	if mp.lastText != wantText {
 		t.Errorf("text: got %q, want %q", mp.lastText, wantText)
 	}
@@ -119,17 +119,17 @@ func TestNotificationPipeline_Close(t *testing.T) {
 func TestNotificationPipeline_MarkdownV2EscapesValues(t *testing.T) {
 	mp := &mockProvider{}
 	cfg := map[string]any{"parse_mode": "MarkdownV2"}
-	// Template has intentional bold; the tweet value contains special chars.
-	p := NewNotificationPipeline("test", "*Tweet:* ${tweet}", "", cfg, mp, nil)
+	// Template has intentional bold; the text value contains special chars.
+	p := NewNotificationPipeline("test", "*Text:* ${text}", "", cfg, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
-		Context: map[string]any{"tweet": "Hello_World! (breaking.news)"},
+		Context: map[string]any{"text": "Hello_World! (breaking.news)"},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	// Template markup (*) is preserved; value chars are escaped.
-	want := `*Tweet:* Hello\_World\! \(breaking\.news\)`
+	want := `*Text:* Hello\_World\! \(breaking\.news\)`
 	if mp.lastText != want {
 		t.Errorf("text: got %q, want %q", mp.lastText, want)
 	}
@@ -138,15 +138,15 @@ func TestNotificationPipeline_MarkdownV2EscapesValues(t *testing.T) {
 func TestNotificationPipeline_HTMLEscapesValues(t *testing.T) {
 	mp := &mockProvider{}
 	cfg := map[string]any{"parse_mode": "HTML"}
-	p := NewNotificationPipeline("test", "<b>Tweet:</b> ${tweet}", "", cfg, mp, nil)
+	p := NewNotificationPipeline("test", "<b>Text:</b> ${text}", "", cfg, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
-		Context: map[string]any{"tweet": "<script>alert('xss')</script> & more"},
+		Context: map[string]any{"text": "<script>alert('xss')</script> & more"},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	want := "<b>Tweet:</b> &lt;script&gt;alert('xss')&lt;/script&gt; &amp; more"
+	want := "<b>Text:</b> &lt;script&gt;alert('xss')&lt;/script&gt; &amp; more"
 	if mp.lastText != want {
 		t.Errorf("text: got %q, want %q", mp.lastText, want)
 	}
@@ -154,10 +154,10 @@ func TestNotificationPipeline_HTMLEscapesValues(t *testing.T) {
 
 func TestNotificationPipeline_NoParseModeLeavesValuesRaw(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "${tweet}", "", nil, mp, nil)
+	p := NewNotificationPipeline("test", "${text}", "", nil, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
-		Context: map[string]any{"tweet": "raw_text*here"},
+		Context: map[string]any{"text": "raw_text*here"},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -307,15 +307,16 @@ func TestTelegramEscapeMarkdown(t *testing.T) {
 
 func TestNotificationPipeline_ActionsExpanded(t *testing.T) {
 	mp := &mockProvider{}
-	loader := func(_ context.Context, tweetID string) ([]ActionSummary, error) {
+	loader := func(_ context.Context, signalID int64) ([]ActionSummary, error) {
 		return []ActionSummary{
 			{ActionName: "Classify", Metadata: map[string]any{"label": "political", "score": float64(0.95)}},
 		}, nil
 	}
-	p := NewNotificationPipeline("test", "Tweet: ${tweet}\n${actions}", "", nil, mp, loader)
+	p := NewNotificationPipeline("test", "Text: ${text}\n${actions}", "", nil, mp, loader)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
-		Context: map[string]any{"tweet": "hello", "tweet_id": "123"},
+		SignalID: 123,
+		Context:  map[string]any{"text": "hello", "signal_id": int64(123)},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -333,7 +334,8 @@ func TestNotificationPipeline_ActionsSkippedWithoutLoader(t *testing.T) {
 	p := NewNotificationPipeline("test", "${actions}", "", nil, mp, nil)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
-		Context: map[string]any{"tweet_id": "123"},
+		SignalID: 123,
+		Context:  map[string]any{"signal_id": int64(123)},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -346,13 +348,14 @@ func TestNotificationPipeline_ActionsSkippedWithoutLoader(t *testing.T) {
 
 func TestNotificationPipeline_ActionsEmptyWhenNoSummaries(t *testing.T) {
 	mp := &mockProvider{}
-	loader := func(_ context.Context, _ string) ([]ActionSummary, error) {
+	loader := func(_ context.Context, _ int64) ([]ActionSummary, error) {
 		return nil, nil // no actions ran yet
 	}
-	p := NewNotificationPipeline("test", "tweet\n${actions}", "", nil, mp, loader)
+	p := NewNotificationPipeline("test", "text\n${actions}", "", nil, mp, loader)
 
 	_, err := p.Run(context.Background(), inference.PipelineInput{
-		Context: map[string]any{"tweet_id": "123"},
+		SignalID: 123,
+		Context:  map[string]any{"signal_id": int64(123)},
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -522,10 +525,10 @@ func TestSubstituteVars_HTMLWrappedLabelDroppedWhenEmpty(t *testing.T) {
 
 func TestNotificationPipeline_ThreadNameTemplate_RenderedAndInjected(t *testing.T) {
 	mp := &mockProvider{}
-	p := NewNotificationPipeline("test", "body ${tweet}", "[${category}] ${author}", nil, mp, nil)
+	p := NewNotificationPipeline("test", "body ${text}", "[${category}] ${author}", nil, mp, nil)
 	input := inference.PipelineInput{
 		Context: map[string]any{
-			"tweet":    "Iran protests",
+			"text":     "Iran protests",
 			"author":   "reporter1",
 			"category": "protest",
 		},

@@ -16,7 +16,7 @@ var executionCmd = &cobra.Command{
 
 var (
 	execActionID string
-	execTweetID  string
+	execSignalID string
 	execStatus   string
 	execPage     int
 	execPerPage  int
@@ -30,8 +30,8 @@ var executionListCmd = &cobra.Command{
 		if execActionID != "" {
 			params.Set("action_id", execActionID)
 		}
-		if execTweetID != "" {
-			params.Set("tweet_id", execTweetID)
+		if execSignalID != "" {
+			params.Set("signal_id", execSignalID)
 		}
 		if execStatus != "" {
 			params.Set("status", execStatus)
@@ -103,12 +103,12 @@ var executionMetaCmd = &cobra.Command{
 // printExecutions writes a tabwriter table of executions to cmd output.
 func printExecutions(cmd *cobra.Command, execs []map[string]any) {
 	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tACTION_ID\tTWEET_ID\tSTATUS\tEXECUTED_AT")
+	fmt.Fprintln(w, "ID\tACTION_ID\tSIGNAL_ID\tSTATUS\tEXECUTED_AT")
 	for _, e := range execs {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			formatField(e["id"]),
 			formatField(e["action_id"]),
-			formatField(e["tweet_id"]),
+			formatField(e["signal_id"]),
 			formatField(e["status"]),
 			formatField(e["executed_at"]),
 		)
@@ -118,7 +118,7 @@ func printExecutions(cmd *cobra.Command, execs []map[string]any) {
 
 func init() {
 	executionListCmd.Flags().StringVar(&execActionID, "action-id", "", "Filter by action ID")
-	executionListCmd.Flags().StringVar(&execTweetID, "tweet-id", "", "Filter by tweet ID")
+	executionListCmd.Flags().StringVar(&execSignalID, "signal-id", "", "Filter by signal ID")
 	executionListCmd.Flags().StringVar(&execStatus, "status", "", "Filter by status (success, error)")
 	executionListCmd.Flags().IntVar(&execPage, "page", 0, "Page number")
 	executionListCmd.Flags().IntVar(&execPerPage, "per-page", 0, "Results per page")

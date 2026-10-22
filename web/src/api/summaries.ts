@@ -4,7 +4,6 @@ export interface DigestRequest {
   from?: string       // RFC3339
   to?: string         // RFC3339
   rule_id?: number
-  source_id?: number
   entity_id?: number
   limit?: number
 }
@@ -17,7 +16,7 @@ export interface DigestJob {
   params: DigestRequest
   result?: string
   error?: string
-  tweet_count: number
+  signal_count: number
   created_at: string
   completed_at?: string
 }

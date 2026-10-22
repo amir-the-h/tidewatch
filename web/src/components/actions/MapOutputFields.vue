@@ -27,7 +27,7 @@ const coordinateTypeOptions = [
       <FormField
         label="Popup template"
         for="action-map-popup"
-        description="${key} for any execution metadata key; built-ins ${tweet_id}, ${tweet_created_at}, ${model_name}. Leave empty for the default layout."
+        description="${key} for any execution metadata key; built-ins ${signal_id}, ${signal_published_at}, ${signal_text}, ${model_name}. Leave empty for the default layout."
       >
         <Textarea
           id="action-map-popup"

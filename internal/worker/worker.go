@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/amir-the-h/tidewatch/internal/model"
 	"github.com/amir-the-h/tidewatch/internal/notifier"
 	"github.com/amir-the-h/tidewatch/internal/queue"
 	"github.com/amir-the-h/tidewatch/internal/store"
@@ -20,7 +19,7 @@ type worker struct {
 	store    store.Store
 	logger   *slog.Logger
 	emitter  notifier.EventEmitter
-	active   *atomic.Int32 // shared with Pool; incremented while processing a tweet
+	active   *atomic.Int32 // shared with Pool; incremented while processing a task
 }
 
 func (w *worker) run(ctx context.Context) {
@@ -30,6 +29,3 @@ func (w *worker) run(ctx context.Context) {
 	}
 	<-ctx.Done()
 }
-
-// matchEntities is a no-op stub kept for compatibility. The Manager handles entity matching.
-func (w *worker) matchEntities(_ context.Context, _ *model.Tweet, _ []model.NEREntity) {}

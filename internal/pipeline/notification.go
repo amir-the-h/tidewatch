@@ -13,17 +13,17 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/notifier"
 )
 
-// ActionSummary holds the aggregated execution metadata for a single action on a tweet.
+// ActionSummary holds the aggregated execution metadata for a single action on a signal.
 // It is used to build the ${actions} template variable.
 type ActionSummary struct {
 	ActionName string
 	Metadata   map[string]any
 }
 
-// ActionSummaryLoader is a callback that fetches all ActionSummary records for a tweet.
+// ActionSummaryLoader is a callback that fetches all ActionSummary records for a signal.
 // Injected at construction time so the pipeline does not depend directly on the store.
 // A nil loader disables ${actions} expansion.
-type ActionSummaryLoader func(ctx context.Context, tweetID string) ([]ActionSummary, error)
+type ActionSummaryLoader func(ctx context.Context, signalID int64) ([]ActionSummary, error)
 
 // internalMetaKeys are metadata keys produced by pipeline infrastructure (not domain data)
 // and are excluded from the ${actions} display block.
@@ -85,7 +85,7 @@ func (p *NotificationPipeline) Close() error { return nil }
 //
 // If the template contains ${actions} and a loadActions callback was provided,
 // that variable is replaced with a Telegram expandable-block summary of every
-// action that ran on the tweet, formatted for the configured parse_mode.
+// action that ran on the signal, formatted for the configured parse_mode.
 //
 // Returns the base output {"sent": true, "provider": name} merged with any
 // provider-assigned metadata (e.g. {"telegram_message_id": 12345} or {"discord_thread_id": "xyz"}).
@@ -101,10 +101,9 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 	// be passed through the escaper — raw string replacement bypasses it entirely.
 	tmpl := p.messageTemplate
 	if p.loadActions != nil && strings.Contains(tmpl, "${actions}") {
-		tweetID, _ := input.Context["tweet_id"].(string)
 		block := ""
-		if tweetID != "" {
-			summaries, err := p.loadActions(ctx, tweetID)
+		if input.SignalID != 0 {
+			summaries, err := p.loadActions(ctx, input.SignalID)
 			if err == nil {
 				block = formatActionsBlock(summaries, pm)
 			}
@@ -121,7 +120,7 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 	}
 	// Forward the previous message_id (if any) so the provider can edit instead of resend.
 	// If this action has no prior message (first send), reply to the last notification
-	// for this tweet so Telegram threads related messages into a reply chain.
+	// for this signal so Telegram threads related messages into a reply chain.
 	if v, ok := input.Context["telegram_message_id"]; ok {
 		cfg["telegram_message_id"] = v
 	} else if v, ok := input.Context["last_telegram_message_id"]; ok {
@@ -133,8 +132,8 @@ func (p *NotificationPipeline) Run(ctx context.Context, input inference.Pipeline
 	}
 
 	// Pushover's supplementary "url" / "url_title" fields support the same
-	// ${key} substitution as the message body (e.g. linking to the tweet's
-	// detail page via ${tweet_id}), but are otherwise sent to the provider as-is.
+	// ${key} substitution as the message body (e.g. linking to the signal's
+	// detail page via ${signal_id}), but are otherwise sent to the provider as-is.
 	if v, ok := cfg["url"].(string); ok && v != "" {
 		cfg["url"] = substituteVars(v, input.Context, nil)
 	}

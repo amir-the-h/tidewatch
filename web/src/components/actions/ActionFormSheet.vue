@@ -37,7 +37,7 @@ const typeOptions: { label: string; value: ActionType }[] = [
 ]
 
 const typeDescriptions: Record<ActionType, string> = {
-  onnx:         'Runs a local ONNX model on the tweet text.',
+  onnx:         'Runs a local ONNX model on the signal text.',
   ollama:       'Prompts an LLM on an Ollama backend.',
   internal:     'Runs a built-in handler.',
   notification: 'Sends a message to a notification channel.',

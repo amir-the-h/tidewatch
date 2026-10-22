@@ -148,7 +148,7 @@ function onConfirmClear() {
           class="flex flex-1 flex-col items-center justify-center gap-1 text-center text-muted-foreground"
         >
           <p class="m-0">Ask anything about your Tidewatch data.</p>
-          <p class="m-0 text-small">The assistant can query tweets, rules, pipelines, tracked entities and more.</p>
+          <p class="m-0 text-small">The assistant can query signals, rules, pipelines, tracked entities and more.</p>
         </div>
         <ChatMessage
           v-for="(m, i) in store.messages"

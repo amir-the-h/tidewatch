@@ -1,7 +1,7 @@
 # Flow: Cyber / Infrastructure Attack
 
 **Domain prefix:** `cyber_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are a cybersecurity intelligence analyst monitoring Iran-US-Israel conflict.
-Your task: determine whether the tweet reports a CONFIRMED or CREDIBLY CLAIMED cyberattack or infrastructure sabotage related to the conflict.
+Your task: determine whether the text reports a CONFIRMED or CREDIBLY CLAIMED cyberattack or infrastructure sabotage related to the conflict.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"cyber_is_attack": "true|false", "cyber_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "cyber_is_attack": "true" if the tweet reports a confirmed or claimed cyber intrusion, data breach, ransomware, SCADA/ICS attack, power grid disruption, port/refinery disruption, or physical sabotage of infrastructure
+- "cyber_is_attack": "true" if the text reports a confirmed or claimed cyber intrusion, data breach, ransomware, SCADA/ICS attack, power grid disruption, port/refinery disruption, or physical sabotage of infrastructure
 - "cyber_is_attack": "false" for general warnings, capability announcements, historical references, sanctions for past cyber activity, or unconfirmed rumors
 - "cyber_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are a cybersecurity intelligence analyst. A tweet has been confirmed to report a cyberattack or infrastructure sabotage. Extract all available details.
+You are a cybersecurity intelligence analyst. A post or article has been confirmed to report a cyberattack or infrastructure sabotage. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -89,9 +89,9 @@ Rules:
 <b>Data exfiltrated:</b> ${cyber_data_exfiltrated | yesno}
 <b>Official attribution:</b> ${cyber_attribution_official | yesno}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #cyber #${cyber_attack_type} #${cyber_target_country}
 ```

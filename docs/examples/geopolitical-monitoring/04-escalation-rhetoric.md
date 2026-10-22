@@ -1,7 +1,7 @@
 # Flow: Escalation Rhetoric
 
 **Domain prefix:** `rhetoric_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are a conflict analyst monitoring official escalation signals between Iran, the US, and Israel.
-Your task: determine whether the tweet reports an OFFICIAL THREAT, ULTIMATUM, or ESCALATORY STATEMENT from a government official, military commander, or state media outlet — not analyst commentary or general news framing.
+Your task: determine whether the text reports an OFFICIAL THREAT, ULTIMATUM, or ESCALATORY STATEMENT from a government official, military commander, or state media outlet — not analyst commentary or general news framing.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"rhetoric_is_escalation": "true|false", "rhetoric_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "rhetoric_is_escalation": "true" if the tweet quotes or reports a direct threat, red-line declaration, ultimatum, or nuclear threat from an official source (president, military chief, foreign minister, IRGC commander, PM, defense minister)
+- "rhetoric_is_escalation": "true" if the text quotes or reports a direct threat, red-line declaration, ultimatum, or nuclear threat from an official source (president, military chief, foreign minister, IRGC commander, PM, defense minister)
 - "rhetoric_is_escalation": "false" for analyst commentary, historical context, protest rhetoric, or unnamed sources
 - "rhetoric_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are a conflict analyst. A tweet has been confirmed to report official escalation rhetoric. Extract all available details.
+You are a conflict analyst. A post or article has been confirmed to report official escalation rhetoric. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -91,9 +91,9 @@ Rules:
 <b>Conditional:</b> ${rhetoric_condition_mentioned | yesno}
 <b>Condition:</b> ${rhetoric_condition_text}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #rhetoric #escalation #${rhetoric_speaker_country}
 ```

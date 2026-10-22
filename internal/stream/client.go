@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/amir-the-h/tidewatch/internal/hub"
-	"github.com/amir-the-h/tidewatch/internal/model"
 	"github.com/amir-the-h/tidewatch/internal/notifier"
 	"github.com/amir-the-h/tidewatch/internal/queue"
 	"github.com/amir-the-h/tidewatch/internal/store"
@@ -278,21 +277,16 @@ func (c *Client) connect(ctx context.Context) (gotEvent bool, err error) {
 	return gotEvent, nil
 }
 
-// processEvent normalizes a raw SSE payload and persists/queues the result.
+// processEvent normalizes a raw SSE payload and ingests the resulting signal.
 func (c *Client) processEvent(ctx context.Context, data []byte) error {
-	st, err := Normalize(data)
+	evt, err := Normalize(data)
 	if err != nil {
 		return fmt.Errorf("stream: normalize: %w", err)
 	}
 
-	// 1. Persist the tweet.
-	if err := c.store.SaveTweet(ctx, st.Tweet); err != nil {
-		return fmt.Errorf("stream: save tweet %s: %w", st.Tweet.ID, err)
-	}
-
-	// 2. For each matching rule, look up the Rule by x_rule_id and write tweet_rules.
+	// Resolve each matching X rule to its local rule ID.
 	var resolvedRuleIDs []int64
-	for _, mr := range st.MatchingRules {
+	for _, mr := range evt.MatchingRules {
 		rule, err := c.store.GetRuleByXRuleID(ctx, mr.ID)
 		if err != nil {
 			c.logger.Warn("stream: rule lookup failed",
@@ -303,57 +297,26 @@ func (c *Client) processEvent(ctx context.Context, data []byte) error {
 			continue
 		}
 		resolvedRuleIDs = append(resolvedRuleIDs, rule.ID)
-		tr := &model.TweetRule{
-			TweetID: st.Tweet.ID,
-			RuleID:  rule.ID,
-		}
-		if err := c.store.SaveTweetRule(ctx, tr); err != nil {
-			c.logger.Warn("stream: save tweet_rule failed",
-				"component", "stream",
-				"tweet_id", st.Tweet.ID,
-				"rule_id", rule.ID,
-				"error", err,
-			)
-		}
 	}
 
-	// 2b. Emit tweet_matched event with resolved local rule IDs.
-	if c.emitter != nil {
-		c.emitter.Emit(notifier.NotificationEvent{
-			Type:      notifier.EventTweetMatched,
-			Tweet:     st.Tweet,
-			RuleIDs:   resolvedRuleIDs,
-			Timestamp: time.Now(),
-		})
-	}
-
-	// 2c. Broadcast new tweet to connected WebSocket clients.
-	if c.broadcaster != nil {
-		c.broadcaster.Broadcast(hub.Event{
-			Type:    "new_tweet",
-			Payload: st.Tweet,
-		})
-	}
-
-	// Dispatch tasks for all action nodes in chains linked to "new_tweet".
-	ev := queue.TweetEvent{
-		TweetID:      st.Tweet.ID,
-		Text:         st.Tweet.Text,
-		AuthorHandle: st.Tweet.AuthorHandle,
-		RuleIDs:      resolvedRuleIDs,
-	}
-	if err := worker.PushInitialPipelineTasks(ctx, c.store, c.producer, c.cache, "new_tweet", ev, c.logger, 0); err != nil {
-		c.logger.Warn("stream: chain dispatch failed",
-			"component", "stream",
-			"tweet_id", st.Tweet.ID,
-			"error", err,
-		)
+	isNew, err := Ingest(ctx, IngestDeps{
+		Store:       c.store,
+		Producer:    c.producer,
+		Cache:       c.cache,
+		Broadcaster: c.broadcaster,
+		Emitter:     c.emitter,
+		Logger:      c.logger,
+	}, evt.Signal, resolvedRuleIDs, SourceTypeXStream)
+	if err != nil {
+		return err
 	}
 
 	c.logger.Info("stream: processed tweet",
 		"component", "stream",
-		"tweet_id", st.Tweet.ID,
-		"author", st.Tweet.AuthorHandle,
+		"signal_id", evt.Signal.ID,
+		"x_tweet_id", evt.Signal.ExternalID,
+		"author", evt.Signal.Author,
+		"new", isNew,
 	)
 
 	return nil

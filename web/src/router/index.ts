@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 // Routes accessible to viewers (read-only access).
-const VIEWER_ROUTES = new Set(['/map', '/tweets', '/tracker'])
+const VIEWER_ROUTES = new Set(['/map', '/signals', '/tracker'])
 
 export default createRouter({
   history: createWebHistory(),
@@ -10,7 +10,7 @@ export default createRouter({
     { path: '/login',   component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/',        redirect: '/map' },
     { path: '/map',     component: () => import('../views/MapView.vue'), meta: { fullBleed: true } },
-    { path: '/tweets',  component: () => import('../views/TweetsView.vue') },
+    { path: '/signals', component: () => import('../views/SignalsView.vue') },
     { path: '/sources', component: () => import('../views/SourcesView.vue') },
     { path: '/actions', component: () => import('../views/ActionsView.vue') },
     { path: '/pipelines', component: () => import('../views/PipelinesView.vue') },
@@ -44,7 +44,7 @@ export function installAuthGuard(router: ReturnType<typeof createRouter>) {
 
     // Viewers can only access their permitted routes.
     if (!auth.isAdmin && !VIEWER_ROUTES.has(to.path)) {
-      return { path: '/tweets' }
+      return { path: '/signals' }
     }
 
     return true

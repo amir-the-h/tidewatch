@@ -19,7 +19,7 @@ type DigestJob struct {
 	Params      DigestParams `json:"params"`
 	Result      string       `json:"result,omitempty"`
 	Error       string       `json:"error,omitempty"`
-	TweetCount  int          `json:"tweet_count"`
+	SignalCount int          `json:"signal_count"`
 	CreatedAt   time.Time    `json:"created_at"`
 	CompletedAt *time.Time   `json:"completed_at,omitempty"`
 }
@@ -29,7 +29,6 @@ type DigestParams struct {
 	From     *time.Time `json:"from,omitempty"`
 	To       *time.Time `json:"to,omitempty"`
 	RuleID   *int64     `json:"rule_id,omitempty"`
-	SourceID *int64     `json:"source_id,omitempty"`
 	EntityID *int64     `json:"entity_id,omitempty"`
 	Limit    int        `json:"limit"`
 }

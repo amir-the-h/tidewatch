@@ -4,7 +4,7 @@ Standards for building Ollama pipelines and notification templates in tidewatch 
 
 ## 1. Output Key Naming
 
-All Ollama pipeline output keys **must be prefixed** with the chain's domain name. This prevents collisions when multiple chains run on the same tweet and their outputs are merged into a shared context.
+All Ollama pipeline output keys **must be prefixed** with the chain's domain name. This prevents collisions when multiple chains run on the same signal and their outputs are merged into a shared context.
 
 **Pattern:** `{domain}_{key}`
 
@@ -18,7 +18,7 @@ Never use bare generic names like `confidence`, `label`, `matched`, `is_event` �
 
 ## 2. Detection Pipeline
 
-The first pipeline in a chain is a binary classifier that determines whether the tweet is relevant to the chain's domain.
+The first pipeline in a chain is a binary classifier that determines whether the text is relevant to the chain's domain.
 
 **Output schema:**
 ```json
@@ -37,7 +37,7 @@ Rules:
 **Prompt structure:**
 ```
 You are an intelligence analyst monitoring [topic] news.
-Your task: determine whether the tweet reports [specific event definition].
+Your task: determine whether the text reports [specific event definition].
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"[domain]_is_[event]": "true|false", "[domain]_confidence": "0.0-1.0"}
@@ -48,13 +48,13 @@ Rules:
 - "[domain]_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
 Examples:
-- "[negative example tweet]" → {"[domain]_is_[event]": "false", "[domain]_confidence": "0.97"}
-- "[positive example tweet]" → {"[domain]_is_[event]": "true", "[domain]_confidence": "0.95"}
+- "[negative example text]" → {"[domain]_is_[event]": "false", "[domain]_confidence": "0.97"}
+- "[positive example text]" → {"[domain]_is_[event]": "true", "[domain]_confidence": "0.95"}
 ```
 
 ## 3. Extraction Pipeline
 
-The second pipeline runs only on tweets that passed the detection condition. It extracts structured intelligence.
+The second pipeline runs only on signals that passed the detection condition. It extracts structured intelligence.
 
 **Output schema:**
 ```json
@@ -73,7 +73,7 @@ Rules:
 
 **Prompt structure:**
 ```
-You are an intelligence analyst. A tweet has been confirmed to report [event type]. Extract all available details.
+You are an intelligence analyst. A post or article has been confirmed to report [event type]. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -84,7 +84,7 @@ Return ONLY valid JSON, no explanation, no markdown:
 }
 
 Rules:
-- Use "unknown" for any field not clearly stated in the tweet
+- Use "unknown" for any field not clearly stated in the text
 - [field-specific rules...]
 - "[domain]_[bool_field]": "true" if [condition]; otherwise "false"
 - "[domain]_[array_field]": short phrases for [description]; empty array [] if none
@@ -110,11 +110,11 @@ Optional secondary condition for confidence threshold:
 
 ### Parse mode
 
-Always use **HTML** parse mode. MarkdownV2 requires escaping too many characters that appear in tweet text and extracted values.
+Always use **HTML** parse mode. MarkdownV2 requires escaping too many characters that appear in signal text and extracted values.
 
-### Tweet content
+### Signal content
 
-Always use `${tweet_short}` (truncated to 280 chars) inside `<blockquote expandable>` — never `${tweet}` directly, as long tweets exceed Telegram's 4096-char message limit.
+Always use `${text_short}` (truncated to 280 chars) inside `<blockquote expandable>` — never `${text}` directly, as long posts and articles exceed Telegram's 4096-char message limit.
 
 ### Template filters
 
@@ -137,9 +137,9 @@ Empty lines (where substituted value is empty or join produced nothing) are auto
 <b>Boolean:</b> ${domain_bool_field | yesno}
 <b>Array:</b> ${domain_array_field | join}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #domain #${domain_category_field} #${domain_actor_field}
 ```

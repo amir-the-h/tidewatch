@@ -165,7 +165,7 @@ async function onConfirmReset() {
   <AlertDialog
     v-model:open="showReset"
     title="Reset all connections?"
-    description="Every co-occurrence edge between tracked entities is deleted, for all entities. They rebuild as the entity_cooccurrence pipeline processes new tweets. This can't be undone."
+    description="Every co-occurrence edge between tracked entities is deleted, for all entities. They rebuild as the entity_cooccurrence pipeline processes new signals. This can't be undone."
     action-label="Reset connections"
     :loading="resetting"
     @confirm="onConfirmReset"

@@ -70,11 +70,11 @@ const (
 	ExecutionStatusError   = "error"
 )
 
-// ActionExecution is one log entry per action fired on a tweet.
+// ActionExecution is one log entry per action fired on a signal.
 type ActionExecution struct {
 	ID           int64             `json:"id"`
 	ActionID     int64             `json:"action_id"`
-	TweetID      string            `json:"tweet_id"`
+	SignalID     int64             `json:"signal_id"`
 	Status       string            `json:"status"`
 	Error        string            `json:"error,omitempty"`
 	ExecutedAt   time.Time         `json:"executed_at"`

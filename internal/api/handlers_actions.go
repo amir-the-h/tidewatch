@@ -252,8 +252,10 @@ func (s *Server) handleListAllExecutions(w http.ResponseWriter, r *http.Request)
 	filter := store.ExecutionFilter{}
 	applyExecutionQueryParams(r, &filter)
 
-	if v := r.URL.Query().Get("tweet_id"); v != "" {
-		filter.TweetID = &v
+	if v := r.URL.Query().Get("signal_id"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			filter.SignalID = &n
+		}
 	}
 	if v := r.URL.Query().Get("action_id"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {

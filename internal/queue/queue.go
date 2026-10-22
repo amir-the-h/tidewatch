@@ -41,12 +41,14 @@ type Task struct {
 	Context                map[string]any `json:"context"`
 }
 
-// TweetEvent is the Event payload for trigger_type=new_tweet.
-type TweetEvent struct {
-	TweetID      string  `json:"tweet_id"`
-	Text         string  `json:"text"`
-	AuthorHandle string  `json:"author_handle"`
-	RuleIDs      []int64 `json:"rule_ids"`
+// SignalEvent is the Event payload for trigger_type=new_signal. It carries no
+// text: the worker loads the signal by ID when it builds the task context, so
+// Redis payloads stay small regardless of article length.
+type SignalEvent struct {
+	SignalID   int64  `json:"signal_id"`
+	Kind       string `json:"kind"`
+	SourceID   int64  `json:"source_id,omitempty"`   // the source whose ingest dispatched it (phase 1 step 2)
+	SourceType string `json:"source_type,omitempty"` // e.g. x_stream, x_search
 }
 
 // DigestEvent is the Event payload for trigger_type=digest_requested.
@@ -54,8 +56,8 @@ type DigestEvent struct {
 	DigestJobID string `json:"digest_job_id"`
 }
 
-// FailedTweet wraps a Task with error annotations for dead-letter storage.
-type FailedTweet struct {
+// FailedTask wraps a Task with error annotations for dead-letter storage.
+type FailedTask struct {
 	Task         *Task         `json:"task"`
 	FailedModels []FailedModel `json:"failed_models"`
 }
@@ -70,7 +72,7 @@ type FailedModel struct {
 // Producer pushes tasks onto a queue.
 type Producer interface {
 	PushTask(ctx context.Context, task *Task) error
-	PushFailed(ctx context.Context, ft *FailedTweet) error
+	PushFailed(ctx context.Context, ft *FailedTask) error
 }
 
 // Consumer pops tasks from a queue.
@@ -78,7 +80,7 @@ type Producer interface {
 // them. Returns (nil, nil) on timeout or when keys is empty.
 type Consumer interface {
 	PopTask(ctx context.Context, timeout time.Duration, keys ...string) (*Task, error)
-	PopFailed(ctx context.Context, timeout time.Duration) (*FailedTweet, error)
+	PopFailed(ctx context.Context, timeout time.Duration) (*FailedTask, error)
 }
 
 // Sizer reports the number of items in a named queue.
@@ -88,7 +90,7 @@ type Sizer interface {
 
 // FailureLister enumerates and clears dead-letter queue entries.
 type FailureLister interface {
-	ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTweet, error)
+	ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTask, error)
 	ClearFailed(ctx context.Context) error
 	FlushQueue(ctx context.Context) error
 }

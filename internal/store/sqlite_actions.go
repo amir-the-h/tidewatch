@@ -204,10 +204,10 @@ func (s *sqliteStore) RemoveActionLabel(ctx context.Context, actionID int64, lab
 func (s *sqliteStore) SaveActionExecution(ctx context.Context, e *model.ActionExecution) error {
 	errStr := sql.NullString{String: e.Error, Valid: e.Error != ""}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO action_executions (action_id, tweet_id, status, error, executed_at)
+		`INSERT INTO action_executions (action_id, signal_id, status, error, executed_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		e.ActionID,
-		e.TweetID,
+		e.SignalID,
 		e.Status,
 		errStr,
 		e.ExecutedAt.UTC().Format(time.RFC3339),
@@ -231,9 +231,9 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 		where = append(where, "ae.action_id = ?")
 		args = append(args, *filter.ActionID)
 	}
-	if filter.TweetID != nil {
-		where = append(where, "ae.tweet_id = ?")
-		args = append(args, *filter.TweetID)
+	if filter.SignalID != nil {
+		where = append(where, "ae.signal_id = ?")
+		args = append(args, *filter.SignalID)
 	}
 	if filter.Status != nil {
 		where = append(where, "ae.status = ?")
@@ -249,14 +249,14 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 	}
 
 	// NOTE: the correlated subquery picks the pipeline name associated with this execution.
-	// When an action is a node in multiple pipelines that both ran for the same tweet,
+	// When an action is a node in multiple pipelines that both ran for the same signal,
 	// LIMIT 1 returns one pipeline name non-deterministically. This is a cosmetic
 	// display limitation — it does not affect execution correctness.
-	q := `SELECT ae.id, ae.action_id, ae.tweet_id, ae.status, COALESCE(ae.error,''), ae.executed_at,
+	q := `SELECT ae.id, ae.action_id, ae.signal_id, ae.status, COALESCE(ae.error,''), ae.executed_at,
 	       COALESCE((
 	         SELECT p.name
 	         FROM pipeline_nodes pn
-	         JOIN pipeline_run_tracking prt ON prt.pipeline_id = pn.pipeline_id AND prt.tweet_id = ae.tweet_id
+	         JOIN pipeline_run_tracking prt ON prt.pipeline_id = pn.pipeline_id AND prt.signal_id = ae.signal_id
 	         JOIN pipelines p ON p.id = pn.pipeline_id
 	         WHERE pn.action_id = ae.action_id
 	         LIMIT 1
@@ -285,7 +285,7 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 	for rows.Next() {
 		e := &model.ActionExecution{}
 		var executedAt string
-		if err := rows.Scan(&e.ID, &e.ActionID, &e.TweetID, &e.Status, &e.Error, &executedAt, &e.PipelineName); err != nil {
+		if err := rows.Scan(&e.ID, &e.ActionID, &e.SignalID, &e.Status, &e.Error, &executedAt, &e.PipelineName); err != nil {
 			return nil, fmt.Errorf("store: list action executions: scan: %w", err)
 		}
 		if t, err := time.Parse(time.RFC3339, executedAt); err == nil {
@@ -297,9 +297,9 @@ func (s *sqliteStore) ListActionExecutions(ctx context.Context, filter Execution
 }
 
 func (s *sqliteStore) SaveActionExecutionMetadata(ctx context.Context, execID int64, key, value string) error {
-	// Skip if a previous successful execution for the same (action_id, tweet_id)
+	// Skip if a previous successful execution for the same (action_id, signal_id)
 	// already produced an identical value for this key — avoids storing redundant
-	// rows when a tweet is reprocessed and the model output hasn't changed.
+	// rows when a signal is reprocessed and the model output hasn't changed.
 	_, err := s.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO action_execution_metadata (execution_id, key, value)
 		SELECT ?, ?, ?
@@ -309,7 +309,7 @@ func (s *sqliteStore) SaveActionExecutionMetadata(ctx context.Context, execID in
 			JOIN action_executions prev ON prev.id = aem.execution_id
 			JOIN action_executions cur  ON cur.id  = ?
 				AND prev.action_id = cur.action_id
-				AND prev.tweet_id  = cur.tweet_id
+				AND prev.signal_id  = cur.signal_id
 				AND prev.id       != cur.id
 				AND prev.status    = 'success'
 			WHERE aem.key   = ?
@@ -321,14 +321,14 @@ func (s *sqliteStore) SaveActionExecutionMetadata(ctx context.Context, execID in
 	return nil
 }
 
-func (s *sqliteStore) DeleteActionExecutions(ctx context.Context, tweetIDs []string, actionIDs []int64) (int64, error) {
-	args := make([]any, 0, len(tweetIDs)+len(actionIDs))
+func (s *sqliteStore) DeleteActionExecutions(ctx context.Context, signalIDs []int64, actionIDs []int64) (int64, error) {
+	args := make([]any, 0, len(signalIDs)+len(actionIDs))
 	var clauses []string
 
-	if len(tweetIDs) > 0 {
-		ph := strings.Repeat("?,", len(tweetIDs))
-		clauses = append(clauses, fmt.Sprintf("tweet_id IN (%s)", ph[:len(ph)-1]))
-		for _, id := range tweetIDs {
+	if len(signalIDs) > 0 {
+		ph := strings.Repeat("?,", len(signalIDs))
+		clauses = append(clauses, fmt.Sprintf("signal_id IN (%s)", ph[:len(ph)-1]))
+		for _, id := range signalIDs {
 			args = append(args, id)
 		}
 	}
@@ -399,10 +399,10 @@ func (s *sqliteStore) ListActionExecutionMetadata(ctx context.Context, execID in
 }
 
 // MergeActionExecutionMetadata returns the latest value per key across all
-// successful executions of actionID on tweetID. This gives the full picture of
-// what an action knows about a tweet regardless of how many times it ran or
+// successful executions of actionID on signalID. This gives the full picture of
+// what an action knows about a signal regardless of how many times it ran or
 // which keys were deduped on a given run.
-func (s *sqliteStore) MergeActionExecutionMetadata(ctx context.Context, actionID int64, tweetID string) (map[string]string, error) {
+func (s *sqliteStore) MergeActionExecutionMetadata(ctx context.Context, actionID int64, signalID int64) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT key, value FROM (
 			SELECT aem.key, aem.value,
@@ -410,9 +410,9 @@ func (s *sqliteStore) MergeActionExecutionMetadata(ctx context.Context, actionID
 			FROM action_execution_metadata aem
 			JOIN action_executions ae ON ae.id = aem.execution_id
 			WHERE ae.action_id = ?
-			  AND ae.tweet_id  = ?
+			  AND ae.signal_id  = ?
 			  AND ae.status    = 'success'
-		) WHERE rn = 1`, actionID, tweetID)
+		) WHERE rn = 1`, actionID, signalID)
 	if err != nil {
 		return nil, fmt.Errorf("store: merge action execution metadata: %w", err)
 	}
@@ -429,18 +429,18 @@ func (s *sqliteStore) MergeActionExecutionMetadata(ctx context.Context, actionID
 	return out, rows.Err()
 }
 
-// ListTweetActionSummaries returns one summary per action that had at least one
-// successful execution on tweetID, ordered by action id. Each summary contains
+// ListSignalActionSummaries returns one summary per action that had at least one
+// successful execution on signalID, ordered by action id. Each summary contains
 // the latest value per metadata key, parsed from its stored JSON form.
 // Actions with no metadata rows are included with an empty Metadata map.
-func (s *sqliteStore) ListTweetActionSummaries(ctx context.Context, tweetID string) ([]TweetActionSummary, error) {
+func (s *sqliteStore) ListSignalActionSummaries(ctx context.Context, signalID int64) ([]SignalActionSummary, error) {
 	// LEFT JOIN so actions with no metadata rows still appear (key/value will be NULL).
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT a.id, a.name, sub.key, sub.value
 		FROM (
 			SELECT DISTINCT ae.action_id
 			FROM action_executions ae
-			WHERE ae.tweet_id = ? AND ae.status = 'success'
+			WHERE ae.signal_id = ? AND ae.status = 'success'
 		) acted
 		JOIN actions a ON a.id = acted.action_id
 		LEFT JOIN (
@@ -448,27 +448,27 @@ func (s *sqliteStore) ListTweetActionSummaries(ctx context.Context, tweetID stri
 			       ROW_NUMBER() OVER (PARTITION BY ae.action_id, aem.key ORDER BY ae.id DESC) AS rn
 			FROM action_execution_metadata aem
 			JOIN action_executions ae ON ae.id = aem.execution_id
-			WHERE ae.tweet_id = ? AND ae.status = 'success'
+			WHERE ae.signal_id = ? AND ae.status = 'success'
 		) sub ON sub.action_id = a.id AND sub.rn = 1
-		ORDER BY a.id, sub.key`, tweetID, tweetID)
+		ORDER BY a.id, sub.key`, signalID, signalID)
 	if err != nil {
-		return nil, fmt.Errorf("store: list tweet action summaries: %w", err)
+		return nil, fmt.Errorf("store: list signal action summaries: %w", err)
 	}
 	defer rows.Close()
 
 	var order []int64
-	byID := map[int64]*TweetActionSummary{}
+	byID := map[int64]*SignalActionSummary{}
 
 	for rows.Next() {
 		var actionID int64
 		var actionName string
 		var key, value sql.NullString
 		if err := rows.Scan(&actionID, &actionName, &key, &value); err != nil {
-			return nil, fmt.Errorf("store: list tweet action summaries: scan: %w", err)
+			return nil, fmt.Errorf("store: list signal action summaries: scan: %w", err)
 		}
 		if _, exists := byID[actionID]; !exists {
 			order = append(order, actionID)
-			byID[actionID] = &TweetActionSummary{
+			byID[actionID] = &SignalActionSummary{
 				ActionID:   actionID,
 				ActionName: actionName,
 				Metadata:   map[string]any{},
@@ -485,32 +485,32 @@ func (s *sqliteStore) ListTweetActionSummaries(ctx context.Context, tweetID stri
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: list tweet action summaries: rows: %w", err)
+		return nil, fmt.Errorf("store: list signal action summaries: rows: %w", err)
 	}
 
-	out := make([]TweetActionSummary, len(order))
+	out := make([]SignalActionSummary, len(order))
 	for i, id := range order {
 		out[i] = *byID[id]
 	}
 	return out, nil
 }
 
-// MergeAllTweetExecutionMetadata returns the latest value per key across all
-// successful executions for tweetID, regardless of which action produced them.
+// MergeAllSignalExecutionMetadata returns the latest value per key across all
+// successful executions for signalID, regardless of which action produced them.
 // Keys from actions with a later execution ID win on conflict. This gives
 // notification pipelines access to ONNX/Ollama outputs without requiring a chain.
-func (s *sqliteStore) MergeAllTweetExecutionMetadata(ctx context.Context, tweetID string) (map[string]string, error) {
+func (s *sqliteStore) MergeAllSignalExecutionMetadata(ctx context.Context, signalID int64) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT key, value FROM (
 			SELECT aem.key, aem.value,
 			       ROW_NUMBER() OVER (PARTITION BY aem.key ORDER BY ae.id DESC) AS rn
 			FROM action_execution_metadata aem
 			JOIN action_executions ae ON ae.id = aem.execution_id
-			WHERE ae.tweet_id = ?
+			WHERE ae.signal_id = ?
 			  AND ae.status   = 'success'
-		) WHERE rn = 1`, tweetID)
+		) WHERE rn = 1`, signalID)
 	if err != nil {
-		return nil, fmt.Errorf("store: merge all tweet execution metadata: %w", err)
+		return nil, fmt.Errorf("store: merge all signal execution metadata: %w", err)
 	}
 	defer rows.Close()
 
@@ -518,7 +518,7 @@ func (s *sqliteStore) MergeAllTweetExecutionMetadata(ctx context.Context, tweetI
 	for rows.Next() {
 		var k, v string
 		if err := rows.Scan(&k, &v); err != nil {
-			return nil, fmt.Errorf("store: merge all tweet execution metadata: scan: %w", err)
+			return nil, fmt.Errorf("store: merge all signal execution metadata: scan: %w", err)
 		}
 		out[k] = v
 	}
@@ -576,12 +576,12 @@ func (s *sqliteStore) DeleteTwitterCredentials(ctx context.Context) error {
 
 // ── Pipeline Node Executions (sub-pipeline fan-in) ────────────────────────────
 
-func (s *sqliteStore) InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) error {
+func (s *sqliteStore) InsertPipelineNodeExecution(ctx context.Context, parentNodeID int64, signalID int64, leafNodeID int64) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO pipeline_node_executions (parent_node_id, tweet_id, leaf_node_id, completed, created_at)
+		`INSERT OR IGNORE INTO pipeline_node_executions (parent_node_id, signal_id, leaf_node_id, completed, created_at)
 		 VALUES (?, ?, ?, 0, ?)`,
-		parentNodeID, tweetID, leafNodeID, now,
+		parentNodeID, signalID, leafNodeID, now,
 	)
 	if err != nil {
 		return fmt.Errorf("store: insert pipeline node execution: %w", err)
@@ -589,7 +589,7 @@ func (s *sqliteStore) InsertPipelineNodeExecution(ctx context.Context, parentNod
 	return nil
 }
 
-func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, tweetID string, leafNodeID int64) (bool, error) {
+func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNodeID int64, signalID int64, leafNodeID int64) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("store: mark pipeline node leaf complete: begin tx: %w", err)
@@ -598,8 +598,8 @@ func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNo
 
 	_, err = tx.ExecContext(ctx,
 		`UPDATE pipeline_node_executions SET completed = 1
-		 WHERE parent_node_id = ? AND tweet_id = ? AND leaf_node_id = ?`,
-		parentNodeID, tweetID, leafNodeID,
+		 WHERE parent_node_id = ? AND signal_id = ? AND leaf_node_id = ?`,
+		parentNodeID, signalID, leafNodeID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: mark pipeline node leaf complete: update: %w", err)
@@ -609,8 +609,8 @@ func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNo
 	err = tx.QueryRowContext(ctx,
 		`SELECT COUNT(*), COALESCE(SUM(completed), 0)
 		 FROM pipeline_node_executions
-		 WHERE parent_node_id = ? AND tweet_id = ?`,
-		parentNodeID, tweetID,
+		 WHERE parent_node_id = ? AND signal_id = ?`,
+		parentNodeID, signalID,
 	).Scan(&total, &done)
 	if err != nil {
 		return false, fmt.Errorf("store: mark pipeline node leaf complete: count: %w", err)
@@ -625,17 +625,17 @@ func (s *sqliteStore) MarkPipelineNodeLeafComplete(ctx context.Context, parentNo
 
 // ── Pipeline Run Tracking (pipeline_finished trigger) ─────────────────────────
 
-func (s *sqliteStore) InitPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string, initialCount int, eventPayload []byte) error {
+func (s *sqliteStore) InitPipelineRunTracking(ctx context.Context, pipelineID int64, signalID int64, initialCount int, eventPayload []byte) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO pipeline_run_tracking (pipeline_id, tweet_id, active_tasks, event_payload, created_at, completed_at)
+		INSERT INTO pipeline_run_tracking (pipeline_id, signal_id, active_tasks, event_payload, created_at, completed_at)
 		VALUES (?, ?, ?, ?, ?, NULL)
-		ON CONFLICT (pipeline_id, tweet_id) DO UPDATE SET
+		ON CONFLICT (pipeline_id, signal_id) DO UPDATE SET
 		    active_tasks  = excluded.active_tasks,
 		    event_payload = excluded.event_payload,
 		    completed_at  = NULL,
 		    created_at    = excluded.created_at`,
-		pipelineID, tweetID, initialCount, eventPayload, now,
+		pipelineID, signalID, initialCount, eventPayload, now,
 	)
 	if err != nil {
 		return fmt.Errorf("store: init pipeline run tracking: %w", err)
@@ -643,11 +643,11 @@ func (s *sqliteStore) InitPipelineRunTracking(ctx context.Context, pipelineID in
 	return nil
 }
 
-func (s *sqliteStore) IncrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) error {
+func (s *sqliteStore) IncrementPipelineRunTracking(ctx context.Context, pipelineID int64, signalID int64) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE pipeline_run_tracking SET active_tasks = active_tasks + 1
-		 WHERE pipeline_id = ? AND tweet_id = ?`,
-		pipelineID, tweetID,
+		 WHERE pipeline_id = ? AND signal_id = ?`,
+		pipelineID, signalID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: increment pipeline run tracking: %w", err)
@@ -655,7 +655,7 @@ func (s *sqliteStore) IncrementPipelineRunTracking(ctx context.Context, pipeline
 	return nil
 }
 
-func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipelineID int64, tweetID string) (bool, error) {
+func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipelineID int64, signalID int64) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("store: decrement pipeline run tracking: begin tx: %w", err)
@@ -664,8 +664,8 @@ func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipeline
 
 	res, err := tx.ExecContext(ctx,
 		`UPDATE pipeline_run_tracking SET active_tasks = active_tasks - 1
-		 WHERE pipeline_id = ? AND tweet_id = ? AND active_tasks > 0`,
-		pipelineID, tweetID,
+		 WHERE pipeline_id = ? AND signal_id = ? AND active_tasks > 0`,
+		pipelineID, signalID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: decrement pipeline run tracking: update: %w", err)
@@ -679,8 +679,8 @@ func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipeline
 
 	var remaining int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT active_tasks FROM pipeline_run_tracking WHERE pipeline_id = ? AND tweet_id = ?`,
-		pipelineID, tweetID,
+		`SELECT active_tasks FROM pipeline_run_tracking WHERE pipeline_id = ? AND signal_id = ?`,
+		pipelineID, signalID,
 	).Scan(&remaining); err != nil {
 		return false, fmt.Errorf("store: decrement pipeline run tracking: query: %w", err)
 	}
@@ -688,8 +688,8 @@ func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipeline
 	if remaining == 0 {
 		now := time.Now().UTC().Format(time.RFC3339)
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE pipeline_run_tracking SET completed_at = ? WHERE pipeline_id = ? AND tweet_id = ?`,
-			now, pipelineID, tweetID,
+			`UPDATE pipeline_run_tracking SET completed_at = ? WHERE pipeline_id = ? AND signal_id = ?`,
+			now, pipelineID, signalID,
 		); err != nil {
 			return false, fmt.Errorf("store: decrement pipeline run tracking: set completed_at: %w", err)
 		}
@@ -701,11 +701,11 @@ func (s *sqliteStore) DecrementPipelineRunTracking(ctx context.Context, pipeline
 	return remaining == 0, nil
 }
 
-func (s *sqliteStore) GetPipelineRunEventPayload(ctx context.Context, pipelineID int64, tweetID string) ([]byte, error) {
+func (s *sqliteStore) GetPipelineRunEventPayload(ctx context.Context, pipelineID int64, signalID int64) ([]byte, error) {
 	var payload []byte
 	err := s.db.QueryRowContext(ctx,
-		`SELECT event_payload FROM pipeline_run_tracking WHERE pipeline_id = ? AND tweet_id = ?`,
-		pipelineID, tweetID,
+		`SELECT event_payload FROM pipeline_run_tracking WHERE pipeline_id = ? AND signal_id = ?`,
+		pipelineID, signalID,
 	).Scan(&payload)
 	if err != nil {
 		return nil, fmt.Errorf("store: get pipeline run event payload: %w", err)

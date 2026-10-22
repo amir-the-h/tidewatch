@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/amir-the-h/tidewatch/internal/model"
+	"github.com/amir-the-h/tidewatch/internal/stream"
 )
 
 // xSearchResponse mirrors the X API v2 search response JSON structure.
@@ -48,17 +49,18 @@ type xSearchTweet struct {
 	} `json:"referenced_tweets"`
 }
 
-// NormalizedPage holds the tweets parsed from a single search response page
-// along with the pagination token for the next page (empty if no more pages).
+// NormalizedPage holds the post signals parsed from a single search response
+// page along with the pagination token for the next page (empty if no more pages).
 type NormalizedPage struct {
-	Tweets    []*model.StreamTweet
+	Signals   []*model.Signal
 	NextToken string
 	NewestID  string // meta.newest_id from the X API response; empty when the page has no results
 }
 
 // NormalizeSearchResponse parses an X API v2 search response body and
-// returns one StreamTweet per result, all attributed to the given rule.
-func NormalizeSearchResponse(body []byte, rule *model.Rule) (*NormalizedPage, error) {
+// returns one post signal per result. The caller attributes them to the rule
+// it searched with.
+func NormalizeSearchResponse(body []byte) (*NormalizedPage, error) {
 	var resp xSearchResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("search: normalize: unmarshal response: %w", err)
@@ -81,7 +83,7 @@ func NormalizeSearchResponse(body []byte, rule *model.Rule) (*NormalizedPage, er
 		}
 	}
 
-	tweets := make([]*model.StreamTweet, 0, len(resp.Data))
+	signals := make([]*model.Signal, 0, len(resp.Data))
 	for _, d := range resp.Data {
 		var createdAt time.Time
 		if d.CreatedAt != "" {
@@ -125,27 +127,27 @@ func NormalizeSearchResponse(body []byte, rule *model.Rule) (*NormalizedPage, er
 			return nil, fmt.Errorf("search: normalize: marshal raw tweet %s: %w", d.ID, err)
 		}
 
-		tweet := &model.Tweet{
-			ID:           d.ID,
-			AuthorID:     d.AuthorID,
-			AuthorHandle: authorHandle,
-			Text:         text,
-			RawJSON:      rawJSON,
-			CreatedAt:    createdAt,
-			FetchedAt:    time.Now(),
+		var referenced map[string]string
+		for _, ref := range d.ReferencedTweets {
+			if referenced == nil {
+				referenced = make(map[string]string, len(d.ReferencedTweets))
+			}
+			referenced[ref.Type] = ref.ID
 		}
 
-		st := &model.StreamTweet{
-			Tweet: tweet,
-			MatchingRules: []model.MatchingRule{
-				{ID: rule.XRuleID, Tag: rule.Name},
-			},
-		}
-		tweets = append(tweets, st)
+		signals = append(signals, stream.NewXSignal(stream.XPost{
+			ID:         d.ID,
+			AuthorID:   d.AuthorID,
+			Handle:     authorHandle,
+			Text:       text,
+			CreatedAt:  createdAt,
+			RawJSON:    rawJSON,
+			Referenced: referenced,
+		}))
 	}
 
 	return &NormalizedPage{
-		Tweets:    tweets,
+		Signals:   signals,
 		NextToken: resp.Meta.NextToken,
 		NewestID:  resp.Meta.NewestID,
 	}, nil

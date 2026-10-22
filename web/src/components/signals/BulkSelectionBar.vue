@@ -1,4 +1,4 @@
-<!-- Actions on the selected tweets (admin only): reprocess, delete, and clear their execution history. -->
+<!-- Actions on the selected signals (admin only): reprocess, delete, and clear their execution history. -->
 <script setup lang="ts">
 import { EraserIcon, ListChecksIcon, RefreshCwIcon, TrashIcon, XIcon } from '@lucide/vue'
 import { Button, IconButton } from '@/components/ui'

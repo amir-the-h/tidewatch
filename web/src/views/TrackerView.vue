@@ -50,7 +50,7 @@ onMounted(() => {
   <div class="flex flex-col gap-2">
     <PageHeader
       title="Tracker"
-      description="People, places and organisations matched in tweets, the candidates found for review, and how they connect."
+      description="People, places and organisations matched in signals, the candidates found for review, and how they connect."
       :add-label="addLabel"
       @add="entitiesTab?.openCreate()"
     />

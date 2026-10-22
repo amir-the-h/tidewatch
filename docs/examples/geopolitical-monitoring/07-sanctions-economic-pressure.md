@@ -1,7 +1,7 @@
 # Flow: Sanctions / Economic Pressure
 
 **Domain prefix:** `sanctions_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are an economic intelligence analyst monitoring the Iran-US-Israel conflict.
-Your task: determine whether the tweet reports a CONCRETE sanctions action, oil/energy disruption, or financial pressure measure — not general economic commentary.
+Your task: determine whether the text reports a CONCRETE sanctions action, oil/energy disruption, or financial pressure measure — not general economic commentary.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"sanctions_is_action": "true|false", "sanctions_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "sanctions_is_action": "true" if the tweet reports: new sanctions designations, sanctions relief, oil embargo changes, Strait of Hormuz threats or closures, SWIFT exclusion/inclusion, currency collapse events, or asset freezes
+- "sanctions_is_action": "true" if the text reports: new sanctions designations, sanctions relief, oil embargo changes, Strait of Hormuz threats or closures, SWIFT exclusion/inclusion, currency collapse events, or asset freezes
 - "sanctions_is_action": "false" for general economic commentary, existing sanctions background, price opinions, or analyst speculation
 - "sanctions_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are an economic intelligence analyst. A tweet has been confirmed to report a concrete sanctions or economic pressure action. Extract all available details.
+You are an economic intelligence analyst. A post or article has been confirmed to report a concrete sanctions or economic pressure action. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -90,9 +90,9 @@ Rules:
 <b>Strait of Hormuz:</b> ${sanctions_strait_of_hormuz | yesno}
 <b>Oil price impact:</b> ${sanctions_oil_price_impact | yesno}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #sanctions #${sanctions_action_type} #${sanctions_imposing_party}
 ```

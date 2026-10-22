@@ -1,4 +1,4 @@
-<!-- Run a pipeline over historical tweets starting at one node (POST /api/pipelines/{id}/run with start_node_id). -->
+<!-- Run a pipeline over historical signals starting at one node (POST /api/pipelines/{id}/run with start_node_id). -->
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { Button, Dialog, FormField, RadioGroup } from '@/components/ui'
@@ -19,8 +19,8 @@ const order   = ref<'asc' | 'desc'>('desc')
 const running = ref(false)
 
 const newOnlyOptions = [
-  { label: 'All eligible tweets', value: false },
-  { label: "Only tweets not yet processed by this node's action", value: true },
+  { label: 'All eligible signals', value: false },
+  { label: "Only signals not yet processed by this node's action", value: true },
 ]
 const orderOptions = [
   { label: 'Newest first (default)', value: 'desc' as const },
@@ -43,7 +43,7 @@ async function onRun() {
     const res = await runPipeline(props.pipelineId, newOnly.value, numId, order.value === 'asc' ? 'asc' : undefined)
     toast.success(res.async
       ? `Running from "${props.nodeLabel}" in the background`
-      : `Queued ${res.queued} tweets from "${props.nodeLabel}"`)
+      : `Queued ${res.queued} signals from "${props.nodeLabel}"`)
     open.value = false
   } catch (e: unknown) {
     toast.error(`Could not run from "${props.nodeLabel}": ${e instanceof Error ? e.message : String(e)}`)
@@ -57,10 +57,10 @@ async function onRun() {
   <Dialog
     v-model:open="open"
     :title="`Run from: ${nodeLabel}`"
-    description="Prior detection results for each tweet will be available as context."
+    description="Prior detection results for each signal will be available as context."
   >
     <div class="flex flex-col gap-4">
-      <FormField label="Tweets">
+      <FormField label="Signals">
         <RadioGroup v-model="newOnly" :options="newOnlyOptions" name="run-new-only" />
       </FormField>
       <FormField label="Order">

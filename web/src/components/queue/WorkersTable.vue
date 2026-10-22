@@ -1,7 +1,7 @@
 <!-- Live worker slots from the worker_stats WebSocket event, active workers first. -->
 <script setup lang="ts">
 import { h } from 'vue'
-import { Badge, DataTable, StatusIndicator, Tooltip, type DataTableColumns } from '@/components/ui'
+import { Badge, DataTable, StatusIndicator, type DataTableColumns } from '@/components/ui'
 import { useQueuesStore } from '../../stores/queues'
 import type { WorkerInfo } from '../../api/queue'
 
@@ -40,10 +40,9 @@ const columns: DataTableColumns<WorkerInfo> = [
     render: (w) => w.status === 'active' && w.pipeline ? h(Badge, { variant: 'secondary' }, () => w.pipeline) : none(),
   },
   {
-    title: 'Tweet', key: 'tweet_id', width: 140,
-    render: (w) => w.tweet_id
-      ? h(Tooltip, { content: w.tweet_id }, () => h('span', { class: 'font-mono tabular text-muted-foreground' },
-          w.tweet_id.slice(0, 12) + (w.tweet_id.length > 12 ? '…' : '')))
+    title: 'Signal', key: 'signal_id', width: 100,
+    render: (w) => w.signal_id
+      ? h('span', { class: 'font-mono tabular text-muted-foreground' }, String(w.signal_id))
       : none(),
   },
   {

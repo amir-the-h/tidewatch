@@ -12,7 +12,7 @@ import (
 	"github.com/amir-the-h/tidewatch/internal/store"
 )
 
-// EntityMatcherPipeline matches active tracked entities in tweet text.
+// EntityMatcherPipeline matches active tracked entities in signal text.
 // Outputs: {"matched_ids": [1,2], "matched": true}
 type EntityMatcherPipeline struct {
 	name  string
@@ -70,10 +70,10 @@ func (p *EntityMatcherPipeline) Run(ctx context.Context, input inference.Pipelin
 
 		matchedIDs = append(matchedIDs, entity.ID)
 
-		if input.TweetID != "" {
+		if input.SignalID != 0 {
 			track := &model.EntityTrack{
 				EntityID:    entity.ID,
-				TweetID:     input.TweetID,
+				SignalID:    input.SignalID,
 				MatchSource: matchSource,
 				Context:     input.Text,
 				CreatedAt:   time.Now(),

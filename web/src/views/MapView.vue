@@ -1,4 +1,4 @@
-<!-- web/src/views/MapView.vue — Map page (viewers and admins): geo-event pins coloured by tweet date. -->
+<!-- web/src/views/MapView.vue — Map page (viewers and admins): geo-event pins coloured by signal date. -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -17,7 +17,7 @@ const { loading, pinCount, error, oldestDate, newestDate, loadPins } = usePinMap
 <template>
   <div class="flex h-full min-h-0 flex-col">
     <div class="px-4 pt-4 pb-4 sm:px-6 sm:pt-6">
-      <PageHeader title="Map" description="Locations extracted from tweets, coloured by when the tweet was posted.">
+      <PageHeader title="Map" description="Locations extracted from signals, coloured by when the signal was published.">
         <div class="flex flex-wrap items-center gap-3">
           <MapLegend v-if="pinCount > 0 && oldestDate" :oldest="oldestDate" :newest="newestDate" />
           <Badge v-if="pinCount > 0" variant="outline">
@@ -62,10 +62,10 @@ const { loading, pinCount, error, oldestDate, newestDate, loadPins } = usePinMap
         <p v-if="auth.isAdmin" class="m-0 mt-1 text-muted-foreground">
           Set a coordinate key and type in an action's Map output section on the
           <RouterLink to="/actions" class="text-primary underline underline-offset-2">Actions</RouterLink>
-          page. Pins appear once that action has run on tweets.
+          page. Pins appear once that action has run on signals.
         </p>
         <p v-else class="m-0 mt-1 text-muted-foreground">
-          Pins appear once an admin sets up an action that extracts locations from tweets.
+          Pins appear once an admin sets up an action that extracts locations from signals.
         </p>
       </div>
     </div>

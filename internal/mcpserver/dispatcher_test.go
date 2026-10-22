@@ -17,15 +17,15 @@ func TestDispatcher_GET_QueryParams(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotURL = r.URL.String()
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"tweets":[]}`))
+		_, _ = w.Write([]byte(`{"signals":[]}`))
 	}))
 	defer srv.Close()
 
 	d := mcpserver.NewDispatcher(srv.URL)
 	td := mcpserver.ToolDef{
-		Name:   "tweets_list",
+		Name:   "signals_list",
 		Method: "GET",
-		Path:   "/api/tweets",
+		Path:   "/api/signals",
 		QueryParams: []mcpserver.ParamDef{
 			{Name: "rule_id", Type: "integer"},
 			{Name: "page", Type: "integer"},
@@ -154,17 +154,17 @@ func TestDispatcher_Execute_CallsCorrectEndpoint(t *testing.T) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"tweets":[]}`))
+		_, _ = w.Write([]byte(`{"signals":[]}`))
 	}))
 	defer srv.Close()
 
 	d := mcpserver.NewDispatcher(srv.URL)
-	result, err := d.Execute(context.Background(), "tweets_list", map[string]any{})
+	result, err := d.Execute(context.Background(), "signals_list", map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotPath != "/api/tweets" {
-		t.Errorf("expected /api/tweets, got %q", gotPath)
+	if gotPath != "/api/signals" {
+		t.Errorf("expected /api/signals, got %q", gotPath)
 	}
 	if result == "" {
 		t.Error("expected non-empty result")
@@ -189,12 +189,12 @@ func TestDispatcher_Execute_WithPathParam(t *testing.T) {
 	defer srv.Close()
 
 	d := mcpserver.NewDispatcher(srv.URL)
-	_, err := d.Execute(context.Background(), "tweets_get", map[string]any{"id": "abc123"})
+	_, err := d.Execute(context.Background(), "signals_get", map[string]any{"id": 123})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotPath != "/api/tweets/abc123" {
-		t.Errorf("expected /api/tweets/abc123, got %q", gotPath)
+	if gotPath != "/api/signals/123" {
+		t.Errorf("expected /api/signals/123, got %q", gotPath)
 	}
 }
 

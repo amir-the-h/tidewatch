@@ -106,8 +106,8 @@ func (q *RedisQueue) PopTask(ctx context.Context, timeout time.Duration, keys ..
 	return &t, nil
 }
 
-// PushFailed pushes a FailedTweet to the dead-letter queue.
-func (q *RedisQueue) PushFailed(ctx context.Context, ft *FailedTweet) error {
+// PushFailed pushes a FailedTask to the dead-letter queue.
+func (q *RedisQueue) PushFailed(ctx context.Context, ft *FailedTask) error {
 	data, err := json.Marshal(ft)
 	if err != nil {
 		return fmt.Errorf("queue: push failed: marshal: %w", err)
@@ -125,9 +125,9 @@ func (q *RedisQueue) PushFailed(ctx context.Context, ft *FailedTweet) error {
 	return nil
 }
 
-// PopFailed pops a FailedTweet from the dead-letter queue.
+// PopFailed pops a FailedTask from the dead-letter queue.
 // Returns (nil, nil) on timeout.
-func (q *RedisQueue) PopFailed(ctx context.Context, timeout time.Duration) (*FailedTweet, error) {
+func (q *RedisQueue) PopFailed(ctx context.Context, timeout time.Duration) (*FailedTask, error) {
 	result, err := q.client.BRPop(ctx, timeout, QueueFailed).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -138,7 +138,7 @@ func (q *RedisQueue) PopFailed(ctx context.Context, timeout time.Duration) (*Fai
 	if len(result) < 2 {
 		return nil, nil
 	}
-	var ft FailedTweet
+	var ft FailedTask
 	if err := json.Unmarshal([]byte(result[1]), &ft); err != nil {
 		return nil, fmt.Errorf("queue: pop failed: unmarshal: %w", err)
 	}
@@ -154,9 +154,9 @@ func (q *RedisQueue) Len(ctx context.Context, queue string) (int64, error) {
 	return n, nil
 }
 
-// ListFailed returns up to limit FailedTweet entries starting at offset
+// ListFailed returns up to limit FailedTask entries starting at offset
 // without consuming them from the queue.
-func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTweet, error) {
+func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*FailedTask, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -165,9 +165,9 @@ func (q *RedisQueue) ListFailed(ctx context.Context, offset, limit int64) ([]*Fa
 	if err != nil {
 		return nil, fmt.Errorf("queue: list failed: %w", err)
 	}
-	result := make([]*FailedTweet, 0, len(items))
+	result := make([]*FailedTask, 0, len(items))
 	for _, item := range items {
-		var ft FailedTweet
+		var ft FailedTask
 		if err := json.Unmarshal([]byte(item), &ft); err != nil {
 			continue // skip malformed entries
 		}

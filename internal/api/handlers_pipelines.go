@@ -210,7 +210,7 @@ func (s *Server) handleSavePipelineGraph(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, graph)
 }
 
-// handleRunPipeline dispatches historical tweets through the pipeline's action nodes.
+// handleRunPipeline dispatches historical signals through the pipeline's action nodes.
 // Body: { "new_only": bool, "start_node_id": int64 (optional) }.
 // When start_node_id is provided, dispatch begins from that specific node instead
 // of the pipeline's Start node; the new_only exclusion set is also scoped to that node.
@@ -256,7 +256,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	// If no direct trigger links exist, this pipeline may be a sub-pipeline
 	// invoked from a parent. Walk all pipeline graphs to find parents that
 	// reference this pipeline and inherit their trigger links (deduplicated by
-	// trigger type, since only the type is used for tweet filtering).
+	// trigger type, since only the type is used for signal filtering).
 	if len(links) == 0 {
 		allPipelines, err := s.store.ListPipelines(r.Context())
 		if err == nil {
@@ -313,7 +313,7 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Return 202 immediately — tweet iteration and task pushing happen in the
+	// Return 202 immediately — signal iteration and task pushing happen in the
 	// background so large backlogs don't time out the HTTP connection.
 	writeJSON(w, http.StatusAccepted, map[string]any{"queued": 0, "async": true})
 
@@ -327,9 +327,9 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		// When start_node_id is provided, scope the exclusion set to only the
 		// action IDs reachable from that specific node; otherwise collect all
 		// action IDs from the full graph and any referenced sub-pipeline graphs.
-		var executedIDs map[string]struct{}
+		var executedIDs map[int64]struct{}
 		if newOnly {
-			executedIDs = make(map[string]struct{})
+			executedIDs = make(map[int64]struct{})
 			var actionIDs []int64
 			if capturedStartNode != nil {
 				actionIDs = s.collectNodeActionIDs(ctx, capturedStartNode)
@@ -344,21 +344,21 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				for _, e := range execs {
-					executedIDs[e.TweetID] = struct{}{}
+					executedIDs[e.SignalID] = struct{}{}
 				}
 			}
 		}
 
-		// Push tasks: for each active trigger link, select eligible tweets and dispatch.
+		// Push tasks: for each active trigger link, select eligible signals and dispatch.
 		const runBatchSize = 500
 		count := 0
-		seenTweetIDs := make(map[string]struct{})
+		seenSignalIDs := make(map[int64]struct{})
 
 		for _, link := range links {
-			baseFilter := store.TweetFilter{PerPage: runBatchSize, OrderAsc: newOrder == "asc"}
+			baseFilter := store.SignalFilter{PerPage: runBatchSize, OrderAsc: newOrder == "asc"}
 			switch link.TriggerType {
-			case "new_tweet", "new_categorization", "pipeline_finished":
-				// all tweets
+			case "new_signal", "new_categorization", "pipeline_finished":
+				// all signals
 			case "entity_matched":
 				baseFilter.HasEntityTrack = true
 			default:
@@ -368,47 +368,41 @@ func (s *Server) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 			for page := 1; ; page++ {
 				filter := baseFilter
 				filter.Page = page
-				tweets, err := s.store.ListTweets(ctx, filter)
+				signals, err := s.store.ListSignals(ctx, filter)
 				if err != nil {
-					s.logger.Error("api: run pipeline: list tweets", "trigger", link.TriggerType, "page", page, "error", err)
+					s.logger.Error("api: run pipeline: list signals", "trigger", link.TriggerType, "page", page, "error", err)
 					break
 				}
-				if len(tweets) == 0 {
+				if len(signals) == 0 {
 					break
 				}
 
-				for _, tweet := range tweets {
-					if _, seen := seenTweetIDs[tweet.ID]; seen {
+				for _, signal := range signals {
+					if _, seen := seenSignalIDs[signal.ID]; seen {
 						continue
 					}
-					seenTweetIDs[tweet.ID] = struct{}{}
+					seenSignalIDs[signal.ID] = struct{}{}
 
 					if newOnly {
-						if _, done := executedIDs[tweet.ID]; done {
+						if _, done := executedIDs[signal.ID]; done {
 							continue
 						}
 					}
-					ruleIDs, _ := s.store.ListTweetRuleIDs(ctx, tweet.ID)
-					evPayload, _ := json.Marshal(queue.TweetEvent{
-						TweetID:      tweet.ID,
-						Text:         tweet.Text,
-						AuthorHandle: tweet.AuthorHandle,
-						RuleIDs:      ruleIDs,
-					})
+					evPayload, _ := json.Marshal(queue.SignalEvent{SignalID: signal.ID, Kind: string(signal.Kind)})
 					if capturedStartNode != nil {
 						count += worker.PushTasksFromNode(
 							ctx, s.store, s.producer, s.actionCache,
-							graph, id, link.TriggerType, evPayload, tweet.ID, capturedStartNode, s.logger,
+							graph, id, link.TriggerType, evPayload, signal.ID, capturedStartNode, s.logger,
 						)
 					} else {
 						count += worker.PushInitialTasksForGraph(
 							ctx, s.store, s.producer, s.actionCache,
-							graph, id, link.TriggerType, evPayload, tweet.ID, s.logger,
+							graph, id, link.TriggerType, evPayload, signal.ID, s.logger,
 						)
 					}
 				}
 
-				if len(tweets) < runBatchSize {
+				if len(signals) < runBatchSize {
 					break
 				}
 			}
@@ -439,7 +433,7 @@ type modelFileInfo struct {
 // action IDs belong to those sub-pipelines, not to this pipeline.
 // A pipeline with no direct action nodes (e.g. a pure fan-out into
 // sub-pipelines) returns an empty slice, meaning new_only has no exclusion
-// set and all tweets are eligible.
+// set and all signals are eligible.
 func (s *Server) collectGraphActionIDs(_ context.Context, graph *model.PipelineGraph) []int64 {
 	seen := make(map[int64]struct{})
 	var ids []int64

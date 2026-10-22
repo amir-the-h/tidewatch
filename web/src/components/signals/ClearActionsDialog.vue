@@ -1,4 +1,4 @@
-<!-- Pick which actions' execution history to clear for the selected tweets, then confirm. -->
+<!-- Pick which actions' execution history to clear for the selected signals, then confirm. -->
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { AlertDialog, Button, Checkbox, Dialog, Skeleton } from '@/components/ui'
@@ -6,7 +6,7 @@ import { useToast } from '@/composables/useToast'
 import { listActions } from '../../api/actions'
 import type { Action } from '../../api/actions'
 
-defineProps<{ tweetCount: number; clearing?: boolean }>()
+defineProps<{ signalCount: number; clearing?: boolean }>()
 
 const emit = defineEmits<{ confirm: [actionIds: number[]] }>()
 
@@ -44,7 +44,7 @@ watch(open, async (isOpen) => {
   <Dialog
     v-model:open="open"
     title="Clear executions for actions"
-    :description="`Pick the actions whose execution history to clear for ${plural(tweetCount, 'selected tweet')}.`"
+    :description="`Pick the actions whose execution history to clear for ${plural(signalCount, 'selected signal')}.`"
   >
     <div v-if="loading" class="flex flex-col gap-2">
       <Skeleton v-for="i in 4" :key="i" class="h-5 w-1/2" />
@@ -68,8 +68,8 @@ watch(open, async (isOpen) => {
 
   <AlertDialog
     v-model:open="showConfirm"
-    :title="`Clear executions for ${plural(selectedIds.length, 'action')} across ${plural(tweetCount, 'tweet')}?`"
-    description="The execution history of the chosen actions on these tweets is removed. The tweets are kept. This can't be undone."
+    :title="`Clear executions for ${plural(selectedIds.length, 'action')} across ${plural(signalCount, 'signal')}?`"
+    description="The execution history of the chosen actions on these signals is removed. The signals are kept. This can't be undone."
     action-label="Clear executions"
     :loading="clearing"
     @confirm="emit('confirm', selectedIds)"

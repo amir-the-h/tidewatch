@@ -106,7 +106,7 @@ async function onSave() {
   <Sheet
     v-model:open="open"
     :title="entity ? `Edit ${entity.name}` : 'New entity'"
-    description="Tweets that mention the name or any alias are recorded as tracks."
+    description="Signals that mention the name or any alias are recorded as tracks."
   >
     <form class="flex flex-col gap-3 p-4" @submit.prevent="onSave">
       <FormField label="Name" for="entity-name" required>

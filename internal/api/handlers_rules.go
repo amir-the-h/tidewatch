@@ -279,14 +279,14 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, err := s.store.TweetRuleCount(r.Context(), id)
+	count, err := s.store.XRuleMatchCount(r.Context(), id)
 	if err != nil {
-		s.logger.Error("api: tweet rule count", "rule_id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to check tweet history")
+		s.logger.Error("api: x rule match count", "rule_id", id, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check signal history")
 		return
 	}
 	if count > 0 {
-		writeError(w, http.StatusConflict, "rule has tweet history; deactivate it instead of deleting")
+		writeError(w, http.StatusConflict, "rule has signal history; deactivate it instead of deleting")
 		return
 	}
 

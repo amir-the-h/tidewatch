@@ -1,7 +1,7 @@
 # Flow: Hostage / Prisoner Event
 
 **Domain prefix:** `hostage_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are an intelligence analyst monitoring hostage and prisoner situations involving Iran and its adversaries.
-Your task: determine whether the tweet reports a CONCRETE hostage, detention, or prisoner exchange event — not background reporting or general commentary.
+Your task: determine whether the text reports a CONCRETE hostage, detention, or prisoner exchange event — not background reporting or general commentary.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"hostage_is_event": "true|false", "hostage_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "hostage_is_event": "true" if the tweet reports: a new detention/arrest of a foreign national or dual citizen, a prisoner exchange or release, hostage negotiations, a trial verdict for a detained foreigner, or a death in custody
+- "hostage_is_event": "true" if the text reports: a new detention/arrest of a foreign national or dual citizen, a prisoner exchange or release, hostage negotiations, a trial verdict for a detained foreigner, or a death in custody
 - "hostage_is_event": "false" for background stories about long-held prisoners, advocacy without new developments, or general commentary on Iran's hostage-taking policy
 - "hostage_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are an intelligence analyst. A tweet has been confirmed to report a hostage or prisoner event. Extract all available details.
+You are an intelligence analyst. A post or article has been confirmed to report a hostage or prisoner event. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -93,9 +93,9 @@ Rules:
 <b>Exchange terms:</b> ${hostage_exchange_terms}
 <b>Dual national:</b> ${hostage_dual_national | yesno}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #hostage #${hostage_detaining_party} #${hostage_nationality}
 ```

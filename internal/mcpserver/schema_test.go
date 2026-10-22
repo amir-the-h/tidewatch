@@ -39,10 +39,10 @@ func TestBuildToolOptions_PathParam(t *testing.T) {
 
 func TestBuildToolOptions_QueryParams(t *testing.T) {
 	td := mcpserver.ToolDef{
-		Name:        "tweets_list",
-		Description: "List tweets",
+		Name:        "signals_list",
+		Description: "List signals",
 		Method:      "GET",
-		Path:        "/api/tweets",
+		Path:        "/api/signals",
 		QueryParams: []mcpserver.ParamDef{
 			{Name: "rule_id", Type: "integer", Description: "Filter by rule"},
 			{Name: "page", Type: "integer", Description: "Page number"},

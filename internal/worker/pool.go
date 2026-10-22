@@ -21,7 +21,7 @@ type WorkerInfo struct {
 	ActionID    int64     `json:"action_id"`
 	Action      string    `json:"action"`
 	Pipeline    string    `json:"pipeline"`
-	TweetID     string    `json:"tweet_id"`
+	SignalID    int64     `json:"signal_id"`
 	StartedAt   time.Time `json:"started_at"`
 	DurationMS  int64     `json:"duration_ms"`  // computed at snapshot time
 	BackendName string    `json:"backend_name"` // display name; empty for non-Ollama
@@ -35,7 +35,7 @@ type PoolStats struct {
 	Workers []WorkerInfo `json:"workers"` // all workers in fixed ascending ID order
 }
 
-// Pool manages N worker goroutines that process tweets from the queue.
+// Pool manages N worker goroutines that process signals from the queue.
 type Pool struct {
 	count    int
 	consumer queue.Consumer

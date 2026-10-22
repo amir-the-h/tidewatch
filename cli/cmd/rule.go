@@ -170,7 +170,7 @@ var ruleUpdateCmd = &cobra.Command{
 
 var ruleRemoveCmd = &cobra.Command{
 	Use:   "remove <id>",
-	Short: "Delete a rule (only if it has no tweet history)",
+	Short: "Delete a rule (only if no signal matched it)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := url.PathEscape(args[0])

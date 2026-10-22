@@ -4,7 +4,7 @@ A worked example of tidewatch pipelines, built for real-time monitoring of the 2
 
 Each file defines a complete Detector + Extractor chain: detector system prompt, condition node, extractor system prompt, and Telegram notification template.
 
-All flows use `model: qwen2.5:7b-instruct`, `usecase: custom`, trigger `new_tweet`.
+All flows use `model: qwen2.5:7b-instruct`, `usecase: custom`, trigger `new_signal`.
 
 | # | File | Domain prefix | Detector condition |
 |---|---|---|---|

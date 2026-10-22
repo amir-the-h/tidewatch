@@ -21,7 +21,7 @@ export interface ActionBackend {
 export interface ActionExecution {
   id: number
   action_id: number
-  tweet_id: string
+  signal_id: number
   status: 'success' | 'error'
   error?: string
   executed_at: string
@@ -42,7 +42,7 @@ export interface ExecutionFilter {
   per_page?: number
   from?: string
   to?: string
-  tweet_id?: string
+  signal_id?: number
   status?: string
   action_id?: number
 }
@@ -107,7 +107,7 @@ export const listAllExecutions = (filter: ExecutionFilter = {}) => {
   if (filter.per_page !== undefined) params.set('per_page', String(filter.per_page))
   if (filter.from) params.set('from', filter.from)
   if (filter.to) params.set('to', filter.to)
-  if (filter.tweet_id) params.set('tweet_id', filter.tweet_id)
+  if (filter.signal_id) params.set('signal_id', String(filter.signal_id))
   if (filter.action_id) params.set('action_id', String(filter.action_id))
   if (filter.status) params.set('status', filter.status)
   const qs = params.toString() ? `?${params}` : ''

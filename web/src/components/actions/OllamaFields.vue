@@ -70,13 +70,13 @@ watch(() => props.form.usecase, (uc) => { if (uc === 'chat') fetchChatTools() },
   </FormField>
 
   <template v-if="form.usecase !== 'chat'">
-    <FormField label="Input" description="What the model receives for each tweet.">
+    <FormField label="Input" description="What the model receives for each signal.">
       <Select v-model="form.inputMode" :options="inputModeOptions" />
     </FormField>
     <FormField
       v-if="form.inputMode !== 'text_only'"
       label="Context actions"
-      description="Their latest outputs for each tweet are passed in a <context> block. tweet_id, tweet_url, tweet_author and tweet_short are always included."
+      description="Their latest outputs for each signal are passed in a <context> block. signal_id, url, author, title and text_short are included when set."
     >
       <Combobox
         v-model="form.contextActionIds"

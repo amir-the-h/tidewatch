@@ -29,7 +29,14 @@ func RunMigrations(db *sql.DB, migrationsFS fs.FS) error {
 	}
 	sort.Strings(entries)
 
-	// 3. For each file: check if already applied, if not: execute SQL, record as applied
+	// 3. Refuse a database whose applied migrations are not embedded any more.
+	// Phase 1 replaced migrations 001–029 with a single 001_schema.sql and the
+	// old database is not upgraded.
+	if err := checkUnknownMigrations(db, entries); err != nil {
+		return err
+	}
+
+	// 4. For each file: check if already applied, if not: execute SQL, record as applied
 	for _, filename := range entries {
 		var count int
 		err = db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE filename = ?`, filename).Scan(&count)
@@ -66,6 +73,32 @@ func RunMigrations(db *sql.DB, migrationsFS fs.FS) error {
 	}
 
 	return nil
+}
+
+// checkUnknownMigrations returns an error when schema_migrations records a
+// file that is not among the embedded migrations, which means the database was
+// created by an older, incompatible schema.
+func checkUnknownMigrations(db *sql.DB, known []string) error {
+	knownSet := make(map[string]bool, len(known))
+	for _, f := range known {
+		knownSet[f] = true
+	}
+	rows, err := db.Query(`SELECT filename FROM schema_migrations`)
+	if err != nil {
+		return fmt.Errorf("store: migrations: list applied: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return fmt.Errorf("store: migrations: scan applied: %w", err)
+		}
+		if !knownSet[f] {
+			return fmt.Errorf("store: migrations: database was created by an older schema (applied migration %s is unknown); "+
+				"the phase 1 schema reset does not upgrade it — move the SQLite file aside and restart", f)
+		}
+	}
+	return rows.Err()
 }
 
 // stripLineComments removes SQL -- line comments from s so that semicolons

@@ -277,8 +277,8 @@ func buildNotificationPipeline(ctx context.Context, st store.Store, a *model.Act
 
 	// Provide a loader so the pipeline can expand ${actions} into per-action
 	// expandable blocks without needing direct store access.
-	loader := func(ctx context.Context, tweetID string) ([]pipeline.ActionSummary, error) {
-		summaries, err := st.ListTweetActionSummaries(ctx, tweetID)
+	loader := func(ctx context.Context, signalID int64) ([]pipeline.ActionSummary, error) {
+		summaries, err := st.ListSignalActionSummaries(ctx, signalID)
 		if err != nil {
 			return nil, err
 		}
@@ -343,8 +343,8 @@ func (c *ActionCache) resolveDiscordTagThreadCreds(ctx context.Context, cfg map[
 // buildOllamaContextLoader returns a ContextSummaryLoader that fetches per-action
 // metadata from the store, filtered to the requested action IDs in the supplied order.
 func buildOllamaContextLoader(st store.Store) inference.ContextSummaryLoader {
-	return func(ctx context.Context, tweetID string, actionIDs []int64) ([]inference.ContextSummary, error) {
-		all, err := st.ListTweetActionSummaries(ctx, tweetID)
+	return func(ctx context.Context, signalID int64, actionIDs []int64) ([]inference.ContextSummary, error) {
+		all, err := st.ListSignalActionSummaries(ctx, signalID)
 		if err != nil {
 			return nil, err
 		}

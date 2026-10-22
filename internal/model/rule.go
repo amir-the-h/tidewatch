@@ -29,7 +29,8 @@ type Rule struct {
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
-type TweetRule struct {
-	TweetID string `json:"tweet_id"`
-	RuleID  int64  `json:"rule_id"`
+// XRuleMatch records that a signal matched an X stream rule.
+type XRuleMatch struct {
+	SignalID int64 `json:"signal_id"`
+	RuleID   int64 `json:"rule_id"`
 }

@@ -169,8 +169,8 @@ func NewServer(
 			r.Get("/rules", srv.handleListRules)
 			r.Get("/rules/{id}", srv.handleGetRule)
 			r.Get("/sources", srv.handleListSources)
-			r.Get("/tweets", srv.handleListTweets)
-			r.Get("/tweets/{id}", srv.handleGetTweet)
+			r.Get("/signals", srv.handleListSignals)
+			r.Get("/signals/{id}", srv.handleGetSignal)
 			r.Get("/map", srv.handleListMapPins)
 			r.Get("/tracked-entities", srv.handleListTrackedEntities)
 			r.Get("/tracked-entities/{id}", srv.handleGetTrackedEntity)
@@ -205,10 +205,10 @@ func NewServer(
 				r.Post("/rules/{id}/activate", srv.handleActivateRule)
 				r.Post("/rules/{id}/deactivate", srv.handleDeactivateRule)
 
-				// Tweets mutations
-				r.Delete("/tweets", srv.handleDeleteTweets)
-				r.Post("/tweets/reprocess", srv.handleReprocessTweets)
-				r.Delete("/tweets/noise", srv.handleDeleteNoiseTweets)
+				// Signals mutations
+				r.Delete("/signals", srv.handleDeleteSignals)
+				r.Post("/signals/reprocess", srv.handleReprocessSignals)
+				r.Delete("/signals/noise", srv.handleDeleteNoiseSignals)
 
 				// Pipelines (DAG workflows — mutations)
 				r.Post("/pipelines", srv.handleCreatePipeline)

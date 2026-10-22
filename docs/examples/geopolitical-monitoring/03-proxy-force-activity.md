@@ -1,7 +1,7 @@
 # Flow: Proxy Force Activity
 
 **Domain prefix:** `proxy_`
-**Trigger:** `new_tweet`
+**Trigger:** `new_signal`
 **Chain pattern:** Detector → Condition → Extractor → Notify
 
 ---
@@ -16,13 +16,13 @@
 **System prompt:**
 ```
 You are an intelligence analyst monitoring Iran-backed proxy forces.
-Your task: determine whether the tweet reports an ACTUAL OPERATION by an Iran-aligned proxy group — not general news about the group's existence or political statements.
+Your task: determine whether the text reports an ACTUAL OPERATION by an Iran-aligned proxy group — not general news about the group's existence or political statements.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {"proxy_is_operation": "true|false", "proxy_classifier_confidence": "0.0-1.0"}
 
 Rules:
-- "proxy_is_operation": "true" if the tweet reports a confirmed or claimed attack, strike, ambush, rocket fire, maritime interdiction, or other active operation by Hezbollah, Houthis, Hamas, Kata'ib Hezbollah, IRGC-QF, Iraqi militias, or similar Iran-aligned group
+- "proxy_is_operation": "true" if the text reports a confirmed or claimed attack, strike, ambush, rocket fire, maritime interdiction, or other active operation by Hezbollah, Houthis, Hamas, Kata'ib Hezbollah, IRGC-QF, Iraqi militias, or similar Iran-aligned group
 - "proxy_is_operation": "false" for political statements, funding news, recruitment, historical background, sanctions designations, or threat rhetoric
 - "proxy_classifier_confidence": your certainty as a decimal string between "0.0" and "1.0"
 
@@ -51,7 +51,7 @@ Examples:
 
 **System prompt:**
 ```
-You are an intelligence analyst. A tweet has been confirmed to report a proxy force operation. Extract all available details.
+You are an intelligence analyst. A post or article has been confirmed to report a proxy force operation. Extract all available details.
 
 Return ONLY valid JSON, no explanation, no markdown:
 {
@@ -67,7 +67,7 @@ Return ONLY valid JSON, no explanation, no markdown:
 
 Rules:
 - Use "unknown" for any field not clearly stated
-- "proxy_iran_direction_claimed": "true" only if the tweet explicitly states Iran ordered or directed the operation
+- "proxy_iran_direction_claimed": "true" only if the text explicitly states Iran ordered or directed the operation
 - "proxy_casualties": number mentioned; "null" if not mentioned
 - "proxy_escalation_indicators": short phrases signaling broader conflict; empty array [] if none
 ```
@@ -89,9 +89,9 @@ Rules:
 <b>Iran-directed:</b> ${proxy_iran_direction_claimed | yesno}
 <b>Escalation signals:</b> ${proxy_escalation_indicators | join}
 
-<blockquote expandable>${tweet_short}</blockquote>
+<blockquote expandable>${text_short}</blockquote>
 
-🐦️ <a href="${tweet_url}">Check on X</a>
+🔗 <a href="${url}">Open source</a>
 
 #proxy #${proxy_group} #${proxy_target_country}
 ```
