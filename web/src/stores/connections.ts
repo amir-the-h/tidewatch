@@ -41,6 +41,7 @@ export const useConnectionsStore = defineStore('connections', () => {
     const nodes = [...nodeMap.values()].map(n => ({
       id: n.id,
       label: n.label,
+      type: n.type,
       title: `${n.label} (${n.type}) — ${n.totalWeight} connections`,
       size: 10 + Math.round((n.totalWeight / maxW) * 30),
     }))
