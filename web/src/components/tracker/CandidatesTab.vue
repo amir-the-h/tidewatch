@@ -51,9 +51,10 @@ async function loadCandidates() {
   }
 }
 
+// Resetting the page triggers the page watcher, so load here only when already on page 1.
 watch([filterStatus, filterType], () => {
-  page.value = 1
-  loadCandidates()
+  if (page.value !== 1) page.value = 1
+  else loadCandidates()
 })
 watch(page, loadCandidates)
 
