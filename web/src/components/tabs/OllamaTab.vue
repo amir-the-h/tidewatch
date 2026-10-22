@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useMessage } from 'naive-ui'
+import { computed, h, onMounted, ref } from 'vue'
+import { PauseIcon, PencilIcon, PowerIcon, TrashIcon } from '@lucide/vue'
+import {
+  AlertDialog, Button, DataTable, FormField, IconButton, Input, NumberField, Sheet, StatusIndicator,
+  Tooltip, type DataTableColumns,
+} from '@/components/ui'
+import { useToast } from '@/composables/useToast'
 import {
   listOllamaBackends,
   createOllamaBackend,
@@ -12,25 +17,44 @@ import {
 import { useOllamaStore } from '../../stores/ollama'
 import type { OllamaBackend } from '../../stores/ollama'
 
-const message = useMessage()
+const toast       = useToast()
 const ollamaStore = useOllamaStore()
-const loading     = ref(false)
-const lastUpdated = ref<Date | null>(null)
 
-// ── add / edit modal ────────────────────────────────────────────────────────
-const showModal        = ref(false)
-const editTarget       = ref<OllamaBackend | null>(null)
-const formName         = ref('')
-const formUrl          = ref('')
-const formMaxConcurrent = ref(1)
-const saving           = ref(false)
+const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-function openAdd() {
+// ── Data ─────────────────────────────────────────────────────────────────────
+// Live health, score and active counts arrive over WebSocket into the store; this only seeds it.
+
+const loading   = ref(false)
+const loadError = ref('')
+
+async function refresh() {
+  loadError.value = ''
+  try { ollamaStore.setBackends(await listOllamaBackends()) }
+  catch (e: unknown) { loadError.value = errorMessage(e) }
+}
+
+async function load() {
+  loading.value = true
+  await refresh()
+  loading.value = false
+}
+
+// ── Create / edit ────────────────────────────────────────────────────────────
+
+const showForm          = ref(false)
+const editTarget        = ref<OllamaBackend | null>(null)
+const formName          = ref('')
+const formUrl           = ref('')
+const formMaxConcurrent = ref<number | null>(1)
+const saving            = ref(false)
+
+function openCreate() {
   editTarget.value        = null
   formName.value          = ''
   formUrl.value           = ''
   formMaxConcurrent.value = 1
-  showModal.value         = true
+  showForm.value          = true
 }
 
 function openEdit(b: OllamaBackend) {
@@ -38,14 +62,13 @@ function openEdit(b: OllamaBackend) {
   formName.value          = b.name
   formUrl.value           = b.url
   formMaxConcurrent.value = b.max_concurrent ?? 1
-  showModal.value         = true
+  showForm.value          = true
 }
 
-async function saveModal() {
-  if (!formUrl.value.trim()) {
-    message.warning('URL is required')
-    return
-  }
+defineExpose({ openCreate })
+
+async function onSave() {
+  if (!formUrl.value.trim()) { toast.error('Enter the backend URL'); return }
   const maxConcurrent = Math.max(1, formMaxConcurrent.value || 1)
   saving.value = true
   try {
@@ -55,66 +78,70 @@ async function saveModal() {
         url:            formUrl.value.trim(),
         max_concurrent: maxConcurrent,
       })
-      message.success('Backend updated')
+      toast.success('Backend updated')
     } else {
       await createOllamaBackend(formName.value.trim(), formUrl.value.trim(), maxConcurrent)
-      message.success('Backend added')
+      toast.success('Backend added')
     }
-    showModal.value = false
+    showForm.value = false
     await refresh()
-  } catch (e: any) {
-    message.error(e.message ?? 'Request failed')
+  } catch (e: unknown) {
+    toast.error(`Could not save backend: ${errorMessage(e)}`)
   } finally {
     saving.value = false
   }
 }
 
-// ── delete ──────────────────────────────────────────────────────────────────
-async function handleDelete(b: OllamaBackend) {
+// ── Enable / delete ──────────────────────────────────────────────────────────
+
+async function onToggleEnabled(b: OllamaBackend) {
   try {
-    await deleteOllamaBackend(b.id)
-    message.success(`Backend "${b.name}" deleted`)
+    if (b.enabled) await disableOllamaBackend(b.id)
+    else await enableOllamaBackend(b.id)
+    toast.success(b.enabled ? 'Backend disabled' : 'Backend enabled')
     await refresh()
-  } catch (e: any) {
-    message.error(e.message ?? 'Delete failed')
+  } catch (e: unknown) {
+    toast.error(`Could not ${b.enabled ? 'disable' : 'enable'} backend: ${errorMessage(e)}`)
   }
 }
 
-// ── enable / disable ────────────────────────────────────────────────────────
-async function toggleEnabled(b: OllamaBackend) {
+const deleteTarget = ref<OllamaBackend | null>(null)
+const showDelete   = ref(false)
+const deleting     = ref(false)
+
+function askDelete(b: OllamaBackend) {
+  deleteTarget.value = b
+  showDelete.value = true
+}
+
+async function onConfirmDelete() {
+  const target = deleteTarget.value
+  if (!target) return
+  deleting.value = true
   try {
-    if (b.enabled) {
-      await disableOllamaBackend(b.id)
-    } else {
-      await enableOllamaBackend(b.id)
-    }
+    await deleteOllamaBackend(target.id)
+    toast.success('Backend deleted')
+    showDelete.value = false
     await refresh()
-  } catch (e: any) {
-    message.error(e.message ?? 'Toggle failed')
+  } catch (e: unknown) {
+    toast.error(`Could not delete backend: ${errorMessage(e)}`)
+  } finally {
+    deleting.value = false
   }
 }
 
-// ── fetch / refresh ──────────────────────────────────────────────────────────
-async function refresh() {
-  try {
-    ollamaStore.setBackends(await listOllamaBackends())
-    lastUpdated.value = new Date()
-  } catch { /* server unreachable */ }
+// ── Derived ──────────────────────────────────────────────────────────────────
+
+const maxScore = computed(() => Math.max(1, ...ollamaStore.backends.map(b => b.score)))
+
+function backendStatus(b: OllamaBackend): { status: 'success' | 'info' | 'warning' | 'destructive' | 'idle'; label: string } {
+  const max = b.max_concurrent || 1
+  if (!b.enabled) return { status: 'idle', label: 'Disabled' }
+  if (!b.healthy) return { status: 'destructive', label: 'Unhealthy' }
+  if (b.active_count >= max) return { status: 'warning', label: 'At capacity' }
+  if (b.active_count > 0) return { status: 'info', label: 'Busy' }
+  return { status: 'success', label: 'Healthy' }
 }
-
-onMounted(() => {
-  loading.value = true
-  refresh().finally(() => { loading.value = false })
-})
-
-// ── derived ─────────────────────────────────────────────────────────────────
-const maxScore = computed(() => {
-  let max = 0
-  for (const b of ollamaStore.backends) {
-    if (b.score > max) max = b.score
-  }
-  return max || 1
-})
 
 function timeAgo(iso: string): string {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
@@ -124,228 +151,135 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
-function formatLastUpdated(d: Date): string {
-  return d.toLocaleTimeString()
-}
+// ── Table columns ────────────────────────────────────────────────────────────
+
+const columns: DataTableColumns<OllamaBackend> = [
+  {
+    title: 'Backend', key: 'name', sorter: 'default',
+    render: (b) => h('div', { class: 'min-w-0' }, [
+      h('div', { class: 'truncate font-medium' }, b.name),
+      h('div', { class: 'truncate font-mono text-small text-muted-foreground' }, b.url),
+    ]),
+  },
+  {
+    title: 'Status', key: 'healthy', width: 120,
+    render: (b) => {
+      const s = backendStatus(b)
+      return h(StatusIndicator, { status: s.status }, () => s.label)
+    },
+  },
+  {
+    title: 'Slots', key: 'active_count', width: 80,
+    render: (b) => h('span', { class: 'font-mono tabular' }, `${b.active_count}/${b.max_concurrent}`),
+  },
+  {
+    title: 'Speed', key: 'score', width: 180, sorter: (a, b) => a.score - b.score,
+    render: (b) => b.score > 0
+      ? h('div', { class: 'flex items-center gap-2' }, [
+          h('div', { class: 'h-1 flex-1 overflow-hidden rounded-sm bg-muted' }, [
+            h('progress', {
+              class: 'speed-bar block h-full w-full',
+              max: maxScore.value,
+              value: b.score,
+              'aria-label': `${b.score.toFixed(1)} tokens per second`,
+            }),
+          ]),
+          h('span', { class: 'w-20 text-right font-mono tabular text-small' }, `${b.score.toFixed(1)} tok/s`),
+        ])
+      : h('span', { class: 'text-small text-muted-foreground' }, 'Not measured'),
+  },
+  {
+    title: 'Requests', key: 'request_count', width: 100, sorter: (a, b) => a.request_count - b.request_count,
+    render: (b) => h('span', { class: 'font-mono tabular' }, String(b.request_count)),
+  },
+  {
+    title: 'Last active', key: 'last_active_at', width: 110,
+    render: (b) => b.last_active_at
+      ? h(Tooltip, { content: new Date(b.last_active_at).toLocaleString() },
+          () => h('span', { class: 'tabular text-muted-foreground' }, timeAgo(b.last_active_at!)))
+      : h('span', { class: 'text-muted-foreground' }, 'Never'),
+  },
+  {
+    title: '', key: 'actions', width: 120, align: 'right',
+    render: (b) => h('div', { class: 'flex items-center justify-end gap-1' }, [
+      h(IconButton, { icon: PencilIcon, label: 'Edit', onClick: () => openEdit(b) }),
+      h(IconButton, {
+        icon: b.enabled ? PauseIcon : PowerIcon,
+        label: b.enabled ? 'Disable' : 'Enable',
+        onClick: () => onToggleEnabled(b),
+      }),
+      h(IconButton, { icon: TrashIcon, label: 'Delete', onClick: () => askDelete(b) }),
+    ]),
+  },
+]
+
+onMounted(load)
 </script>
 
 <template>
-  <n-space vertical size="large">
-
-    <!-- Toolbar -->
-    <n-space align="center" justify="space-between" style="flex-wrap: wrap; gap: 8px;">
-      <n-space align="center" :size="12">
-        <n-text v-if="lastUpdated" depth="3" style="font-size: 12px;">
-          Updated {{ formatLastUpdated(lastUpdated) }}
-        </n-text>
-      </n-space>
-      <n-button size="small" type="primary" @click="openAdd">+ Add Backend</n-button>
-    </n-space>
-
-    <!-- Loading spinner on first load -->
-    <div v-if="loading" style="display: flex; justify-content: center; padding: 48px 0;">
-      <n-spin size="large" />
-    </div>
-
-    <!-- Empty state -->
-    <n-empty
-      v-else-if="ollamaStore.backends.length === 0"
-      description="No Ollama backends configured"
-      style="padding: 48px 0;"
-    />
-
-    <!-- Backend cards -->
-    <template v-else>
-      <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen" :item-responsive="true">
-        <n-gi
-          v-for="backend in ollamaStore.backends"
-          :key="backend.id"
-          span="3 s:3 m:1"
-        >
-          <n-card
-            size="small"
-            embedded
-            style="height: 100%;"
-            :style="{ opacity: backend.enabled ? 1 : 0.55 }"
-          >
-            <!-- Status dot + name/url row -->
-            <n-space align="center" :size="8" style="margin-bottom: 12px; flex-wrap: nowrap;">
-              <!-- Status indicator -->
-              <n-tooltip trigger="hover">
-                <template #trigger>
-                  <span
-                    :style="{
-                      display: 'inline-block',
-                      width: '10px',
-                      height: '10px',
-                      borderRadius: '50%',
-                      flexShrink: '0',
-                      background: !backend.enabled
-                        ? '#585b70'
-                        : !backend.healthy
-                          ? '#f38ba8'
-                          : backend.active_count >= (backend.max_concurrent || 1)
-                            ? '#f9e2af'
-                            : '#a6e3a1',
-                      boxShadow: !backend.enabled
-                        ? 'none'
-                        : !backend.healthy
-                          ? '0 0 0 2px rgba(243,139,168,0.2)'
-                          : backend.active_count >= (backend.max_concurrent || 1)
-                            ? '0 0 0 2px rgba(249,226,175,0.3)'
-                            : '0 0 0 2px rgba(166,227,161,0.2)',
-                    }"
-                  />
-                </template>
-                {{
-                  !backend.enabled
-                    ? 'Disabled'
-                    : !backend.healthy
-                      ? 'Unhealthy'
-                      : backend.active_count >= (backend.max_concurrent || 1)
-                        ? `At capacity (${backend.active_count}/${backend.max_concurrent})`
-                        : backend.active_count > 0
-                          ? `Active (${backend.active_count}/${backend.max_concurrent})`
-                          : 'Healthy (idle)'
-                }}
-              </n-tooltip>
-
-              <!-- Name + URL stack -->
-              <div style="overflow: hidden; min-width: 0; flex: 1;">
-                <n-text style="font-size: 13px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                  {{ backend.name }}
-                </n-text>
-                <n-tooltip trigger="hover" :delay="300">
-                  <template #trigger>
-                    <n-text
-                      code
-                      depth="3"
-                      style="
-                        font-size: 11px;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                        display: block;
-                        max-width: 100%;
-                      "
-                    >
-                      {{ backend.url }}
-                    </n-text>
-                  </template>
-                  {{ backend.url }}
-                </n-tooltip>
-              </div>
-            </n-space>
-
-            <!-- Score bar -->
-            <div style="margin-bottom: 10px;">
-              <div v-if="backend.score > 0">
-                <div style="
-                  display: flex; justify-content: space-between; align-items: center;
-                  margin-bottom: 4px;
-                ">
-                  <n-text depth="3" style="font-size: 11px;">Speed</n-text>
-                  <n-text style="font-size: 11px; color: #cdd6f4; font-variant-numeric: tabular-nums;">
-                    {{ backend.score.toFixed(1) }} tok/s
-                  </n-text>
-                </div>
-                <div style="height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); overflow: hidden;">
-                  <div
-                    :style="{
-                      height: '100%',
-                      width: (backend.score / maxScore * 100) + '%',
-                      background: '#89b4fa',
-                      borderRadius: '2px',
-                      transition: 'width 0.5s ease',
-                    }"
-                  />
-                </div>
-              </div>
-              <n-text v-else depth="3" style="font-size: 11px; font-style: italic;">
-                Not yet measured
-              </n-text>
-            </div>
-
-            <!-- Request count + active/max + last active -->
-            <n-space justify="space-between" align="center" style="flex-wrap: wrap; gap: 4px; margin-bottom: 10px;">
-              <n-text depth="3" style="font-size: 11px; font-variant-numeric: tabular-nums;">
-                {{ backend.request_count }} requests
-              </n-text>
-              <n-text depth="3" style="font-size: 11px; font-variant-numeric: tabular-nums;">
-                {{ backend.active_count }}/{{ backend.max_concurrent }} active
-              </n-text>
-              <n-text depth="3" style="font-size: 11px;">
-                {{ backend.last_active_at ? timeAgo(backend.last_active_at) : 'Never' }}
-              </n-text>
-            </n-space>
-
-            <!-- Action buttons -->
-            <n-space :size="6">
-              <n-button
-                size="tiny"
-                :type="backend.enabled ? 'default' : 'primary'"
-                @click="toggleEnabled(backend)"
-              >
-                {{ backend.enabled ? 'Disable' : 'Enable' }}
-              </n-button>
-              <n-button size="tiny" @click="openEdit(backend)">Edit</n-button>
-              <n-popconfirm @positive-click="handleDelete(backend)">
-                <template #trigger>
-                  <n-button size="tiny" type="error">Delete</n-button>
-                </template>
-                Delete backend "{{ backend.name }}"?
-              </n-popconfirm>
-            </n-space>
-          </n-card>
-        </n-gi>
-      </n-grid>
-    </template>
-
-  </n-space>
-
-  <!-- Add / Edit modal -->
-  <n-modal
-    v-model:show="showModal"
-    :title="editTarget ? 'Edit Backend' : 'Add Backend'"
-    preset="card"
-    style="width: 400px;"
-    :mask-closable="!saving"
+  <div
+    v-if="loadError"
+    class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive p-4 text-small"
   >
-    <n-form label-placement="left" label-width="90px">
-      <n-form-item label="Name">
-        <n-input
-          v-model:value="formName"
-          placeholder="Defaults to URL"
-          :disabled="saving"
-        />
-      </n-form-item>
-      <n-form-item label="URL" required>
-        <n-input
-          v-model:value="formUrl"
-          placeholder="http://localhost:11434"
-          :disabled="saving"
-        />
-      </n-form-item>
-      <n-form-item label="Max Slots">
-        <n-input-number
-          v-model:value="formMaxConcurrent"
-          :min="1"
-          :max="32"
-          :disabled="saving"
-          style="width: 100%"
-        />
-        <template #feedback>
-          Set to match <n-text code>OLLAMA_NUM_PARALLEL</n-text> on the server
-        </template>
-      </n-form-item>
-    </n-form>
-    <template #footer>
-      <n-space justify="end">
-        <n-button :disabled="saving" @click="showModal = false">Cancel</n-button>
-        <n-button type="primary" :loading="saving" @click="saveModal">
-          {{ editTarget ? 'Save' : 'Add' }}
-        </n-button>
-      </n-space>
+    <span class="text-destructive">Could not load backends: {{ loadError }}</span>
+    <Button variant="outline" @click="load">Retry</Button>
+  </div>
+
+  <DataTable
+    v-else
+    :columns="columns"
+    :data="ollamaStore.backends"
+    :loading="loading"
+    :row-key="(b: OllamaBackend) => b.id"
+  >
+    <template #empty>
+      <div class="flex flex-col items-center gap-3 py-8 text-center">
+        <p class="m-0 text-muted-foreground">No Ollama backends yet. Add one to run Ollama actions, digests and chat.</p>
+        <Button @click="openCreate">Add backend</Button>
+      </div>
     </template>
-  </n-modal>
+  </DataTable>
+
+  <Sheet
+    v-model:open="showForm"
+    :title="editTarget ? 'Edit backend' : 'Add backend'"
+    description="An Ollama server that runs Ollama actions."
+  >
+    <form class="flex flex-col gap-3 p-4" @submit.prevent="onSave">
+      <FormField label="URL" for="backend-url" required>
+        <Input id="backend-url" v-model="formUrl" placeholder="http://localhost:11434" class="font-mono" />
+      </FormField>
+      <FormField label="Name" for="backend-name" description="Defaults to the URL.">
+        <Input id="backend-name" v-model="formName" placeholder="e.g. GPU box" />
+      </FormField>
+      <FormField
+        label="Slots"
+        for="backend-slots"
+        description="Concurrent requests, 1 to 32. Match OLLAMA_NUM_PARALLEL on the server."
+      >
+        <NumberField id="backend-slots" v-model="formMaxConcurrent" :min="1" :max="32" />
+      </FormField>
+    </form>
+    <template #footer>
+      <Button variant="outline" size="default" :disabled="saving" @click="showForm = false">Cancel</Button>
+      <Button size="default" :loading="saving" @click="onSave">{{ editTarget ? 'Save backend' : 'Add backend' }}</Button>
+    </template>
+  </Sheet>
+
+  <AlertDialog
+    v-model:open="showDelete"
+    :title="`Delete ${deleteTarget?.name ?? 'backend'}?`"
+    description="The backend is removed. This can't be undone."
+    action-label="Delete backend"
+    :loading="deleting"
+    @confirm="onConfirmDelete"
+  />
 </template>
+
+<style scoped>
+/* Speed bar: a native <progress> so the fill width needs no inline style. */
+.speed-bar { appearance: none; border: 0; background: transparent; }
+.speed-bar::-webkit-progress-bar { background: transparent; }
+.speed-bar::-webkit-progress-value { background: var(--primary); }
+.speed-bar::-moz-progress-bar { background: var(--primary); }
+</style>

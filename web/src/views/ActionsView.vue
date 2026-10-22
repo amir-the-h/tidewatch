@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NTabs, NTabPane } from 'naive-ui'
+import { Tabs } from '@/components/ui'
 import PageHeader from '../components/PageHeader.vue'
 import ActionsTab from '../components/tabs/ActionsTab.vue'
 import OllamaTab from '../components/tabs/OllamaTab.vue'
@@ -9,25 +9,41 @@ import OllamaTab from '../components/tabs/OllamaTab.vue'
 const route  = useRoute()
 const router = useRouter()
 
-const activeTab = ref((route.query.tab as string) || 'actions')
-function switchTab(tab: string) {
-  activeTab.value = tab
-  router.replace({ query: { tab } })
-}
+const tabs = [
+  { value: 'actions', label: 'Actions' },
+  { value: 'ollama',  label: 'Ollama backends' },
+]
 
+const actionsTab = ref<InstanceType<typeof ActionsTab> | null>(null)
+const ollamaTab  = ref<InstanceType<typeof OllamaTab> | null>(null)
+
+const activeTab = ref((route.query.tab as string) || 'actions')
+watch(activeTab, (tab) => {
+  if (route.query.tab !== tab) router.replace({ query: { tab } })
+})
 watch(() => route.query.tab, (tab) => {
   if (tab && tab !== activeTab.value) activeTab.value = tab as string
 })
+
+const addLabel = computed(() => activeTab.value === 'ollama' ? 'Add backend' : 'New action')
+
+function onAdd() {
+  if (activeTab.value === 'ollama') ollamaTab.value?.openCreate()
+  else actionsTab.value?.openCreate()
+}
 </script>
 
 <template>
-  <PageHeader title="Actions" />
-  <n-tabs :value="activeTab" type="line" animated style="margin-top: -8px;" @update:value="switchTab">
-    <n-tab-pane name="actions" tab="Actions">
-      <ActionsTab />
-    </n-tab-pane>
-    <n-tab-pane name="ollama" tab="Ollama Backends">
-      <OllamaTab />
-    </n-tab-pane>
-  </n-tabs>
+  <div class="flex flex-col gap-2">
+    <PageHeader
+      title="Actions"
+      description="The units of work pipelines run on each tweet: models, LLM prompts, handlers and notifications."
+      :add-label="addLabel"
+      @add="onAdd"
+    />
+    <Tabs v-model="activeTab" :items="tabs">
+      <template #actions><ActionsTab ref="actionsTab" /></template>
+      <template #ollama><OllamaTab ref="ollamaTab" /></template>
+    </Tabs>
+  </div>
 </template>
