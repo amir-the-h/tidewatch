@@ -94,7 +94,6 @@ declare module 'vue' {
     RuleExprBuilder: typeof import('./src/components/RuleExprBuilder.vue')['default']
     RulesTab: typeof import('./src/components/tabs/RulesTab.vue')['default']
     RunFromNodeDialog: typeof import('./src/components/pipeline/RunFromNodeDialog.vue')['default']
-    SearchTab: typeof import('./src/components/signals/SearchTab.vue')['default']
     Select: typeof import('./src/components/ui/Select.vue')['default']
     Sheet: typeof import('./src/components/ui/Sheet.vue')['default']
     SignalDetailSheet: typeof import('./src/components/signals/SignalDetailSheet.vue')['default']
