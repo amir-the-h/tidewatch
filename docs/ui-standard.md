@@ -43,7 +43,7 @@ Mapping of Naive pieces to their wrapper and future replacement:
 | `Switch`, `Checkbox`, `RadioGroup` | `n-switch`, `n-checkbox`, `n-radio` | same names |
 | `FormField` | `n-form-item` | FormField (vee-validate) |
 | `DataTable` | `n-data-table` | Table + TanStack Table |
-| `Sheet` | `n-drawer` (FormDrawer) | Sheet |
+| `Sheet` | `n-drawer` | Sheet |
 | `Dialog`, `AlertDialog` | `n-modal`, `n-popconfirm` | Dialog, AlertDialog |
 | `Tabs`, `Tooltip`, `Alert`, `Skeleton` | `n-tabs`, `n-tooltip`, `n-alert`, `n-spin` | same names |
 | `Card` | plain `section` on `card` | Card |
