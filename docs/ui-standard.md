@@ -45,7 +45,9 @@ Mapping of Naive pieces to their wrapper and future replacement:
 | `DataTable` | `n-data-table` | Table + TanStack Table |
 | `Sheet` | `n-drawer` (FormDrawer) | Sheet |
 | `Dialog`, `AlertDialog` | `n-modal`, `n-popconfirm` | Dialog, AlertDialog |
-| `Tabs`, `Tooltip`, `Card`, `Alert`, `Skeleton` | `n-tabs`, `n-tooltip`, `n-card`, `n-alert`, `n-spin` | same names |
+| `Tabs`, `Tooltip`, `Alert`, `Skeleton` | `n-tabs`, `n-tooltip`, `n-alert`, `n-spin` | same names |
+| `Card` | plain `section` on `card` | Card |
+| `TagsInput` | `n-dynamic-tags` | TagsInput |
 | `DatePicker` | `n-date-picker` | Calendar + Popover |
 
 ## Colour
@@ -126,7 +128,7 @@ The **AppShell** replaces today's hamburger drawer:
 - **Tokens** live in `web/src/styles/main.css` as CSS variables on `:root`, mapped into Tailwind with `@theme inline` (`bg-card`, `text-muted-foreground`, `border-border`, `h-statusbar`, `w-sidebar`…). Type sizes are Tailwind text utilities: `text-label`, `text-small`, `text-body`, `text-title`, `text-page-title`, `text-display`.
 - **Naive UI** gets its theme from `web/src/theme/naive.ts`, which reads those variables at startup (`buildNaiveOverrides()`), so colours are never duplicated in TypeScript.
 - **Tailwind classes on Naive components only set layout** (margin, width, flex). Naive's styles are unlayered and beat Tailwind's layered utilities, so visual properties (colour, padding, radius) come from the theme overrides, not classes.
-- **UI kit:** `web/src/components/ui/` (`AlertDialog`, `Badge`, `Button`, `Checkbox`, `Combobox` (searchable multi-select), `DataTable` (+ `DataTableColumns` type; `page-size` for client-side paging), `DatePicker`, `Dialog`, `FormField`, `IconButton`, `Input`, `RadioGroup`, `Select`, `Sheet`, `Skeleton`, `StatusIndicator`, `Switch`, `Tabs`, `Textarea`, `Tooltip`). Toasts go through `useToast()` in `web/src/composables/useToast.ts`. **Shell:** `web/src/components/layout/` (`AppShell`, `AppSidebar`, `StatusBar`, `nav.ts`). Routes with `meta.fullBleed` render without the page gutter.
+- **UI kit:** `web/src/components/ui/` (`AlertDialog`, `Badge`, `Button`, `Card` (title, description, `action` slot), `Checkbox`, `Combobox` (searchable multi-select), `DataTable` (+ `DataTableColumns` type; `page-size` for client-side paging), `DatePicker`, `Dialog`, `FormField`, `IconButton`, `Input`, `NumberField` (empty is `null`), `RadioGroup`, `Select`, `Sheet`, `Skeleton`, `StatusIndicator`, `Switch`, `Tabs`, `TagsInput` (free-text `string[]`), `Textarea`, `Tooltip`). Mono fields (prompts, JSON, templates, keys) add `class="font-mono"` to `Input`/`Textarea`. Toasts go through `useToast()` in `web/src/composables/useToast.ts`. **Shell:** `web/src/components/layout/` (`AppShell`, `AppSidebar`, `StatusBar`, `nav.ts`). Routes with `meta.fullBleed` render without the page gutter.
 - **Fonts** are self-hosted via `@fontsource/ibm-plex-sans` and `@fontsource/ibm-plex-mono` (no Google Fonts requests from deployments).
 - **Check:** `npm run check:ui` (`web/scripts/check-ui.sh`) runs in CI. Add a path to its `CONVERTED` list when a page is migrated.
 
