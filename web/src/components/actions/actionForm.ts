@@ -244,6 +244,15 @@ export function buildActionConfig(
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'Config must be a JSON object' }
     config = parsed as Record<string, unknown>
+    // Keys the typed fields own are dropped from the JSON first, so clearing a field removes its key.
+    delete config.transformers
+    delete config.map_config
+    if (f.type === 'onnx') {
+      delete config.labels
+      delete config.strip_bio_prefix
+    }
+    if (f.type === 'internal' && f.handler === 'discord_tag_thread') delete config.tag_names_key
+    if (f.type === 'internal' && f.handler === 'entity_discovery') delete config.strip_label_prefixes
     if (f.type === 'onnx') {
       if (!f.path?.trim()) return { error: 'Choose a model file' }
       config.path = f.path.trim()
