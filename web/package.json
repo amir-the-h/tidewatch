@@ -18,7 +18,7 @@
     "@vue-flow/core": "^1.48.2",
     "dompurify": "^3.2.6",
     "leaflet": "^1.9.4",
-    "marked": "^16.0.0",
+    "marked": "^18.1.1",
     "naive-ui": "^2.45.3",
     "pinia": "^4.1.0",
     "vfonts": "^0.0.3",
